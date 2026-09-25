@@ -1,0 +1,16 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/.idea/
+**/*.user
+**/*.pem
+**/*.key
+**/keys/
+**/appsettings.*.local.json
+**/appsettings.local.json
+**/.env
+**/.env.*
+.git/
+scripts/
+*.md
