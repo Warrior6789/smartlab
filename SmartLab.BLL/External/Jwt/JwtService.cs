@@ -1,6 +1,6 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using SmartLab.BLL.Constants;
 using SmartLab.DAL.Entities;
@@ -9,28 +9,20 @@ namespace SmartLab.BLL.External.Jwt;
 
 public interface IJwtService
 {
-    (string Token, DateTime ExpiresAt) GenerateAccessToken(
-        User user, IEnumerable<string> roles, IEnumerable<string> permissions);
+    string GenerateAccessToken(User user, IEnumerable<string> roles, IEnumerable<string> permissions);
 }
 
 public class JwtService : IJwtService
 {
     private readonly JwtOptions _options;
-    private readonly SigningCredentials _credentials;
-    private readonly JsonWebTokenHandler _handler = new();
 
     public JwtService(IOptions<JwtOptions> options)
     {
         _options = options.Value;
-        _credentials = new SigningCredentials(_options.CreateSigningKey(), SecurityAlgorithms.HmacSha256);
     }
 
-    public (string Token, DateTime ExpiresAt) GenerateAccessToken(
-        User user, IEnumerable<string> roles, IEnumerable<string> permissions)
+    public string GenerateAccessToken(User user, IEnumerable<string> roles, IEnumerable<string> permissions)
     {
-        var now = DateTime.UtcNow;
-        var expiresAt = now.AddMinutes(_options.AccessTokenMinutes);
-
         var claims = new List<Claim>
         {
             new(AppClaimTypes.Subject, user.UserId.ToString()),
@@ -38,20 +30,20 @@ public class JwtService : IJwtService
             new(AppClaimTypes.Email, user.Email),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
         };
-        claims.AddRange(roles.Select(r => new Claim(AppClaimTypes.Role, r)));
-        claims.AddRange(permissions.Select(p => new Claim(AppClaimTypes.Permission, p)));
+        foreach (var role in roles)
+            claims.Add(new Claim(AppClaimTypes.Role, role));
+        foreach (var permission in permissions)
+            claims.Add(new Claim(AppClaimTypes.Permission, permission));
 
-        var token = _handler.CreateToken(new SecurityTokenDescriptor
-        {
-            Issuer = _options.Issuer,
-            Audience = _options.Audience,
-            IssuedAt = now,
-            NotBefore = now,
-            Expires = expiresAt,
-            Subject = new ClaimsIdentity(claims),
-            SigningCredentials = _credentials,
-        });
+        var credentials = new SigningCredentials(_options.CreateSigningKey(), SecurityAlgorithms.HmacSha256);
 
-        return (token, expiresAt);
+        var token = new JwtSecurityToken(
+            issuer: _options.Issuer,
+            audience: _options.Audience,
+            claims: claims,
+            expires: DateTime.UtcNow.AddMinutes(_options.AccessTokenMinutes),
+            signingCredentials: credentials);
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 }

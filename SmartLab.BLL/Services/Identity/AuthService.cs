@@ -72,12 +72,10 @@ public class AuthService : IAuthService
         };
         user.UserRoles.Add(new UserRole { RoleId = studentRole.RoleId, AssignedAt = now });
 
-        await using var transaction = await _uow.BeginTransactionAsync(ct);
         try
         {
             await users.AddAsync(user, ct);
             await _uow.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
         }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
         {
@@ -109,9 +107,9 @@ public class AuthService : IAuthService
         await _uow.SaveChangesAsync(ct);
 
         var dto = user.ToCurrentUserDto();
-        var (token, expiresAt) = _jwtService.GenerateAccessToken(user, dto.Roles, dto.Permissions);
+        var token = _jwtService.GenerateAccessToken(user, dto.Roles, dto.Permissions);
 
-        return new AuthResponse { AccessToken = token, ExpiresAt = expiresAt, User = dto };
+        return new AuthResponse { AccessToken = token, User = dto };
     }
 
     public async Task<CurrentUserDto> GetCurrentUserAsync(CancellationToken ct = default)
