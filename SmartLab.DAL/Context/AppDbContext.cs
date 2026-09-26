@@ -404,11 +404,6 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Description)
                 .HasMaxLength(255)
                 .HasColumnName("description");
-            entity.Property(e => e.ParentId).HasColumnName("parent_id");
-
-            entity.HasOne(d => d.Parent).WithMany(p => p.InverseParent)
-                .HasForeignKey(d => d.ParentId)
-                .HasConstraintName("component_categories_parent_id_fkey");
         });
 
         modelBuilder.Entity<ComponentImage>(entity =>
