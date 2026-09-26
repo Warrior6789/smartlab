@@ -82,7 +82,8 @@ public class AuthService : IAuthService
             throw new ConflictException("Username, email hoặc mã sinh viên đã được sử dụng");
         }
 
-        return (await LoadUserWithAccessAsync(user.UserId, ct))!.ToCurrentUserDto();
+        var created = await LoadUserWithAccessAsync(user.UserId, ct);
+        return UserMappings.ToCurrentUserDto(created!);
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
@@ -106,7 +107,7 @@ public class AuthService : IAuthService
         user.UpdatedAt = now;
         await _uow.SaveChangesAsync(ct);
 
-        var dto = user.ToCurrentUserDto();
+        var dto = UserMappings.ToCurrentUserDto(user);
         var token = _jwtService.GenerateAccessToken(user, dto.Roles, dto.Permissions);
 
         return new AuthResponse { AccessToken = token, User = dto };
@@ -120,7 +121,25 @@ public class AuthService : IAuthService
         if (!user.IsActive)
             throw new ForbiddenException("Tài khoản đã bị khóa");
 
-        return user.ToCurrentUserDto();
+        return UserMappings.ToCurrentUserDto(user);
+    }
+
+    public async Task<CurrentUserDto> UpdateProfileAsync(UpdateProfileRequest request, CancellationToken ct = default)
+    {
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+
+        var user = await QueryUserWithAccess(tracking: true).FirstOrDefaultAsync(u => u.UserId == userId, ct)
+                   ?? throw new UnauthorizedException("Tài khoản không còn tồn tại");
+        if (!user.IsActive)
+            throw new ForbiddenException("Tài khoản đã bị khóa");
+
+        user.FullName = request.FullName.Trim();
+        user.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
+        user.AvatarUrl = string.IsNullOrWhiteSpace(request.AvatarUrl) ? null : request.AvatarUrl.Trim();
+        user.UpdatedAt = DateTime.UtcNow;
+        await _uow.SaveChangesAsync(ct);
+
+        return UserMappings.ToCurrentUserDto(user);
     }
 
     private IQueryable<User> QueryUserWithAccess(bool tracking)

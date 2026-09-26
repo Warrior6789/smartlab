@@ -19,6 +19,13 @@ public class LoginRequest
     public string Password { get; set; } = string.Empty;
 }
 
+public class UpdateProfileRequest
+{
+    public string FullName { get; set; } = string.Empty;
+    public string? PhoneNumber { get; set; }
+    public string? AvatarUrl { get; set; }
+}
+
 public class AuthResponse
 {
     public string AccessToken { get; set; } = string.Empty;

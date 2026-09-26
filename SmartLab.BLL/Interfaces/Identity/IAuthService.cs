@@ -12,4 +12,7 @@ public interface IAuthService
 
     /// <summary>Profile, roles and permissions of the currently authenticated user.</summary>
     Task<CurrentUserDto> GetCurrentUserAsync(CancellationToken ct = default);
+
+    /// <summary>Updates full name, phone number and avatar of the currently authenticated user.</summary>
+    Task<CurrentUserDto> UpdateProfileAsync(UpdateProfileRequest request, CancellationToken ct = default);
 }
