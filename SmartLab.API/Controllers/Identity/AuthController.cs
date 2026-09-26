@@ -51,4 +51,16 @@ public class AuthController : ControllerBase
         var user = await _authService.GetCurrentUserAsync(ct);
         return Ok(ApiResponse<CurrentUserDto>.Ok(user));
     }
+
+    /// <summary>Cập nhật thông tin cá nhân của người dùng hiện tại.</summary>
+    [HttpPut("me")]
+    [ProducesResponseType(typeof(ApiResponse<CurrentUserDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest request, CancellationToken ct)
+    {
+        var user = await _authService.UpdateProfileAsync(request, ct);
+        return Ok(ApiResponse<CurrentUserDto>.Ok(user, "Cập nhật thông tin thành công"));
+    }
 }

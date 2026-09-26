@@ -1,11 +1,15 @@
 using FluentValidation;
+using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Identity;
 
 namespace SmartLab.BLL.Validators.Identity;
 
-public class RegisterRequestValidator : AbstractValidator<RegisterRequest>
+public class CreateUserRequestValidator : AbstractValidator<CreateUserRequest>
 {
-    public RegisterRequestValidator()
+    private static readonly string[] AllowedRoles =
+        { RoleNames.LabStaff, RoleNames.InventoryManager, RoleNames.Lecturer };
+
+    public CreateUserRequestValidator()
     {
         RuleLevelCascadeMode = CascadeMode.Stop;
 
@@ -36,23 +40,22 @@ public class RegisterRequestValidator : AbstractValidator<RegisterRequest>
             .Matches(@"^\+?[0-9]{8,14}$").WithMessage("Số điện thoại không hợp lệ")
             .When(x => !string.IsNullOrWhiteSpace(x.PhoneNumber));
 
-        RuleFor(x => x.StudentCode)
-            .NotEmpty().WithMessage("Mã sinh viên là bắt buộc")
-            .MaximumLength(20).WithMessage("Mã sinh viên tối đa 20 ký tự");
+        RuleFor(x => x.Role)
+            .NotEmpty().WithMessage("Role là bắt buộc")
+            .Must(r => AllowedRoles.Contains(r))
+            .WithMessage($"Role phải là một trong: {string.Join(", ", AllowedRoles)}");
 
-        RuleFor(x => x.Major)
-            .MaximumLength(100).WithMessage("Chuyên ngành tối đa 100 ký tự");
+        When(x => x.Role == RoleNames.Lecturer, () =>
+        {
+            RuleFor(x => x.InstructorCode)
+                .NotEmpty().WithMessage("Mã giảng viên là bắt buộc với role Lecturer")
+                .MaximumLength(20).WithMessage("Mã giảng viên tối đa 20 ký tự");
 
-        RuleFor(x => x.Cohort)
-            .MaximumLength(10).WithMessage("Khóa tối đa 10 ký tự");
-    }
-}
+            RuleFor(x => x.Department)
+                .MaximumLength(100).WithMessage("Khoa tối đa 100 ký tự");
 
-public class LoginRequestValidator : AbstractValidator<LoginRequest>
-{
-    public LoginRequestValidator()
-    {
-        RuleFor(x => x.Identifier).NotEmpty().WithMessage("Email hoặc username là bắt buộc");
-        RuleFor(x => x.Password).NotEmpty().WithMessage("Mật khẩu là bắt buộc");
+            RuleFor(x => x.AcademicTitle)
+                .MaximumLength(50).WithMessage("Học hàm/học vị tối đa 50 ký tự");
+        });
     }
 }
