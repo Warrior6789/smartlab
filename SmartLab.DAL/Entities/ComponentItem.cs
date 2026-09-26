@@ -13,7 +13,7 @@ public partial class ComponentItem
 
     public Guid? PurchaseOrderItemId { get; set; }
 
-    public string Barcode { get; set; } = null!;
+    public string? Barcode { get; set; }
 
     public string? SerialNumber { get; set; }
 
