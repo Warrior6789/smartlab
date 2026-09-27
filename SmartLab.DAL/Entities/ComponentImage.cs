@@ -21,6 +21,8 @@ public partial class ComponentImage
 
     public DateTime CreatedAt { get; set; }
 
+    public string? StorageKey { get; set; }
+
     public virtual Component Component { get; set; } = null!;
 
     public virtual User UploadedByNavigation { get; set; } = null!;
