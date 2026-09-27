@@ -433,6 +433,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.IsPrimary)
                 .HasDefaultValue(false)
                 .HasColumnName("is_primary");
+            entity.Property(e => e.StorageKey)
+                .HasMaxLength(255)
+                .HasColumnName("storage_key");
             entity.Property(e => e.UploadedBy).HasColumnName("uploaded_by");
 
             entity.HasOne(d => d.Component).WithMany(p => p.ComponentImages)
