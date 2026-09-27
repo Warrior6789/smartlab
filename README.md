@@ -19,6 +19,11 @@ dotnet user-secrets set "Jwt:SecretKey" "<chuỗi ngẫu nhiên, tối thiểu 3
 dotnet user-secrets set "SeedAdmin:Email" "admin@smartlab.local" -p SmartLab.API
 dotnet user-secrets set "SeedAdmin:Password" "<mật khẩu mạnh>" -p SmartLab.API
 # Tùy chọn: SeedAdmin:Username (mặc định "admin"), SeedAdmin:FullName
+
+# Chỉ cần khi làm chức năng upload ảnh (lấy ở Cloudinary Dashboard)
+dotnet user-secrets set "Cloudinary:CloudName" "<cloud name>" -p SmartLab.API
+dotnet user-secrets set "Cloudinary:ApiKey" "<api key>" -p SmartLab.API
+dotnet user-secrets set "Cloudinary:ApiSecret" "<api secret>" -p SmartLab.API
 ```
 
 > Tạo `Jwt:SecretKey` ngẫu nhiên (PowerShell): `$b = New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)` (macOS/Linux: `openssl rand -base64 48`)

@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.External.Jwt;
 using SmartLab.BLL.External.Security;
+using SmartLab.BLL.External.Storage;
 using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.BLL.Seeding;
 using SmartLab.BLL.Services.Identity;
@@ -26,6 +27,10 @@ public static class DependencyInjection
 
         services.AddSingleton<IJwtService, JwtService>();
         services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();
+
+        services.Configure<CloudinaryOptions>(configuration.GetSection(CloudinaryOptions.SectionName));
+        services.AddSingleton<IFileStorage, CloudinaryFileStorage>();
+
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
 
