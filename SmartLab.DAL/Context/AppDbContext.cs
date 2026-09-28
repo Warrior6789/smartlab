@@ -64,6 +64,10 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<StudentProfile> StudentProfiles { get; set; }
 
+    public virtual DbSet<Team> Teams { get; set; }
+
+    public virtual DbSet<TeamMember> TeamMembers { get; set; }
+
     public virtual DbSet<User> Users { get; set; }
 
     public virtual DbSet<UserRole> UserRoles { get; set; }
@@ -762,6 +766,7 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Draft'::character varying")
                 .HasColumnName("status");
+            entity.Property(e => e.TeamId).HasColumnName("team_id");
             entity.Property(e => e.Title)
                 .HasMaxLength(200)
                 .HasColumnName("title");
@@ -778,6 +783,11 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.OwnerId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("projects_owner_id_fkey");
+
+            entity.HasOne(d => d.Team).WithMany(p => p.Projects)
+                .HasForeignKey(d => d.TeamId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("projects_team_id_fkey");
         });
 
         modelBuilder.Entity<ProjectComponent>(entity =>
@@ -997,6 +1007,67 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.User).WithOne(p => p.StudentProfile)
                 .HasForeignKey<StudentProfile>(d => d.UserId)
                 .HasConstraintName("student_profiles_user_id_fkey");
+        });
+
+        modelBuilder.Entity<Team>(entity =>
+        {
+            entity.HasKey(e => e.TeamId).HasName("teams_pkey");
+
+            entity.ToTable("teams");
+
+            entity.HasIndex(e => new { e.ClassId, e.TeamName }, "teams_class_id_team_name_key").IsUnique();
+
+            entity.Property(e => e.TeamId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("team_id");
+            entity.Property(e => e.ClassId).HasColumnName("class_id");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("created_at");
+            entity.Property(e => e.LeaderId).HasColumnName("leader_id");
+            entity.Property(e => e.TeamName)
+                .HasMaxLength(100)
+                .HasColumnName("team_name");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Class).WithMany(p => p.Teams)
+                .HasForeignKey(d => d.ClassId)
+                .HasConstraintName("teams_class_id_fkey");
+
+            entity.HasOne(d => d.Leader).WithMany(p => p.Teams)
+                .HasForeignKey(d => d.LeaderId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("teams_leader_id_fkey");
+        });
+
+        modelBuilder.Entity<TeamMember>(entity =>
+        {
+            entity.HasKey(e => new { e.TeamId, e.StudentId }).HasName("team_members_pkey");
+
+            entity.ToTable("team_members");
+
+            entity.HasIndex(e => e.StudentId, "ix_team_members_student_id");
+
+            entity.Property(e => e.TeamId).HasColumnName("team_id");
+            entity.Property(e => e.StudentId).HasColumnName("student_id");
+            entity.Property(e => e.InvitedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("invited_at");
+            entity.Property(e => e.RespondedAt).HasColumnName("responded_at");
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'Pending'::character varying")
+                .HasColumnName("status");
+
+            entity.HasOne(d => d.Student).WithMany(p => p.TeamMembers)
+                .HasForeignKey(d => d.StudentId)
+                .HasConstraintName("team_members_student_id_fkey");
+
+            entity.HasOne(d => d.Team).WithMany(p => p.TeamMembers)
+                .HasForeignKey(d => d.TeamId)
+                .HasConstraintName("team_members_team_id_fkey");
         });
 
         modelBuilder.Entity<User>(entity =>

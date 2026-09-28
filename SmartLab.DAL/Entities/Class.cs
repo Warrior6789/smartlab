@@ -30,4 +30,6 @@ public partial class Class
     public virtual ICollection<Project> Projects { get; set; } = new List<Project>();
 
     public virtual Semester Semester { get; set; } = null!;
+
+    public virtual ICollection<Team> Teams { get; set; } = new List<Team>();
 }

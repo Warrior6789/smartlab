@@ -27,6 +27,8 @@ public partial class Project
 
     public DateTime UpdatedAt { get; set; }
 
+    public Guid? TeamId { get; set; }
+
     public virtual ICollection<BorrowRequest> BorrowRequests { get; set; } = new List<BorrowRequest>();
 
     public virtual Class? Class { get; set; }
@@ -34,4 +36,6 @@ public partial class Project
     public virtual User Owner { get; set; } = null!;
 
     public virtual ICollection<ProjectComponent> ProjectComponents { get; set; } = new List<ProjectComponent>();
+
+    public virtual Team? Team { get; set; }
 }
