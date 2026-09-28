@@ -13,7 +13,7 @@ public partial class Class
 
     public Guid SemesterId { get; set; }
 
-    public Guid InstructorId { get; set; }
+    public Guid? InstructorId { get; set; }
 
     public int MaxStudents { get; set; }
 
@@ -25,7 +25,7 @@ public partial class Class
 
     public virtual Course Course { get; set; } = null!;
 
-    public virtual InstructorProfile Instructor { get; set; } = null!;
+    public virtual InstructorProfile? Instructor { get; set; }
 
     public virtual ICollection<Project> Projects { get; set; } = new List<Project>();
 

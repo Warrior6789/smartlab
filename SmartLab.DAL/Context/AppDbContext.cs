@@ -293,7 +293,6 @@ public partial class AppDbContext : DbContext
 
             entity.HasOne(d => d.Instructor).WithMany(p => p.Classes)
                 .HasForeignKey(d => d.InstructorId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("classes_instructor_id_fkey");
 
             entity.HasOne(d => d.Semester).WithMany(p => p.Classes)
