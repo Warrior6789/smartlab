@@ -7,11 +7,9 @@ using SmartLab.BLL.External.Jwt;
 using SmartLab.BLL.External.Security;
 using SmartLab.BLL.External.Storage;
 using SmartLab.BLL.Interfaces.Identity;
-using SmartLab.BLL.Interfaces.ProjectProposals;
 using SmartLab.BLL.Interfaces.Teamwork;
 using SmartLab.BLL.Seeding;
 using SmartLab.BLL.Services.Identity;
-using SmartLab.BLL.Services.ProjectProposals;
 using SmartLab.BLL.Services.Teamwork;
 
 namespace SmartLab.BLL;
@@ -44,10 +42,6 @@ public static class DependencyInjection
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<ITeamService, TeamService>();
-        services.AddScoped<IProjectProposalService, ProjectProposalService>();
-        services.AddScoped<IProjectProposalReviewService, ProjectProposalReviewService>();
-        services.AddScoped<IProjectComponentCatalogService, ProjectComponentCatalogService>();
-        services.AddScoped<IComponentReservationService, ComponentReservationService>();
 
         services.AddHostedService<AdminSeeder>();
 
