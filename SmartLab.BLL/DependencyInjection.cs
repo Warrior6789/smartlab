@@ -1,13 +1,18 @@
 using System.Text;
+
 using FluentValidation;
+
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+
 using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.External.Jwt;
 using SmartLab.BLL.External.Security;
 using SmartLab.BLL.External.Storage;
+using SmartLab.BLL.Interfaces.Academic;
 using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.BLL.Seeding;
+using SmartLab.BLL.Services.Academic;
 using SmartLab.BLL.Services.Identity;
 
 namespace SmartLab.BLL;
@@ -39,6 +44,11 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRoleService, RoleService>();
+
+        // Academic – MF2
+        services.AddScoped<ISemesterService, SemesterService>();
+        services.AddScoped<ICourseService, CourseService>();
+        services.AddScoped<IClassService, ClassService>();
 
         services.AddHostedService<AdminSeeder>();
 
