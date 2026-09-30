@@ -74,6 +74,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<UserRole> UserRoles { get; set; }
 
+    public virtual DbSet<VerificationCode> VerificationCodes { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasPostgresExtension("citext");
@@ -1127,6 +1129,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Email)
                 .HasColumnType("citext")
                 .HasColumnName("email");
+            entity.Property(e => e.EmailVerified)
+                .HasDefaultValue(false)
+                .HasColumnName("email_verified");
             entity.Property(e => e.FullName)
                 .HasMaxLength(100)
                 .HasColumnName("full_name");
@@ -1169,6 +1174,38 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.User).WithMany(p => p.UserRoles)
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("user_roles_user_id_fkey");
+        });
+
+        modelBuilder.Entity<VerificationCode>(entity =>
+        {
+            entity.HasKey(e => e.VerificationCodeId).HasName("verification_codes_pkey");
+
+            entity.ToTable("verification_codes");
+
+            entity.HasIndex(e => new { e.UserId, e.Purpose, e.CreatedAt }, "ix_verification_codes_user_purpose").IsDescending(false, false, true);
+
+            entity.Property(e => e.VerificationCodeId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("verification_code_id");
+            entity.Property(e => e.AttemptCount)
+                .HasDefaultValue(0)
+                .HasColumnName("attempt_count");
+            entity.Property(e => e.CodeHash)
+                .HasMaxLength(255)
+                .HasColumnName("code_hash");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("created_at");
+            entity.Property(e => e.ExpiresAt).HasColumnName("expires_at");
+            entity.Property(e => e.Purpose)
+                .HasMaxLength(30)
+                .HasColumnName("purpose");
+            entity.Property(e => e.UsedAt).HasColumnName("used_at");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+
+            entity.HasOne(d => d.User).WithMany(p => p.VerificationCodes)
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("verification_codes_user_id_fkey");
         });
 
         OnModelCreatingPartial(modelBuilder);

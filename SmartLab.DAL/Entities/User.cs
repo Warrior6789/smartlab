@@ -27,6 +27,8 @@ public partial class User
 
     public DateTime UpdatedAt { get; set; }
 
+    public bool EmailVerified { get; set; }
+
     public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
 
     public virtual ICollection<BorrowExtension> BorrowExtensions { get; set; } = new List<BorrowExtension>();
@@ -56,4 +58,6 @@ public partial class User
     public virtual StudentProfile? StudentProfile { get; set; }
 
     public virtual ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
+
+    public virtual ICollection<VerificationCode> VerificationCodes { get; set; } = new List<VerificationCode>();
 }
