@@ -25,6 +25,8 @@ public partial class Component
 
     public DateTime UpdatedAt { get; set; }
 
+    public decimal UnitPrice { get; set; }
+
     public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
 
     public virtual ComponentCategory Category { get; set; } = null!;

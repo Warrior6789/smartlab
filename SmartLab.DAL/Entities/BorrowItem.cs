@@ -21,6 +21,8 @@ public partial class BorrowItem
 
     public string? ReturnCondition { get; set; }
 
+    public decimal UnitPrice { get; set; }
+
     public virtual BorrowRequest BorrowRequest { get; set; } = null!;
 
     public virtual Component Component { get; set; } = null!;

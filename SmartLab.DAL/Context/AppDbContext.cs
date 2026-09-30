@@ -64,6 +64,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<StudentProfile> StudentProfiles { get; set; }
 
+    public virtual DbSet<SystemSetting> SystemSettings { get; set; }
+
     public virtual DbSet<Team> Teams { get; set; }
 
     public virtual DbSet<TeamMember> TeamMembers { get; set; }
@@ -183,6 +185,9 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Pending'::character varying")
                 .HasColumnName("status");
+            entity.Property(e => e.UnitPrice)
+                .HasPrecision(12, 2)
+                .HasColumnName("unit_price");
 
             entity.HasOne(d => d.BorrowRequest).WithMany(p => p.BorrowItems)
                 .HasForeignKey(d => d.BorrowRequestId)
@@ -217,6 +222,13 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.ApproverId).HasColumnName("approver_id");
             entity.Property(e => e.BorrowDate).HasColumnName("borrow_date");
             entity.Property(e => e.ClassId).HasColumnName("class_id");
+            entity.Property(e => e.DepositRate)
+                .HasPrecision(5, 2)
+                .HasColumnName("deposit_rate");
+            entity.Property(e => e.DepositStatus)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'Unpaid'::character varying")
+                .HasColumnName("deposit_status");
             entity.Property(e => e.DueDate).HasColumnName("due_date");
             entity.Property(e => e.ProjectId).HasColumnName("project_id");
             entity.Property(e => e.Purpose)
@@ -237,6 +249,9 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Pending'::character varying")
                 .HasColumnName("status");
+            entity.Property(e => e.TotalDeposit)
+                .HasPrecision(12, 2)
+                .HasColumnName("total_deposit");
 
             entity.HasOne(d => d.Approver).WithMany(p => p.BorrowRequestApprovers)
                 .HasForeignKey(d => d.ApproverId)
@@ -382,6 +397,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Manufacturer)
                 .HasMaxLength(100)
                 .HasColumnName("manufacturer");
+            entity.Property(e => e.UnitPrice)
+                .HasPrecision(12, 2)
+                .HasColumnName("unit_price");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("updated_at");
@@ -1006,6 +1024,24 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.User).WithOne(p => p.StudentProfile)
                 .HasForeignKey<StudentProfile>(d => d.UserId)
                 .HasConstraintName("student_profiles_user_id_fkey");
+        });
+
+        modelBuilder.Entity<SystemSetting>(entity =>
+        {
+            entity.HasKey(e => e.SettingKey).HasName("system_settings_pkey");
+
+            entity.ToTable("system_settings");
+
+            entity.Property(e => e.SettingKey)
+                .HasMaxLength(100)
+                .HasColumnName("setting_key");
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.SettingValue)
+                .HasMaxLength(500)
+                .HasColumnName("setting_value");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("updated_at");
         });
 
         modelBuilder.Entity<Team>(entity =>
