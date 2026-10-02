@@ -52,7 +52,7 @@ public class AdminSeeder : IHostedService
         if (adminExists)
             return;
 
-        var email = _configuration["SeedAdmin:Email"]?.Trim();
+        var email = _configuration["SeedAdmin:Email"]?.Trim().ToLowerInvariant();
         var password = _configuration["SeedAdmin:Password"];
         if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
         {
@@ -64,7 +64,7 @@ public class AdminSeeder : IHostedService
         var fullName = _configuration["SeedAdmin:FullName"]?.Trim() is { Length: > 0 } f ? f : "System Administrator";
 
         var users = uow.Repository<User>();
-        if (await users.QueryNoTracking().AnyAsync(x => x.Email == email || x.Username == username, ct))
+        if (await users.QueryNoTracking().AnyAsync(x => x.Email.ToLower() == email || x.Username == username, ct))
         {
             _logger.LogWarning("Cannot seed Admin: a user with the configured email or username '{Username}' already exists.", username);
             return;
@@ -86,6 +86,7 @@ public class AdminSeeder : IHostedService
             PasswordHash = hasher.Hash(password),
             FullName = fullName,
             IsActive = true,
+            EmailVerified = true,
             CreatedAt = now,
             UpdatedAt = now,
         };

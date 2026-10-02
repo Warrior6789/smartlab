@@ -27,7 +27,52 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Register([FromBody] RegisterRequest request, CancellationToken ct)
     {
         var user = await _authService.RegisterStudentAsync(request, ct);
-        return StatusCode(StatusCodes.Status201Created, ApiResponse<CurrentUserDto>.Ok(user, "Đăng ký thành công"));
+        return StatusCode(StatusCodes.Status201Created,
+            ApiResponse<CurrentUserDto>.Ok(user, "Đăng ký thành công. Vui lòng kiểm tra email để lấy mã xác thực"));
+    }
+
+    /// <summary>Xác thực email bằng mã 6 số đã gửi khi đăng ký.</summary>
+    [AllowAnonymous]
+    [HttpPost("verify-email")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailRequest request, CancellationToken ct)
+    {
+        await _authService.VerifyEmailAsync(request, ct);
+        return Ok(ApiResponse.Ok("Xác thực email thành công"));
+    }
+
+    /// <summary>Gửi lại mã xác thực email.</summary>
+    [AllowAnonymous]
+    [HttpPost("resend-verification")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ResendVerification([FromBody] ResendVerificationRequest request, CancellationToken ct)
+    {
+        await _authService.ResendVerificationAsync(request, ct);
+        return Ok(ApiResponse.Ok("Nếu email cần xác thực, mã mới đã được gửi"));
+    }
+
+    /// <summary>Gửi mã đặt lại mật khẩu tới email.</summary>
+    [AllowAnonymous]
+    [HttpPost("forgot-password")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken ct)
+    {
+        await _authService.ForgotPasswordAsync(request, ct);
+        return Ok(ApiResponse.Ok("Nếu email tồn tại, mã đặt lại mật khẩu đã được gửi"));
+    }
+
+    /// <summary>Đặt lại mật khẩu bằng mã đã gửi tới email.</summary>
+    [AllowAnonymous]
+    [HttpPost("reset-password")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken ct)
+    {
+        await _authService.ResetPasswordAsync(request, ct);
+        return Ok(ApiResponse.Ok("Đặt lại mật khẩu thành công"));
     }
 
     /// <summary>Đăng nhập bằng email hoặc username.</summary>

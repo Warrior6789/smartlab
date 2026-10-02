@@ -26,7 +26,7 @@ public class UserService : IUserService
     public async Task<UserDetailResponse> CreateUserAsync(CreateUserRequest request, CancellationToken ct = default)
     {
         var username = request.Username.Trim();
-        var email = request.Email.Trim();
+        var email = request.Email.Trim().ToLowerInvariant();
         var isLecturer = request.Role == RoleNames.Lecturer;
         var instructorCode = isLecturer ? request.InstructorCode!.Trim().ToUpperInvariant() : null;
 
@@ -34,7 +34,7 @@ public class UserService : IUserService
         var errors = new Dictionary<string, string[]>();
         if (await users.QueryNoTracking().AnyAsync(u => u.Username.ToLower() == username.ToLower(), ct))
             errors["username"] = new[] { "Username đã được sử dụng" };
-        if (await users.QueryNoTracking().AnyAsync(u => u.Email == email, ct))
+        if (await users.QueryNoTracking().AnyAsync(u => u.Email.ToLower() == email, ct))
             errors["email"] = new[] { "Email đã được sử dụng" };
         if (isLecturer && await _uow.Repository<InstructorProfile>().QueryNoTracking()
                 .AnyAsync(i => i.InstructorCode == instructorCode, ct))
@@ -55,6 +55,7 @@ public class UserService : IUserService
             FullName = request.FullName.Trim(),
             PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim(),
             IsActive = true,
+            EmailVerified = true,
             CreatedAt = now,
             UpdatedAt = now,
         };
