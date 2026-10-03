@@ -25,6 +25,8 @@ public partial class BorrowItem
 
     public int Quantity { get; set; }
 
+    public int? ReturnedQuantity { get; set; }
+
     public virtual BorrowRequest BorrowRequest { get; set; } = null!;
 
     public virtual Component Component { get; set; } = null!;

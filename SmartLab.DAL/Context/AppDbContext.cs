@@ -188,6 +188,7 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(255)
                 .HasColumnName("return_condition");
             entity.Property(e => e.ReturnedAt).HasColumnName("returned_at");
+            entity.Property(e => e.ReturnedQuantity).HasColumnName("returned_quantity");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Pending'::character varying")
