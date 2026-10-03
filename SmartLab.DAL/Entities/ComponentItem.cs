@@ -25,6 +25,14 @@ public partial class ComponentItem
 
     public DateTime UpdatedAt { get; set; }
 
+    public decimal? PurchasePrice { get; set; }
+
+    public string? HardwareVersion { get; set; }
+
+    public DateTime? WarrantyExpiresAt { get; set; }
+
+    public string? Note { get; set; }
+
     public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
 
     public virtual StorageCabinet Cabinet { get; set; } = null!;

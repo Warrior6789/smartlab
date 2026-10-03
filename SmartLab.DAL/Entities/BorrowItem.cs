@@ -23,6 +23,8 @@ public partial class BorrowItem
 
     public decimal UnitPrice { get; set; }
 
+    public int Quantity { get; set; }
+
     public virtual BorrowRequest BorrowRequest { get; set; } = null!;
 
     public virtual Component Component { get; set; } = null!;

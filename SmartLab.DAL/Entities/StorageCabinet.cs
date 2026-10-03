@@ -19,5 +19,7 @@ public partial class StorageCabinet
 
     public virtual ICollection<ComponentItem> ComponentItems { get; set; } = new List<ComponentItem>();
 
+    public virtual ICollection<ConsumableStock> ConsumableStocks { get; set; } = new List<ConsumableStock>();
+
     public virtual ICollection<InventoryAudit> InventoryAudits { get; set; } = new List<InventoryAudit>();
 }

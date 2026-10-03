@@ -38,6 +38,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<ComponentTutorial> ComponentTutorials { get; set; }
 
+    public virtual DbSet<ConsumableStock> ConsumableStocks { get; set; }
+
     public virtual DbSet<Course> Courses { get; set; }
 
     public virtual DbSet<InstructorProfile> InstructorProfiles { get; set; }
@@ -179,6 +181,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.ComponentId).HasColumnName("component_id");
             entity.Property(e => e.ComponentItemId).HasColumnName("component_item_id");
             entity.Property(e => e.IssuedAt).HasColumnName("issued_at");
+            entity.Property(e => e.Quantity)
+                .HasDefaultValue(1)
+                .HasColumnName("quantity");
             entity.Property(e => e.ReturnCondition)
                 .HasMaxLength(255)
                 .HasColumnName("return_condition");
@@ -399,6 +404,10 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Manufacturer)
                 .HasMaxLength(100)
                 .HasColumnName("manufacturer");
+            entity.Property(e => e.TrackingType)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'REUSABLE'::character varying")
+                .HasColumnName("tracking_type");
             entity.Property(e => e.UnitPrice)
                 .HasPrecision(12, 2)
                 .HasColumnName("unit_price");
@@ -485,6 +494,10 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.Status, "ix_component_items_status");
 
+            entity.HasIndex(e => new { e.ComponentId, e.SerialNumber }, "ux_component_items_serial")
+                .IsUnique()
+                .HasFilter("(serial_number IS NOT NULL)");
+
             entity.Property(e => e.ItemId)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("item_id");
@@ -496,10 +509,19 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Condition)
                 .HasMaxLength(255)
                 .HasColumnName("condition");
+            entity.Property(e => e.HardwareVersion)
+                .HasMaxLength(50)
+                .HasColumnName("hardware_version");
             entity.Property(e => e.ImportedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("imported_at");
+            entity.Property(e => e.Note)
+                .HasMaxLength(255)
+                .HasColumnName("note");
             entity.Property(e => e.PurchaseOrderItemId).HasColumnName("purchase_order_item_id");
+            entity.Property(e => e.PurchasePrice)
+                .HasPrecision(12, 2)
+                .HasColumnName("purchase_price");
             entity.Property(e => e.SerialNumber)
                 .HasMaxLength(100)
                 .HasColumnName("serial_number");
@@ -510,6 +532,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("updated_at");
+            entity.Property(e => e.WarrantyExpiresAt).HasColumnName("warranty_expires_at");
 
             entity.HasOne(d => d.Cabinet).WithMany(p => p.ComponentItems)
                 .HasForeignKey(d => d.CabinetId)
@@ -592,6 +615,32 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.Component).WithMany(p => p.ComponentTutorials)
                 .HasForeignKey(d => d.ComponentId)
                 .HasConstraintName("component_tutorials_component_id_fkey");
+        });
+
+        modelBuilder.Entity<ConsumableStock>(entity =>
+        {
+            entity.HasKey(e => new { e.ComponentId, e.CabinetId }).HasName("consumable_stocks_pkey");
+
+            entity.ToTable("consumable_stocks");
+
+            entity.Property(e => e.ComponentId).HasColumnName("component_id");
+            entity.Property(e => e.CabinetId).HasColumnName("cabinet_id");
+            entity.Property(e => e.Quantity)
+                .HasDefaultValue(0)
+                .HasColumnName("quantity");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Cabinet).WithMany(p => p.ConsumableStocks)
+                .HasForeignKey(d => d.CabinetId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("consumable_stocks_cabinet_id_fkey");
+
+            entity.HasOne(d => d.Component).WithMany(p => p.ConsumableStocks)
+                .HasForeignKey(d => d.ComponentId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("consumable_stocks_component_id_fkey");
         });
 
         modelBuilder.Entity<Course>(entity =>
