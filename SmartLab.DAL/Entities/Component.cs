@@ -29,6 +29,8 @@ public partial class Component
 
     public string TrackingType { get; set; } = null!;
 
+    public string? DatasheetStorageKey { get; set; }
+
     public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
 
     public virtual ComponentCategory Category { get; set; } = null!;

@@ -395,6 +395,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("created_at");
+            entity.Property(e => e.DatasheetStorageKey)
+                .HasMaxLength(255)
+                .HasColumnName("datasheet_storage_key");
             entity.Property(e => e.DatasheetUrl)
                 .HasMaxLength(500)
                 .HasColumnName("datasheet_url");
