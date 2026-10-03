@@ -193,9 +193,6 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Pending'::character varying")
                 .HasColumnName("status");
-            entity.Property(e => e.UnitPrice)
-                .HasPrecision(12, 2)
-                .HasColumnName("unit_price");
 
             entity.HasOne(d => d.BorrowRequest).WithMany(p => p.BorrowItems)
                 .HasForeignKey(d => d.BorrowRequestId)
@@ -230,13 +227,6 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.ApproverId).HasColumnName("approver_id");
             entity.Property(e => e.BorrowDate).HasColumnName("borrow_date");
             entity.Property(e => e.ClassId).HasColumnName("class_id");
-            entity.Property(e => e.DepositRate)
-                .HasPrecision(5, 2)
-                .HasColumnName("deposit_rate");
-            entity.Property(e => e.DepositStatus)
-                .HasMaxLength(20)
-                .HasDefaultValueSql("'Unpaid'::character varying")
-                .HasColumnName("deposit_status");
             entity.Property(e => e.DueDate).HasColumnName("due_date");
             entity.Property(e => e.ProjectId).HasColumnName("project_id");
             entity.Property(e => e.Purpose)
@@ -257,9 +247,6 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Pending'::character varying")
                 .HasColumnName("status");
-            entity.Property(e => e.TotalDeposit)
-                .HasPrecision(12, 2)
-                .HasColumnName("total_deposit");
 
             entity.HasOne(d => d.Approver).WithMany(p => p.BorrowRequestApprovers)
                 .HasForeignKey(d => d.ApproverId)

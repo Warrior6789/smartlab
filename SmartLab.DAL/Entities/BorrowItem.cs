@@ -21,8 +21,6 @@ public partial class BorrowItem
 
     public string? ReturnCondition { get; set; }
 
-    public decimal UnitPrice { get; set; }
-
     public int Quantity { get; set; }
 
     public int? ReturnedQuantity { get; set; }
