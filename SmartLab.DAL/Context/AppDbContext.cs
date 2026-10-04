@@ -38,6 +38,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<ComponentTutorial> ComponentTutorials { get; set; }
 
+    public virtual DbSet<ConsumableStock> ConsumableStocks { get; set; }
+
     public virtual DbSet<Course> Courses { get; set; }
 
     public virtual DbSet<InstructorProfile> InstructorProfiles { get; set; }
@@ -46,19 +48,21 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<IssueReport> IssueReports { get; set; }
 
+    public virtual DbSet<LabRoom> LabRooms { get; set; }
+
     public virtual DbSet<Permission> Permissions { get; set; }
 
     public virtual DbSet<Project> Projects { get; set; }
 
     public virtual DbSet<ProjectComponent> ProjectComponents { get; set; }
 
-    public virtual DbSet<PurchaseOrder> PurchaseOrders { get; set; }
-
-    public virtual DbSet<PurchaseOrderItem> PurchaseOrderItems { get; set; }
-
     public virtual DbSet<Role> Roles { get; set; }
 
     public virtual DbSet<Semester> Semesters { get; set; }
+
+    public virtual DbSet<StockReceipt> StockReceipts { get; set; }
+
+    public virtual DbSet<StockReceiptItem> StockReceiptItems { get; set; }
 
     public virtual DbSet<StorageCabinet> StorageCabinets { get; set; }
 
@@ -179,17 +183,18 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.ComponentId).HasColumnName("component_id");
             entity.Property(e => e.ComponentItemId).HasColumnName("component_item_id");
             entity.Property(e => e.IssuedAt).HasColumnName("issued_at");
+            entity.Property(e => e.Quantity)
+                .HasDefaultValue(1)
+                .HasColumnName("quantity");
             entity.Property(e => e.ReturnCondition)
                 .HasMaxLength(255)
                 .HasColumnName("return_condition");
             entity.Property(e => e.ReturnedAt).HasColumnName("returned_at");
+            entity.Property(e => e.ReturnedQuantity).HasColumnName("returned_quantity");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Pending'::character varying")
                 .HasColumnName("status");
-            entity.Property(e => e.UnitPrice)
-                .HasPrecision(12, 2)
-                .HasColumnName("unit_price");
 
             entity.HasOne(d => d.BorrowRequest).WithMany(p => p.BorrowItems)
                 .HasForeignKey(d => d.BorrowRequestId)
@@ -224,13 +229,6 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.ApproverId).HasColumnName("approver_id");
             entity.Property(e => e.BorrowDate).HasColumnName("borrow_date");
             entity.Property(e => e.ClassId).HasColumnName("class_id");
-            entity.Property(e => e.DepositRate)
-                .HasPrecision(5, 2)
-                .HasColumnName("deposit_rate");
-            entity.Property(e => e.DepositStatus)
-                .HasMaxLength(20)
-                .HasDefaultValueSql("'Unpaid'::character varying")
-                .HasColumnName("deposit_status");
             entity.Property(e => e.DueDate).HasColumnName("due_date");
             entity.Property(e => e.ProjectId).HasColumnName("project_id");
             entity.Property(e => e.Purpose)
@@ -251,9 +249,6 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Pending'::character varying")
                 .HasColumnName("status");
-            entity.Property(e => e.TotalDeposit)
-                .HasPrecision(12, 2)
-                .HasColumnName("total_deposit");
 
             entity.HasOne(d => d.Approver).WithMany(p => p.BorrowRequestApprovers)
                 .HasForeignKey(d => d.ApproverId)
@@ -389,6 +384,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("created_at");
+            entity.Property(e => e.DatasheetStorageKey)
+                .HasMaxLength(255)
+                .HasColumnName("datasheet_storage_key");
             entity.Property(e => e.DatasheetUrl)
                 .HasMaxLength(500)
                 .HasColumnName("datasheet_url");
@@ -399,6 +397,10 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Manufacturer)
                 .HasMaxLength(100)
                 .HasColumnName("manufacturer");
+            entity.Property(e => e.TrackingType)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'REUSABLE'::character varying")
+                .HasColumnName("tracking_type");
             entity.Property(e => e.UnitPrice)
                 .HasPrecision(12, 2)
                 .HasColumnName("unit_price");
@@ -477,29 +479,37 @@ public partial class AppDbContext : DbContext
 
             entity.ToTable("component_items");
 
-            entity.HasIndex(e => e.Barcode, "component_items_barcode_key").IsUnique();
-
             entity.HasIndex(e => e.CabinetId, "ix_component_items_cabinet_id");
 
             entity.HasIndex(e => e.ComponentId, "ix_component_items_component_id");
 
             entity.HasIndex(e => e.Status, "ix_component_items_status");
 
+            entity.HasIndex(e => new { e.ComponentId, e.SerialNumber }, "ux_component_items_serial")
+                .IsUnique()
+                .HasFilter("(serial_number IS NOT NULL)");
+
             entity.Property(e => e.ItemId)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("item_id");
-            entity.Property(e => e.Barcode)
-                .HasMaxLength(100)
-                .HasColumnName("barcode");
             entity.Property(e => e.CabinetId).HasColumnName("cabinet_id");
             entity.Property(e => e.ComponentId).HasColumnName("component_id");
             entity.Property(e => e.Condition)
                 .HasMaxLength(255)
                 .HasColumnName("condition");
+            entity.Property(e => e.HardwareVersion)
+                .HasMaxLength(50)
+                .HasColumnName("hardware_version");
             entity.Property(e => e.ImportedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("imported_at");
-            entity.Property(e => e.PurchaseOrderItemId).HasColumnName("purchase_order_item_id");
+            entity.Property(e => e.Note)
+                .HasMaxLength(255)
+                .HasColumnName("note");
+            entity.Property(e => e.PurchasePrice)
+                .HasPrecision(12, 2)
+                .HasColumnName("purchase_price");
+            entity.Property(e => e.ReceiptItemId).HasColumnName("receipt_item_id");
             entity.Property(e => e.SerialNumber)
                 .HasMaxLength(100)
                 .HasColumnName("serial_number");
@@ -510,6 +520,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("updated_at");
+            entity.Property(e => e.WarrantyExpiresAt).HasColumnName("warranty_expires_at");
 
             entity.HasOne(d => d.Cabinet).WithMany(p => p.ComponentItems)
                 .HasForeignKey(d => d.CabinetId)
@@ -521,9 +532,9 @@ public partial class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("component_items_component_id_fkey");
 
-            entity.HasOne(d => d.PurchaseOrderItem).WithMany(p => p.ComponentItems)
-                .HasForeignKey(d => d.PurchaseOrderItemId)
-                .HasConstraintName("component_items_purchase_order_item_id_fkey");
+            entity.HasOne(d => d.ReceiptItem).WithMany(p => p.ComponentItems)
+                .HasForeignKey(d => d.ReceiptItemId)
+                .HasConstraintName("component_items_receipt_item_id_fkey");
         });
 
         modelBuilder.Entity<ComponentSpec>(entity =>
@@ -592,6 +603,32 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.Component).WithMany(p => p.ComponentTutorials)
                 .HasForeignKey(d => d.ComponentId)
                 .HasConstraintName("component_tutorials_component_id_fkey");
+        });
+
+        modelBuilder.Entity<ConsumableStock>(entity =>
+        {
+            entity.HasKey(e => new { e.ComponentId, e.CabinetId }).HasName("consumable_stocks_pkey");
+
+            entity.ToTable("consumable_stocks");
+
+            entity.Property(e => e.ComponentId).HasColumnName("component_id");
+            entity.Property(e => e.CabinetId).HasColumnName("cabinet_id");
+            entity.Property(e => e.Quantity)
+                .HasDefaultValue(0)
+                .HasColumnName("quantity");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Cabinet).WithMany(p => p.ConsumableStocks)
+                .HasForeignKey(d => d.CabinetId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("consumable_stocks_cabinet_id_fkey");
+
+            entity.HasOne(d => d.Component).WithMany(p => p.ConsumableStocks)
+                .HasForeignKey(d => d.ComponentId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("consumable_stocks_component_id_fkey");
         });
 
         modelBuilder.Entity<Course>(entity =>
@@ -731,6 +768,38 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("issue_reports_resolved_by_fkey");
         });
 
+        modelBuilder.Entity<LabRoom>(entity =>
+        {
+            entity.HasKey(e => e.RoomId).HasName("lab_rooms_pkey");
+
+            entity.ToTable("lab_rooms");
+
+            entity.HasIndex(e => e.RoomCode, "lab_rooms_room_code_key").IsUnique();
+
+            entity.Property(e => e.RoomId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("room_id");
+            entity.Property(e => e.Building)
+                .HasMaxLength(100)
+                .HasColumnName("building");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("created_at");
+            entity.Property(e => e.RoomCode)
+                .HasMaxLength(20)
+                .HasColumnName("room_code");
+            entity.Property(e => e.RoomName)
+                .HasMaxLength(100)
+                .HasColumnName("room_name");
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'Active'::character varying")
+                .HasColumnName("status");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("updated_at");
+        });
+
         modelBuilder.Entity<Permission>(entity =>
         {
             entity.HasKey(e => e.PermissionId).HasName("permissions_pkey");
@@ -834,80 +903,6 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("project_components_project_id_fkey");
         });
 
-        modelBuilder.Entity<PurchaseOrder>(entity =>
-        {
-            entity.HasKey(e => e.PurchaseOrderId).HasName("purchase_orders_pkey");
-
-            entity.ToTable("purchase_orders");
-
-            entity.HasIndex(e => e.OrderCode, "purchase_orders_order_code_key").IsUnique();
-
-            entity.Property(e => e.PurchaseOrderId)
-                .HasDefaultValueSql("gen_random_uuid()")
-                .HasColumnName("purchase_order_id");
-            entity.Property(e => e.ApprovedBy).HasColumnName("approved_by");
-            entity.Property(e => e.CreatedBy).HasColumnName("created_by");
-            entity.Property(e => e.Note).HasColumnName("note");
-            entity.Property(e => e.OrderCode)
-                .HasMaxLength(30)
-                .HasColumnName("order_code");
-            entity.Property(e => e.OrderDate)
-                .HasDefaultValueSql("now()")
-                .HasColumnName("order_date");
-            entity.Property(e => e.ReceivedDate).HasColumnName("received_date");
-            entity.Property(e => e.Status)
-                .HasMaxLength(20)
-                .HasDefaultValueSql("'Draft'::character varying")
-                .HasColumnName("status");
-            entity.Property(e => e.SupplierName)
-                .HasMaxLength(150)
-                .HasColumnName("supplier_name");
-            entity.Property(e => e.TotalAmount)
-                .HasPrecision(18, 2)
-                .HasColumnName("total_amount");
-
-            entity.HasOne(d => d.ApprovedByNavigation).WithMany(p => p.PurchaseOrderApprovedByNavigations)
-                .HasForeignKey(d => d.ApprovedBy)
-                .HasConstraintName("purchase_orders_approved_by_fkey");
-
-            entity.HasOne(d => d.CreatedByNavigation).WithMany(p => p.PurchaseOrderCreatedByNavigations)
-                .HasForeignKey(d => d.CreatedBy)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("purchase_orders_created_by_fkey");
-        });
-
-        modelBuilder.Entity<PurchaseOrderItem>(entity =>
-        {
-            entity.HasKey(e => e.PurchaseOrderItemId).HasName("purchase_order_items_pkey");
-
-            entity.ToTable("purchase_order_items");
-
-            entity.Property(e => e.PurchaseOrderItemId)
-                .HasDefaultValueSql("gen_random_uuid()")
-                .HasColumnName("purchase_order_item_id");
-            entity.Property(e => e.ComponentId).HasColumnName("component_id");
-            entity.Property(e => e.PurchaseOrderId).HasColumnName("purchase_order_id");
-            entity.Property(e => e.Quantity).HasColumnName("quantity");
-            entity.Property(e => e.ReceivedQuantity)
-                .HasDefaultValue(0)
-                .HasColumnName("received_quantity");
-            entity.Property(e => e.SubTotal)
-                .HasPrecision(18, 2)
-                .HasColumnName("sub_total");
-            entity.Property(e => e.UnitPrice)
-                .HasPrecision(18, 2)
-                .HasColumnName("unit_price");
-
-            entity.HasOne(d => d.Component).WithMany(p => p.PurchaseOrderItems)
-                .HasForeignKey(d => d.ComponentId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("purchase_order_items_component_id_fkey");
-
-            entity.HasOne(d => d.PurchaseOrder).WithMany(p => p.PurchaseOrderItems)
-                .HasForeignKey(d => d.PurchaseOrderId)
-                .HasConstraintName("purchase_order_items_purchase_order_id_fkey");
-        });
-
         modelBuilder.Entity<Role>(entity =>
         {
             entity.HasKey(e => e.RoleId).HasName("roles_pkey");
@@ -970,11 +965,86 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Year).HasColumnName("year");
         });
 
+        modelBuilder.Entity<StockReceipt>(entity =>
+        {
+            entity.HasKey(e => e.ReceiptId).HasName("stock_receipts_pkey");
+
+            entity.ToTable("stock_receipts");
+
+            entity.HasIndex(e => e.ReceivedAt, "ix_stock_receipts_received_at");
+
+            entity.HasIndex(e => e.ReceiptCode, "stock_receipts_receipt_code_key").IsUnique();
+
+            entity.Property(e => e.ReceiptId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("receipt_id");
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by");
+            entity.Property(e => e.Note).HasColumnName("note");
+            entity.Property(e => e.ReceiptCode)
+                .HasMaxLength(30)
+                .HasColumnName("receipt_code");
+            entity.Property(e => e.ReceivedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("received_at");
+            entity.Property(e => e.SupplierName)
+                .HasMaxLength(150)
+                .HasColumnName("supplier_name");
+            entity.Property(e => e.TotalAmount)
+                .HasPrecision(18, 2)
+                .HasColumnName("total_amount");
+
+            entity.HasOne(d => d.CreatedByNavigation).WithMany(p => p.StockReceipts)
+                .HasForeignKey(d => d.CreatedBy)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("stock_receipts_created_by_fkey");
+        });
+
+        modelBuilder.Entity<StockReceiptItem>(entity =>
+        {
+            entity.HasKey(e => e.ReceiptItemId).HasName("stock_receipt_items_pkey");
+
+            entity.ToTable("stock_receipt_items");
+
+            entity.HasIndex(e => e.ComponentId, "ix_stock_receipt_items_component_id");
+
+            entity.HasIndex(e => new { e.ReceiptId, e.ComponentId, e.CabinetId }, "ux_stock_receipt_items_line").IsUnique();
+
+            entity.Property(e => e.ReceiptItemId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("receipt_item_id");
+            entity.Property(e => e.CabinetId).HasColumnName("cabinet_id");
+            entity.Property(e => e.ComponentId).HasColumnName("component_id");
+            entity.Property(e => e.Quantity).HasColumnName("quantity");
+            entity.Property(e => e.ReceiptId).HasColumnName("receipt_id");
+            entity.Property(e => e.SubTotal)
+                .HasPrecision(18, 2)
+                .HasColumnName("sub_total");
+            entity.Property(e => e.UnitPrice)
+                .HasPrecision(18, 2)
+                .HasColumnName("unit_price");
+
+            entity.HasOne(d => d.Cabinet).WithMany(p => p.StockReceiptItems)
+                .HasForeignKey(d => d.CabinetId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("stock_receipt_items_cabinet_id_fkey");
+
+            entity.HasOne(d => d.Component).WithMany(p => p.StockReceiptItems)
+                .HasForeignKey(d => d.ComponentId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("stock_receipt_items_component_id_fkey");
+
+            entity.HasOne(d => d.Receipt).WithMany(p => p.StockReceiptItems)
+                .HasForeignKey(d => d.ReceiptId)
+                .HasConstraintName("stock_receipt_items_receipt_id_fkey");
+        });
+
         modelBuilder.Entity<StorageCabinet>(entity =>
         {
             entity.HasKey(e => e.CabinetId).HasName("storage_cabinets_pkey");
 
             entity.ToTable("storage_cabinets");
+
+            entity.HasIndex(e => e.RoomId, "ix_storage_cabinets_room_id");
 
             entity.HasIndex(e => e.CabinetCode, "storage_cabinets_cabinet_code_key").IsUnique();
 
@@ -987,16 +1057,19 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.CabinetName)
                 .HasMaxLength(100)
                 .HasColumnName("cabinet_name");
-            entity.Property(e => e.LabRoom)
-                .HasMaxLength(50)
-                .HasColumnName("lab_room");
             entity.Property(e => e.Location)
                 .HasMaxLength(255)
                 .HasColumnName("location");
+            entity.Property(e => e.RoomId).HasColumnName("room_id");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Active'::character varying")
                 .HasColumnName("status");
+
+            entity.HasOne(d => d.Room).WithMany(p => p.StorageCabinets)
+                .HasForeignKey(d => d.RoomId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("storage_cabinets_room_id_fkey");
         });
 
         modelBuilder.Entity<StudentProfile>(entity =>

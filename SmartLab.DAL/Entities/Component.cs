@@ -27,6 +27,10 @@ public partial class Component
 
     public decimal UnitPrice { get; set; }
 
+    public string TrackingType { get; set; } = null!;
+
+    public string? DatasheetStorageKey { get; set; }
+
     public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
 
     public virtual ComponentCategory Category { get; set; } = null!;
@@ -43,7 +47,9 @@ public partial class Component
 
     public virtual ICollection<ComponentTutorial> ComponentTutorials { get; set; } = new List<ComponentTutorial>();
 
+    public virtual ICollection<ConsumableStock> ConsumableStocks { get; set; } = new List<ConsumableStock>();
+
     public virtual ICollection<ProjectComponent> ProjectComponents { get; set; } = new List<ProjectComponent>();
 
-    public virtual ICollection<PurchaseOrderItem> PurchaseOrderItems { get; set; } = new List<PurchaseOrderItem>();
+    public virtual ICollection<StockReceiptItem> StockReceiptItems { get; set; } = new List<StockReceiptItem>();
 }

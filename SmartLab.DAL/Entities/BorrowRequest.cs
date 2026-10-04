@@ -33,12 +33,6 @@ public partial class BorrowRequest
 
     public string? RejectReason { get; set; }
 
-    public decimal DepositRate { get; set; }
-
-    public decimal TotalDeposit { get; set; }
-
-    public string DepositStatus { get; set; } = null!;
-
     public virtual User? Approver { get; set; }
 
     public virtual ICollection<BorrowExtension> BorrowExtensions { get; set; } = new List<BorrowExtension>();
