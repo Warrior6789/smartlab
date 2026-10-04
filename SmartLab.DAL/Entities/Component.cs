@@ -51,5 +51,5 @@ public partial class Component
 
     public virtual ICollection<ProjectComponent> ProjectComponents { get; set; } = new List<ProjectComponent>();
 
-    public virtual ICollection<PurchaseOrderItem> PurchaseOrderItems { get; set; } = new List<PurchaseOrderItem>();
+    public virtual ICollection<StockReceiptItem> StockReceiptItems { get; set; } = new List<StockReceiptItem>();
 }
