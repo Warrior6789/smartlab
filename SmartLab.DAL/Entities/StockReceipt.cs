@@ -19,6 +19,18 @@ public partial class StockReceipt
 
     public string? Note { get; set; }
 
+    public string Status { get; set; } = null!;
+
+    public DateTime CreatedAt { get; set; }
+
+    public DateTime? CancelledAt { get; set; }
+
+    public Guid? CancelledBy { get; set; }
+
+    public string? CancelReason { get; set; }
+
+    public virtual User? CancelledByNavigation { get; set; }
+
     public virtual User CreatedByNavigation { get; set; } = null!;
 
     public virtual ICollection<StockReceiptItem> StockReceiptItems { get; set; } = new List<StockReceiptItem>();

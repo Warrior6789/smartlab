@@ -975,6 +975,14 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.ReceiptId)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("receipt_id");
+            entity.Property(e => e.CancelReason)
+                .HasMaxLength(255)
+                .HasColumnName("cancel_reason");
+            entity.Property(e => e.CancelledAt).HasColumnName("cancelled_at");
+            entity.Property(e => e.CancelledBy).HasColumnName("cancelled_by");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("created_at");
             entity.Property(e => e.CreatedBy).HasColumnName("created_by");
             entity.Property(e => e.Note).HasColumnName("note");
             entity.Property(e => e.ReceiptCode)
@@ -983,6 +991,10 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.ReceivedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("received_at");
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'Completed'::character varying")
+                .HasColumnName("status");
             entity.Property(e => e.SupplierName)
                 .HasMaxLength(150)
                 .HasColumnName("supplier_name");
@@ -990,7 +1002,11 @@ public partial class AppDbContext : DbContext
                 .HasPrecision(18, 2)
                 .HasColumnName("total_amount");
 
-            entity.HasOne(d => d.CreatedByNavigation).WithMany(p => p.StockReceipts)
+            entity.HasOne(d => d.CancelledByNavigation).WithMany(p => p.StockReceiptCancelledByNavigations)
+                .HasForeignKey(d => d.CancelledBy)
+                .HasConstraintName("stock_receipts_cancelled_by_fkey");
+
+            entity.HasOne(d => d.CreatedByNavigation).WithMany(p => p.StockReceiptCreatedByNavigations)
                 .HasForeignKey(d => d.CreatedBy)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("stock_receipts_created_by_fkey");
