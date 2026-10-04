@@ -51,7 +51,9 @@ public partial class User
 
     public virtual ICollection<Project> Projects { get; set; } = new List<Project>();
 
-    public virtual ICollection<StockReceipt> StockReceipts { get; set; } = new List<StockReceipt>();
+    public virtual ICollection<StockReceipt> StockReceiptCancelledByNavigations { get; set; } = new List<StockReceipt>();
+
+    public virtual ICollection<StockReceipt> StockReceiptCreatedByNavigations { get; set; } = new List<StockReceipt>();
 
     public virtual StudentProfile? StudentProfile { get; set; }
 
