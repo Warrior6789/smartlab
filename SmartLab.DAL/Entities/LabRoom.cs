@@ -11,8 +11,6 @@ public partial class LabRoom
 
     public string RoomName { get; set; } = null!;
 
-    public string? Building { get; set; }
-
     public string Status { get; set; } = null!;
 
     public DateTime CreatedAt { get; set; }
