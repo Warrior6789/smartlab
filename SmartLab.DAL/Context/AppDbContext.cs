@@ -779,9 +779,6 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.RoomId)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("room_id");
-            entity.Property(e => e.Building)
-                .HasMaxLength(100)
-                .HasColumnName("building");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("created_at");
