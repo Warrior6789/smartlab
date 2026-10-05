@@ -8,8 +8,10 @@ using SmartLab.BLL.External.Jwt;
 using SmartLab.BLL.External.Security;
 using SmartLab.BLL.External.Storage;
 using SmartLab.BLL.Interfaces.Identity;
+using SmartLab.BLL.Interfaces.Inventory;
 using SmartLab.BLL.Seeding;
 using SmartLab.BLL.Services.Identity;
+using SmartLab.BLL.Services.Inventory;
 
 namespace SmartLab.BLL;
 
@@ -43,6 +45,9 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRoleService, RoleService>();
+
+        services.AddScoped<ILabRoomService, LabRoomService>();
+        services.AddScoped<ICabinetService, CabinetService>();
 
         services.AddHostedService<AdminSeeder>();
 
