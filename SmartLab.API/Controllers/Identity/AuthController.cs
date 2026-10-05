@@ -28,7 +28,7 @@ public class AuthController : ControllerBase
     {
         var user = await _authService.RegisterStudentAsync(request, ct);
         return StatusCode(StatusCodes.Status201Created,
-            ApiResponse<CurrentUserDto>.Ok(user, "Đăng ký thành công. Vui lòng kiểm tra email để lấy mã xác thực"));
+            ApiResponse<CurrentUserDto>.Ok(user, "Đăng ký thành công. Vui lòng kiểm tra email để lấy mã xác thực, nếu chưa nhận được hãy bấm Gửi lại mã"));
     }
 
     /// <summary>Xác thực email bằng mã 6 số đã gửi khi đăng ký.</summary>

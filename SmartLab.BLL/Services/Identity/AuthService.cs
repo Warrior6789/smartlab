@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
@@ -29,16 +30,18 @@ public class AuthService : IAuthService
     private readonly IJwtService _jwtService;
     private readonly ICurrentUserService _currentUser;
     private readonly IEmailSender _email;
+    private readonly ILogger<AuthService> _logger;
 
     public AuthService(
         IUnitOfWork uow, IPasswordHasher passwordHasher, IJwtService jwtService, ICurrentUserService currentUser,
-        IEmailSender email)
+        IEmailSender email, ILogger<AuthService> logger)
     {
         _uow = uow;
         _passwordHasher = passwordHasher;
         _jwtService = jwtService;
         _currentUser = currentUser;
         _email = email;
+        _logger = logger;
     }
 
     public async Task<CurrentUserDto> RegisterStudentAsync(RegisterRequest request, CancellationToken ct = default)
@@ -93,7 +96,14 @@ public class AuthService : IAuthService
             throw new ConflictException("Username, email hoặc mã sinh viên đã được sử dụng");
         }
 
-        await SendCodeEmailAsync(user, VerificationPurposes.EmailVerification, code, ct);
+        try
+        {
+            await SendCodeEmailAsync(user, VerificationPurposes.EmailVerification, code, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Gửi email xác thực thất bại cho {Email}", user.Email);
+        }
 
         var created = await LoadUserWithAccessAsync(user.UserId, ct);
         return UserMappings.ToCurrentUserDto(created!);
