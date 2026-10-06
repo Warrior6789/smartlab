@@ -37,6 +37,8 @@ public partial class ComponentItem
 
     public virtual Component Component { get; set; } = null!;
 
+    public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
+
     public virtual ICollection<IssueReport> IssueReports { get; set; } = new List<IssueReport>();
 
     public virtual StockReceiptItem? ReceiptItem { get; set; }

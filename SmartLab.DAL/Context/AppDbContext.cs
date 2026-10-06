@@ -46,6 +46,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<InventoryAudit> InventoryAudits { get; set; }
 
+    public virtual DbSet<InventoryTransaction> InventoryTransactions { get; set; }
+
     public virtual DbSet<IssueReport> IssueReports { get; set; }
 
     public virtual DbSet<LabRoom> LabRooms { get; set; }
@@ -713,6 +715,63 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.CabinetId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("inventory_audits_cabinet_id_fkey");
+        });
+
+        modelBuilder.Entity<InventoryTransaction>(entity =>
+        {
+            entity.HasKey(e => e.TransactionId).HasName("inventory_transactions_pkey");
+
+            entity.ToTable("inventory_transactions");
+
+            entity.HasIndex(e => e.ComponentId, "ix_inventory_transactions_component_id");
+
+            entity.HasIndex(e => e.CreatedAt, "ix_inventory_transactions_created_at");
+
+            entity.HasIndex(e => e.ItemId, "ix_inventory_transactions_item_id");
+
+            entity.HasIndex(e => e.ReceiptId, "ix_inventory_transactions_receipt_id");
+
+            entity.Property(e => e.TransactionId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("transaction_id");
+            entity.Property(e => e.CabinetId).HasColumnName("cabinet_id");
+            entity.Property(e => e.ComponentId).HasColumnName("component_id");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("created_at");
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by");
+            entity.Property(e => e.ItemId).HasColumnName("item_id");
+            entity.Property(e => e.QuantityChange).HasColumnName("quantity_change");
+            entity.Property(e => e.Reason)
+                .HasMaxLength(255)
+                .HasColumnName("reason");
+            entity.Property(e => e.ReceiptId).HasColumnName("receipt_id");
+            entity.Property(e => e.Type)
+                .HasMaxLength(30)
+                .HasColumnName("type");
+
+            entity.HasOne(d => d.Cabinet).WithMany(p => p.InventoryTransactions)
+                .HasForeignKey(d => d.CabinetId)
+                .HasConstraintName("inventory_transactions_cabinet_id_fkey");
+
+            entity.HasOne(d => d.Component).WithMany(p => p.InventoryTransactions)
+                .HasForeignKey(d => d.ComponentId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("inventory_transactions_component_id_fkey");
+
+            entity.HasOne(d => d.CreatedByNavigation).WithMany(p => p.InventoryTransactions)
+                .HasForeignKey(d => d.CreatedBy)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("inventory_transactions_created_by_fkey");
+
+            entity.HasOne(d => d.Item).WithMany(p => p.InventoryTransactions)
+                .HasForeignKey(d => d.ItemId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("inventory_transactions_item_id_fkey");
+
+            entity.HasOne(d => d.Receipt).WithMany(p => p.InventoryTransactions)
+                .HasForeignKey(d => d.ReceiptId)
+                .HasConstraintName("inventory_transactions_receipt_id_fkey");
         });
 
         modelBuilder.Entity<IssueReport>(entity =>
