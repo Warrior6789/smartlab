@@ -33,5 +33,7 @@ public partial class StockReceipt
 
     public virtual User CreatedByNavigation { get; set; } = null!;
 
+    public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
+
     public virtual ICollection<StockReceiptItem> StockReceiptItems { get; set; } = new List<StockReceiptItem>();
 }

@@ -23,6 +23,8 @@ public partial class StorageCabinet
 
     public virtual ICollection<InventoryAudit> InventoryAudits { get; set; } = new List<InventoryAudit>();
 
+    public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
+
     public virtual LabRoom Room { get; set; } = null!;
 
     public virtual ICollection<StockReceiptItem> StockReceiptItems { get; set; } = new List<StockReceiptItem>();

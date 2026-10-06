@@ -45,6 +45,8 @@ public partial class User
 
     public virtual ICollection<InventoryAudit> InventoryAudits { get; set; } = new List<InventoryAudit>();
 
+    public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
+
     public virtual ICollection<IssueReport> IssueReportReportedByNavigations { get; set; } = new List<IssueReport>();
 
     public virtual ICollection<IssueReport> IssueReportResolvedByNavigations { get; set; } = new List<IssueReport>();
