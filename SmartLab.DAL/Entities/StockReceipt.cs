@@ -29,6 +29,10 @@ public partial class StockReceipt
 
     public string? CancelReason { get; set; }
 
+    public string? InvoiceUrl { get; set; }
+
+    public string? InvoiceStorageKey { get; set; }
+
     public virtual User? CancelledByNavigation { get; set; }
 
     public virtual User CreatedByNavigation { get; set; } = null!;
