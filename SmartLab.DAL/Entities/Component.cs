@@ -31,6 +31,8 @@ public partial class Component
 
     public int? MinStock { get; set; }
 
+    public string Unit { get; set; } = null!;
+
     public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
 
     public virtual ComponentCategory Category { get; set; } = null!;

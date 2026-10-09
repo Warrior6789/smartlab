@@ -19,6 +19,8 @@ public partial class StockReceiptItem
 
     public decimal SubTotal { get; set; }
 
+    public int DocumentQuantity { get; set; }
+
     public virtual StorageCabinet Cabinet { get; set; } = null!;
 
     public virtual Component Component { get; set; } = null!;

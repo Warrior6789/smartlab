@@ -404,6 +404,10 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'REUSABLE'::character varying")
                 .HasColumnName("tracking_type");
+            entity.Property(e => e.Unit)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'cái'::character varying")
+                .HasColumnName("unit");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("updated_at");
@@ -1046,6 +1050,10 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValueSql("now()")
                 .HasColumnName("created_at");
             entity.Property(e => e.CreatedBy).HasColumnName("created_by");
+            entity.Property(e => e.DelivererName)
+                .HasMaxLength(100)
+                .HasColumnName("deliverer_name");
+            entity.Property(e => e.InvoiceDate).HasColumnName("invoice_date");
             entity.Property(e => e.InvoiceNumber)
                 .HasMaxLength(50)
                 .HasColumnName("invoice_number");
@@ -1104,6 +1112,7 @@ public partial class AppDbContext : DbContext
                 .HasColumnName("receipt_item_id");
             entity.Property(e => e.CabinetId).HasColumnName("cabinet_id");
             entity.Property(e => e.ComponentId).HasColumnName("component_id");
+            entity.Property(e => e.DocumentQuantity).HasColumnName("document_quantity");
             entity.Property(e => e.Quantity).HasColumnName("quantity");
             entity.Property(e => e.ReceiptId).HasColumnName("receipt_id");
             entity.Property(e => e.SubTotal)
