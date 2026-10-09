@@ -33,6 +33,12 @@ public partial class StockReceipt
 
     public string? InvoiceStorageKey { get; set; }
 
+    public string? InvoiceNumber { get; set; }
+
+    public DateTime? UpdatedAt { get; set; }
+
+    public Guid? UpdatedBy { get; set; }
+
     public virtual User? CancelledByNavigation { get; set; }
 
     public virtual User CreatedByNavigation { get; set; } = null!;
@@ -40,4 +46,6 @@ public partial class StockReceipt
     public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
 
     public virtual ICollection<StockReceiptItem> StockReceiptItems { get; set; } = new List<StockReceiptItem>();
+
+    public virtual User? UpdatedByNavigation { get; set; }
 }
