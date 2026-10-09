@@ -39,6 +39,10 @@ public partial class StockReceipt
 
     public Guid? UpdatedBy { get; set; }
 
+    public DateTime? InvoiceDate { get; set; }
+
+    public string? DelivererName { get; set; }
+
     public virtual User? CancelledByNavigation { get; set; }
 
     public virtual User CreatedByNavigation { get; set; } = null!;
