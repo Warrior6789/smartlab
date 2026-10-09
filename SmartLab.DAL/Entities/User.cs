@@ -57,6 +57,8 @@ public partial class User
 
     public virtual ICollection<StockReceipt> StockReceiptCreatedByNavigations { get; set; } = new List<StockReceipt>();
 
+    public virtual ICollection<StockReceipt> StockReceiptUpdatedByNavigations { get; set; } = new List<StockReceipt>();
+
     public virtual StudentProfile? StudentProfile { get; set; }
 
     public virtual ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();

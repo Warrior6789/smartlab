@@ -1046,6 +1046,9 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValueSql("now()")
                 .HasColumnName("created_at");
             entity.Property(e => e.CreatedBy).HasColumnName("created_by");
+            entity.Property(e => e.InvoiceNumber)
+                .HasMaxLength(50)
+                .HasColumnName("invoice_number");
             entity.Property(e => e.InvoiceStorageKey)
                 .HasMaxLength(255)
                 .HasColumnName("invoice_storage_key");
@@ -1069,6 +1072,8 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.TotalAmount)
                 .HasPrecision(18, 2)
                 .HasColumnName("total_amount");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entity.Property(e => e.UpdatedBy).HasColumnName("updated_by");
 
             entity.HasOne(d => d.CancelledByNavigation).WithMany(p => p.StockReceiptCancelledByNavigations)
                 .HasForeignKey(d => d.CancelledBy)
@@ -1078,6 +1083,10 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.CreatedBy)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("stock_receipts_created_by_fkey");
+
+            entity.HasOne(d => d.UpdatedByNavigation).WithMany(p => p.StockReceiptUpdatedByNavigations)
+                .HasForeignKey(d => d.UpdatedBy)
+                .HasConstraintName("stock_receipts_updated_by_fkey");
         });
 
         modelBuilder.Entity<StockReceiptItem>(entity =>
