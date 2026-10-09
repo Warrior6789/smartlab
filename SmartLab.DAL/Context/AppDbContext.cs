@@ -403,9 +403,6 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'REUSABLE'::character varying")
                 .HasColumnName("tracking_type");
-            entity.Property(e => e.UnitPrice)
-                .HasPrecision(12, 2)
-                .HasColumnName("unit_price");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("updated_at");

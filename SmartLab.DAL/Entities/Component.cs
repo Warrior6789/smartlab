@@ -25,8 +25,6 @@ public partial class Component
 
     public DateTime UpdatedAt { get; set; }
 
-    public decimal UnitPrice { get; set; }
-
     public string TrackingType { get; set; } = null!;
 
     public string? DatasheetStorageKey { get; set; }
