@@ -29,6 +29,8 @@ public partial class Component
 
     public string? DatasheetStorageKey { get; set; }
 
+    public int? MinStock { get; set; }
+
     public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
 
     public virtual ComponentCategory Category { get; set; } = null!;

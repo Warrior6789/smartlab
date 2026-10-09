@@ -31,6 +31,8 @@ public partial class ComponentItem
 
     public Guid? ReceiptItemId { get; set; }
 
+    public string ItemCode { get; set; } = null!;
+
     public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
 
     public virtual StorageCabinet Cabinet { get; set; } = null!;

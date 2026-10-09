@@ -399,6 +399,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Manufacturer)
                 .HasMaxLength(100)
                 .HasColumnName("manufacturer");
+            entity.Property(e => e.MinStock).HasColumnName("min_stock");
             entity.Property(e => e.TrackingType)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'REUSABLE'::character varying")
@@ -478,6 +479,8 @@ public partial class AppDbContext : DbContext
 
             entity.ToTable("component_items");
 
+            entity.HasIndex(e => e.ItemCode, "component_items_item_code_key").IsUnique();
+
             entity.HasIndex(e => e.CabinetId, "ix_component_items_cabinet_id");
 
             entity.HasIndex(e => e.ComponentId, "ix_component_items_component_id");
@@ -502,6 +505,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.ImportedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("imported_at");
+            entity.Property(e => e.ItemCode)
+                .HasMaxLength(60)
+                .HasColumnName("item_code");
             entity.Property(e => e.Note)
                 .HasMaxLength(255)
                 .HasColumnName("note");
@@ -1040,6 +1046,12 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValueSql("now()")
                 .HasColumnName("created_at");
             entity.Property(e => e.CreatedBy).HasColumnName("created_by");
+            entity.Property(e => e.InvoiceStorageKey)
+                .HasMaxLength(255)
+                .HasColumnName("invoice_storage_key");
+            entity.Property(e => e.InvoiceUrl)
+                .HasMaxLength(500)
+                .HasColumnName("invoice_url");
             entity.Property(e => e.Note).HasColumnName("note");
             entity.Property(e => e.ReceiptCode)
                 .HasMaxLength(30)
