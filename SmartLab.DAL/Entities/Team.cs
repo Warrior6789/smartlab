@@ -21,7 +21,7 @@ public partial class Team
 
     public virtual StudentProfile Leader { get; set; } = null!;
 
-    public virtual ICollection<Project> Projects { get; set; } = new List<Project>();
+    public virtual Project? Project { get; set; }
 
     public virtual ICollection<TeamMember> TeamMembers { get; set; } = new List<TeamMember>();
 }

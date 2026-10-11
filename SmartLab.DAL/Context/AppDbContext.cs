@@ -995,6 +995,10 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.OwnerId, "ix_projects_owner_id");
 
+            entity.HasIndex(e => e.TeamId, "projects_team_id_key")
+                .IsUnique()
+                .HasFilter("(team_id IS NOT NULL)");
+
             entity.Property(e => e.ProjectId)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("project_id");
@@ -1010,6 +1014,11 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(500)
                 .HasColumnName("github_url");
             entity.Property(e => e.OwnerId).HasColumnName("owner_id");
+            entity.Property(e => e.ReviewComment)
+                .HasMaxLength(500)
+                .HasColumnName("review_comment");
+            entity.Property(e => e.ReviewedAt).HasColumnName("reviewed_at");
+            entity.Property(e => e.ReviewedBy).HasColumnName("reviewed_by");
             entity.Property(e => e.SlideUrl)
                 .HasMaxLength(500)
                 .HasColumnName("slide_url");
@@ -1017,6 +1026,7 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Draft'::character varying")
                 .HasColumnName("status");
+            entity.Property(e => e.SubmittedAt).HasColumnName("submitted_at");
             entity.Property(e => e.TeamId).HasColumnName("team_id");
             entity.Property(e => e.Title)
                 .HasMaxLength(200)
@@ -1030,13 +1040,17 @@ public partial class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("projects_class_id_fkey");
 
-            entity.HasOne(d => d.Owner).WithMany(p => p.Projects)
+            entity.HasOne(d => d.Owner).WithMany(p => p.ProjectOwners)
                 .HasForeignKey(d => d.OwnerId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("projects_owner_id_fkey");
 
-            entity.HasOne(d => d.Team).WithMany(p => p.Projects)
-                .HasForeignKey(d => d.TeamId)
+            entity.HasOne(d => d.ReviewedByNavigation).WithMany(p => p.ProjectReviewedByNavigations)
+                .HasForeignKey(d => d.ReviewedBy)
+                .HasConstraintName("projects_reviewed_by_fkey");
+
+            entity.HasOne(d => d.Team).WithOne(p => p.Project)
+                .HasForeignKey<Project>(d => d.TeamId)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("projects_team_id_fkey");
         });

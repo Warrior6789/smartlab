@@ -55,7 +55,9 @@ public partial class User
 
     public virtual ICollection<LabRoomStaff> LabRoomStaffs { get; set; } = new List<LabRoomStaff>();
 
-    public virtual ICollection<Project> Projects { get; set; } = new List<Project>();
+    public virtual ICollection<Project> ProjectOwners { get; set; } = new List<Project>();
+
+    public virtual ICollection<Project> ProjectReviewedByNavigations { get; set; } = new List<Project>();
 
     public virtual ICollection<StockReceipt> StockReceiptCancelledByNavigations { get; set; } = new List<StockReceipt>();
 

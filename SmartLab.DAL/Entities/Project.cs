@@ -29,6 +29,14 @@ public partial class Project
 
     public Guid? TeamId { get; set; }
 
+    public DateTime? SubmittedAt { get; set; }
+
+    public Guid? ReviewedBy { get; set; }
+
+    public DateTime? ReviewedAt { get; set; }
+
+    public string? ReviewComment { get; set; }
+
     public virtual ICollection<BorrowRequest> BorrowRequests { get; set; } = new List<BorrowRequest>();
 
     public virtual Class? Class { get; set; }
@@ -36,6 +44,8 @@ public partial class Project
     public virtual User Owner { get; set; } = null!;
 
     public virtual ICollection<ProjectComponent> ProjectComponents { get; set; } = new List<ProjectComponent>();
+
+    public virtual User? ReviewedByNavigation { get; set; }
 
     public virtual Team? Team { get; set; }
 }
