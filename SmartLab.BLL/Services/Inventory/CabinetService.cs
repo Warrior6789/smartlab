@@ -60,9 +60,9 @@ public class CabinetService : ICabinetService
                               RoomName = c.Room.RoomName,
                               Location = c.Location,
                               Status = c.Status,
-                              ItemCount = c.ComponentItems.Count(i => i.Status != ComponentItemStatuses.Lost
-                                                                      && i.Status != ComponentItemStatuses.Retired)
-                                          + c.ConsumableStocks.Sum(st => st.Quantity),
+                              UnitCount = c.ComponentItems.Count(i => i.Status != ComponentItemStatuses.Lost
+                                                                      && i.Status != ComponentItemStatuses.Retired),
+                              ConsumableQuantity = c.ConsumableStocks.Sum(st => st.Quantity),
                           })
                           .FirstOrDefaultAsync(ct)
                       ?? throw new NotFoundException("Không tìm thấy tủ");
@@ -140,7 +140,7 @@ public class CabinetService : ICabinetService
         var cabinet = await cabinets.Query().FirstOrDefaultAsync(c => c.CabinetId == cabinetId, ct)
                       ?? throw new NotFoundException("Không tìm thấy tủ");
 
-        if (request.RoomId != cabinet.RoomId)
+        if (request.RoomId != cabinet.RoomId || (request.Status == CabinetStatuses.Active && cabinet.Status != CabinetStatuses.Active))
             await EnsureActiveRoomAsync(request.RoomId, ct);
 
         if (request.Status == CabinetStatuses.Inactive && cabinet.Status != CabinetStatuses.Inactive
@@ -202,8 +202,8 @@ public class CabinetService : ICabinetService
             RoomName = c.Room.RoomName,
             Location = c.Location,
             Status = c.Status,
-            ItemCount = c.ComponentItems.Count(i => i.Status != ComponentItemStatuses.Lost
-                                                    && i.Status != ComponentItemStatuses.Retired)
-                        + c.ConsumableStocks.Sum(st => st.Quantity),
+            UnitCount = c.ComponentItems.Count(i => i.Status != ComponentItemStatuses.Lost
+                                                    && i.Status != ComponentItemStatuses.Retired),
+            ConsumableQuantity = c.ConsumableStocks.Sum(st => st.Quantity),
         });
 }

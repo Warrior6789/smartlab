@@ -7,7 +7,7 @@ public interface ICabinetService
 {
     /// <summary>
     /// Paged storage cabinets ordered by room code then cabinet code, filtered by search text, room and status.
-    /// ItemCount excludes Lost/Retired units.
+    /// UnitCount excludes Lost/Retired units; ConsumableQuantity is the total CONSUMABLE quantity.
     /// </summary>
     Task<PagedResult<CabinetResponse>> GetCabinetsAsync(CabinetQueryParams query, PageParams paging, CancellationToken ct = default);
 
