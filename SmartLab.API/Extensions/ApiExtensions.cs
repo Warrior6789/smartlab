@@ -1,6 +1,8 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using SmartLab.API.Filters;
 using SmartLab.BLL.Common;
@@ -12,6 +14,7 @@ public static class ApiExtensions
     /// <summary>
     /// Controllers + FluentValidation filter; model-binding errors (bad JSON...) also return ApiResponse.
     /// Null/missing required fields are left to the FluentValidation validators so their messages are used.
+    /// Numbers must be JSON numbers: "5" (a string) is rejected instead of being read as 5.
     /// </summary>
     public static IServiceCollection AddSmartLabControllers(this IServiceCollection services)
     {
@@ -34,11 +37,18 @@ public static class ApiExtensions
                 messages.SetValueMustBeANumberAccessor(_ => "Giá trị phải là số");
                 messages.SetNonPropertyValueMustBeANumberAccessor(() => "Giá trị phải là số");
             })
+            .AddJsonOptions(options => options.JsonSerializerOptions.NumberHandling = JsonNumberHandling.Strict)
             .ConfigureApiBehaviorOptions(options =>
             {
                 options.SuppressMapClientErrors = true;
                 options.InvalidModelStateResponseFactory = context =>
                 {
+                    if (IsRequestTooLarge(context.HttpContext))
+                        return new ObjectResult(ApiResponse.Fail("Dữ liệu gửi lên vượt quá dung lượng cho phép"))
+                        {
+                            StatusCode = StatusCodes.Status413PayloadTooLarge,
+                        };
+
                     var errors = new Dictionary<string, string[]>();
                     foreach (var (key, entry) in context.ModelState)
                     {
@@ -79,6 +89,18 @@ public static class ApiExtensions
             response.ContentType = "application/json; charset=utf-8";
             await response.WriteAsync(JsonSerializer.Serialize(ApiResponse.Fail(message), JsonDefaults.Options));
         });
+
+    /// <summary>
+    /// True when the body is bigger than the endpoint's [RequestSizeLimit]. MVC only keeps the English
+    /// message of that failure in ModelState, so the declared Content-Length is compared with the limit instead.
+    /// </summary>
+    private static bool IsRequestTooLarge(HttpContext httpContext)
+    {
+        var maxBodySize = httpContext.Features.Get<IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize;
+        var contentLength = httpContext.Request.ContentLength;
+
+        return maxBodySize.HasValue && contentLength.HasValue && contentLength.Value > maxBodySize.Value;
+    }
 
     /// <summary>"$.categoryName" / "CategoryName" → "categoryName"; "$" or "" (whole body) → "body".</summary>
     private static string ToFieldName(string key)

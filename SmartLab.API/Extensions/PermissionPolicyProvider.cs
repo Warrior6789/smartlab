@@ -7,7 +7,7 @@ namespace SmartLab.API.Extensions;
 
 /// <summary>
 /// Builds a policy on the fly for every permission code, so [Authorize(Policy = PermissionCodes.X)]
-/// works without registering 14 policies by hand. Other policy names fall back to the default provider.
+/// works without registering one policy per permission by hand. Other policy names fall back to the default provider.
 /// </summary>
 public class PermissionPolicyProvider : IAuthorizationPolicyProvider
 {

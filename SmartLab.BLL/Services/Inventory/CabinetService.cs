@@ -34,11 +34,9 @@ public class CabinetService : ICabinetService
         if (query.RoomId.HasValue)
             cabinets = cabinets.Where(c => c.RoomId == query.RoomId.Value);
 
-        if (!string.IsNullOrWhiteSpace(query.Status))
-        {
-            var status = query.Status.Trim();
+        var status = CabinetStatuses.Normalize(query.Status);
+        if (status != null)
             cabinets = cabinets.Where(c => c.Status == status);
-        }
 
         var result = ToResponses(cabinets
             .OrderBy(c => EF.Functions.Collate(c.Room.RoomCode, DbCollations.Vietnamese))

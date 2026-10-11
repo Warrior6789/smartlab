@@ -12,7 +12,7 @@ public static class PermissionCodes
     public const string ProjectCreate = "PROJECT_CREATE";
     public const string ComponentView = "COMPONENT_VIEW";
     public const string ComponentManage = "COMPONENT_MANAGE";
-    public const string PurchaseManage = "PURCHASE_MANAGE";
+    public const string StockReceiptManage = "STOCK_RECEIPT_MANAGE";
     public const string InventoryAudit = "INVENTORY_AUDIT";
     public const string BorrowCreate = "BORROW_CREATE";
     public const string BorrowApprove = "BORROW_APPROVE";
@@ -23,7 +23,7 @@ public static class PermissionCodes
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>
     {
-        UserManage, RoleManage, AcademicManage, ProjectCreate, ComponentView, ComponentManage, PurchaseManage,
+        UserManage, RoleManage, AcademicManage, ProjectCreate, ComponentView, ComponentManage, StockReceiptManage,
         InventoryAudit, BorrowCreate, BorrowApprove, BorrowIssue, IssueResolve, ReportView, AuditLogView,
     };
 }

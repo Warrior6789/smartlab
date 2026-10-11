@@ -49,6 +49,12 @@ public static class DependencyInjection
         services.AddScoped<ICategoryService, CategoryService>();
         services.AddScoped<ILabRoomService, LabRoomService>();
         services.AddScoped<ICabinetService, CabinetService>();
+        services.AddScoped<IComponentService, ComponentService>();
+        services.AddScoped<IComponentItemService, ComponentItemService>();
+        services.AddScoped<IConsumableStockService, ConsumableStockService>();
+        services.AddScoped<IComponentImageService, ComponentImageService>();
+        services.AddScoped<IStockReceiptService, StockReceiptService>();
+        services.AddScoped<IInventoryTransactionService, InventoryTransactionService>();
 
         services.AddHostedService<AdminSeeder>();
 

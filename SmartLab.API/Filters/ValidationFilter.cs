@@ -33,11 +33,14 @@ public class ValidationFilter : IAsyncActionFilter
 
 public static class ValidationErrorExtensions
 {
-    /// <summary>Groups failures by camelCase property name: { "email": ["...", "..."] }.</summary>
+    /// <summary>Groups failures by camelCase property path: { "email": [...], "specs[0].specKey": [...] }.</summary>
     public static IDictionary<string, string[]> ToErrorDictionary(this IEnumerable<ValidationFailure> failures)
         => failures
-            .GroupBy(f => ToCamelCase(f.PropertyName))
+            .GroupBy(f => ToCamelCasePath(f.PropertyName))
             .ToDictionary(g => g.Key, g => g.Select(f => f.ErrorMessage).Distinct().ToArray());
+
+    private static string ToCamelCasePath(string path)
+        => string.Join('.', path.Split('.').Select(ToCamelCase));
 
     private static string ToCamelCase(string name)
         => string.IsNullOrEmpty(name) ? name : char.ToLowerInvariant(name[0]) + name[1..];
