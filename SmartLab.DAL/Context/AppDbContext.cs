@@ -14,6 +14,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<AuditLog> AuditLogs { get; set; }
 
+    public virtual DbSet<BorrowApproval> BorrowApprovals { get; set; }
+
     public virtual DbSet<BorrowExtension> BorrowExtensions { get; set; }
 
     public virtual DbSet<BorrowItem> BorrowItems { get; set; }
@@ -42,6 +44,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<Course> Courses { get; set; }
 
+    public virtual DbSet<Department> Departments { get; set; }
+
     public virtual DbSet<InstructorProfile> InstructorProfiles { get; set; }
 
     public virtual DbSet<InventoryAudit> InventoryAudits { get; set; }
@@ -51,6 +55,8 @@ public partial class AppDbContext : DbContext
     public virtual DbSet<IssueReport> IssueReports { get; set; }
 
     public virtual DbSet<LabRoom> LabRooms { get; set; }
+
+    public virtual DbSet<LabRoomStaff> LabRoomStaffs { get; set; }
 
     public virtual DbSet<Permission> Permissions { get; set; }
 
@@ -132,6 +138,47 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("audit_logs_user_id_fkey");
+        });
+
+        modelBuilder.Entity<BorrowApproval>(entity =>
+        {
+            entity.HasKey(e => e.ApprovalId).HasName("borrow_approvals_pkey");
+
+            entity.ToTable("borrow_approvals");
+
+            entity.HasIndex(e => new { e.BorrowRequestId, e.StepNo }, "borrow_approvals_borrow_request_id_step_no_key").IsUnique();
+
+            entity.HasIndex(e => new { e.ApproverId, e.Status }, "ix_borrow_approvals_approver_status");
+
+            entity.Property(e => e.ApprovalId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("approval_id");
+            entity.Property(e => e.ApproverId).HasColumnName("approver_id");
+            entity.Property(e => e.ApproverRole)
+                .HasMaxLength(30)
+                .HasColumnName("approver_role");
+            entity.Property(e => e.BorrowRequestId).HasColumnName("borrow_request_id");
+            entity.Property(e => e.Comment)
+                .HasMaxLength(255)
+                .HasColumnName("comment");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("created_at");
+            entity.Property(e => e.DecidedAt).HasColumnName("decided_at");
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'Pending'::character varying")
+                .HasColumnName("status");
+            entity.Property(e => e.StepNo).HasColumnName("step_no");
+
+            entity.HasOne(d => d.Approver).WithMany(p => p.BorrowApprovals)
+                .HasForeignKey(d => d.ApproverId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("borrow_approvals_approver_id_fkey");
+
+            entity.HasOne(d => d.BorrowRequest).WithMany(p => p.BorrowApprovals)
+                .HasForeignKey(d => d.BorrowRequestId)
+                .HasConstraintName("borrow_approvals_borrow_request_id_fkey");
         });
 
         modelBuilder.Entity<BorrowExtension>(entity =>
@@ -222,13 +269,14 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.RequesterId, "ix_borrow_requests_requester_id");
 
+            entity.HasIndex(e => new { e.RoomId, e.Status }, "ix_borrow_requests_room_status");
+
             entity.HasIndex(e => e.Status, "ix_borrow_requests_status");
 
             entity.Property(e => e.BorrowRequestId)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("borrow_request_id");
             entity.Property(e => e.ApprovedAt).HasColumnName("approved_at");
-            entity.Property(e => e.ApproverId).HasColumnName("approver_id");
             entity.Property(e => e.BorrowDate).HasColumnName("borrow_date");
             entity.Property(e => e.ClassId).HasColumnName("class_id");
             entity.Property(e => e.DueDate).HasColumnName("due_date");
@@ -247,14 +295,11 @@ public partial class AppDbContext : DbContext
                 .HasColumnName("request_date");
             entity.Property(e => e.RequesterId).HasColumnName("requester_id");
             entity.Property(e => e.ReturnedAt).HasColumnName("returned_at");
+            entity.Property(e => e.RoomId).HasColumnName("room_id");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Pending'::character varying")
                 .HasColumnName("status");
-
-            entity.HasOne(d => d.Approver).WithMany(p => p.BorrowRequestApprovers)
-                .HasForeignKey(d => d.ApproverId)
-                .HasConstraintName("borrow_requests_approver_id_fkey");
 
             entity.HasOne(d => d.Class).WithMany(p => p.BorrowRequests)
                 .HasForeignKey(d => d.ClassId)
@@ -264,10 +309,15 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.ProjectId)
                 .HasConstraintName("borrow_requests_project_id_fkey");
 
-            entity.HasOne(d => d.Requester).WithMany(p => p.BorrowRequestRequesters)
+            entity.HasOne(d => d.Requester).WithMany(p => p.BorrowRequests)
                 .HasForeignKey(d => d.RequesterId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("borrow_requests_requester_id_fkey");
+
+            entity.HasOne(d => d.Room).WithMany(p => p.BorrowRequests)
+                .HasForeignKey(d => d.RoomId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("borrow_requests_room_id_fkey");
         });
 
         modelBuilder.Entity<Class>(entity =>
@@ -664,6 +714,31 @@ public partial class AppDbContext : DbContext
                 .HasColumnName("is_active");
         });
 
+        modelBuilder.Entity<Department>(entity =>
+        {
+            entity.HasKey(e => e.DepartmentId).HasName("departments_pkey");
+
+            entity.ToTable("departments");
+
+            entity.Property(e => e.DepartmentId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("department_id");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("created_at");
+            entity.Property(e => e.DepartmentName)
+                .HasMaxLength(150)
+                .HasColumnName("department_name");
+            entity.Property(e => e.HeadId).HasColumnName("head_id");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Head).WithMany(p => p.Departments)
+                .HasForeignKey(d => d.HeadId)
+                .HasConstraintName("departments_head_id_fkey");
+        });
+
         modelBuilder.Entity<InstructorProfile>(entity =>
         {
             entity.HasKey(e => e.InstructorProfileId).HasName("instructor_profiles_pkey");
@@ -680,13 +755,15 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.AcademicTitle)
                 .HasMaxLength(50)
                 .HasColumnName("academic_title");
-            entity.Property(e => e.Department)
-                .HasMaxLength(100)
-                .HasColumnName("department");
+            entity.Property(e => e.DepartmentId).HasColumnName("department_id");
             entity.Property(e => e.InstructorCode)
                 .HasMaxLength(20)
                 .HasColumnName("instructor_code");
             entity.Property(e => e.UserId).HasColumnName("user_id");
+
+            entity.HasOne(d => d.Department).WithMany(p => p.InstructorProfiles)
+                .HasForeignKey(d => d.DepartmentId)
+                .HasConstraintName("instructor_profiles_department_id_fkey");
 
             entity.HasOne(d => d.User).WithOne(p => p.InstructorProfile)
                 .HasForeignKey<InstructorProfile>(d => d.UserId)
@@ -861,6 +938,29 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("updated_at");
+        });
+
+        modelBuilder.Entity<LabRoomStaff>(entity =>
+        {
+            entity.HasKey(e => new { e.RoomId, e.UserId }).HasName("lab_room_staff_pkey");
+
+            entity.ToTable("lab_room_staff");
+
+            entity.Property(e => e.RoomId).HasColumnName("room_id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.AssignedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("assigned_at");
+
+            entity.HasOne(d => d.Room).WithMany(p => p.LabRoomStaffs)
+                .HasForeignKey(d => d.RoomId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("lab_room_staff_room_id_fkey");
+
+            entity.HasOne(d => d.User).WithMany(p => p.LabRoomStaffs)
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("lab_room_staff_user_id_fkey");
         });
 
         modelBuilder.Entity<Permission>(entity =>

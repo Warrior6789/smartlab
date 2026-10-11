@@ -13,6 +13,6 @@ public class CreateUserRequest
 
     /// <summary>Required when Role is Lecturer.</summary>
     public string? InstructorCode { get; set; }
-    public string? Department { get; set; }
+    public Guid? DepartmentId { get; set; }
     public string? AcademicTitle { get; set; }
 }

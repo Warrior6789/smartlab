@@ -31,15 +31,17 @@ public partial class User
 
     public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
 
+    public virtual ICollection<BorrowApproval> BorrowApprovals { get; set; } = new List<BorrowApproval>();
+
     public virtual ICollection<BorrowExtension> BorrowExtensions { get; set; } = new List<BorrowExtension>();
 
-    public virtual ICollection<BorrowRequest> BorrowRequestApprovers { get; set; } = new List<BorrowRequest>();
-
-    public virtual ICollection<BorrowRequest> BorrowRequestRequesters { get; set; } = new List<BorrowRequest>();
+    public virtual ICollection<BorrowRequest> BorrowRequests { get; set; } = new List<BorrowRequest>();
 
     public virtual ICollection<ComponentImage> ComponentImages { get; set; } = new List<ComponentImage>();
 
     public virtual ICollection<ComponentTutorial> ComponentTutorials { get; set; } = new List<ComponentTutorial>();
+
+    public virtual ICollection<Department> Departments { get; set; } = new List<Department>();
 
     public virtual InstructorProfile? InstructorProfile { get; set; }
 
@@ -50,6 +52,8 @@ public partial class User
     public virtual ICollection<IssueReport> IssueReportReportedByNavigations { get; set; } = new List<IssueReport>();
 
     public virtual ICollection<IssueReport> IssueReportResolvedByNavigations { get; set; } = new List<IssueReport>();
+
+    public virtual ICollection<LabRoomStaff> LabRoomStaffs { get; set; } = new List<LabRoomStaff>();
 
     public virtual ICollection<Project> Projects { get; set; } = new List<Project>();
 

@@ -44,7 +44,8 @@ public static class UserMappings
         InstructorProfile = user.InstructorProfile is null ? null : new InstructorProfileResponse
         {
             InstructorCode = user.InstructorProfile.InstructorCode,
-            Department = user.InstructorProfile.Department,
+            DepartmentId = user.InstructorProfile.DepartmentId,
+            DepartmentName = user.InstructorProfile.Department?.DepartmentName,
             AcademicTitle = user.InstructorProfile.AcademicTitle,
         },
     };

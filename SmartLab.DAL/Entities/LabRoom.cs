@@ -17,5 +17,9 @@ public partial class LabRoom
 
     public DateTime UpdatedAt { get; set; }
 
+    public virtual ICollection<BorrowRequest> BorrowRequests { get; set; } = new List<BorrowRequest>();
+
+    public virtual ICollection<LabRoomStaff> LabRoomStaffs { get; set; } = new List<LabRoomStaff>();
+
     public virtual ICollection<StorageCabinet> StorageCabinets { get; set; } = new List<StorageCabinet>();
 }
