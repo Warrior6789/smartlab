@@ -16,6 +16,14 @@ namespace SmartLab.BLL.Services.Inventory;
 public class StockReceiptService : IStockReceiptService
 {
     private const string InvoiceStorageFolder = "invoices";
+    private const string ReceiptCodeUniqueConstraint = "stock_receipts_receipt_code_key";
+    private const string ItemCodeUniqueConstraint = "component_items_item_code_key";
+    private const string SupplierInvoiceUniqueConstraint = "stock_receipts_supplier_invoice_key";
+    private const string SerialUniqueConstraint = "ux_component_items_serial";
+    private const string ConsumableStockKey = "consumable_stocks_pkey";
+
+    /// <summary>Each round at least one of the racing receipts is saved, so this covers that many simultaneous receipts.</summary>
+    private const int MaxCodeAttempts = 10;
 
     /// <summary>Vietnam has no DST, so a fixed UTC+7 offset is exact.</summary>
     private static readonly TimeSpan VietnamUtcOffset = TimeSpan.FromHours(7);
@@ -193,15 +201,70 @@ public class StockReceiptService : IStockReceiptService
         foreach (var line in request.Items)
             receipt.InventoryTransactions.Add(ReceiptTransaction(line.ComponentId, line.CabinetId, line.Quantity, null, userId, now));
 
-        await using var tx = await _uow.BeginTransactionAsync(ct);
-
-        await AddConsumableStockAsync(ConsumableRequestLines(request, components), now, ct);
         await _uow.Repository<StockReceipt>().AddAsync(receipt, ct);
-        await SaveReceiptChangesAsync(ct);
+        var consumableLines = ConsumableRequestLines(request, components);
 
-        await tx.CommitAsync(ct);
+        var attempt = 1;
+        while (true)
+        {
+            await using var tx = await _uow.BeginTransactionAsync(ct);
+            var addedStocks = await AddConsumableStockAsync(consumableLines, now, ct);
+            try
+            {
+                await _uow.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                break;
+            }
+            catch (DbUpdateException ex) when (IsRetryableConflict(ex) && attempt < MaxCodeAttempts)
+            {
+                await tx.RollbackAsync(ct);
+                foreach (var stock in addedStocks)
+                    _uow.Repository<ConsumableStock>().Remove(stock);
+
+                attempt++;
+                receipt.ReceiptCode = await GenerateReceiptCodeAsync(now, ct);
+                await RenumberUnitsAsync(receipt, components, ct);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } pg)
+            {
+                throw ConflictFor(pg, supplierName, invoiceNumber);
+            }
+        }
 
         return await GetReceiptByIdAsync(receipt.ReceiptId, ct);
+    }
+
+    /// <summary>
+    /// Conflicts that a fresh attempt fixes: receipt codes and unit codes are "highest + 1", so two receipts saved at the
+    /// same time can pick the same one; and two receipts can both insert the first stock row of a component in a cabinet.
+    /// The loser rolls back, takes new codes and saves again (the stock row then exists and is incremented).
+    /// </summary>
+    private static bool IsRetryableConflict(DbUpdateException ex)
+        => ex.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: ReceiptCodeUniqueConstraint or ItemCodeUniqueConstraint or ConsumableStockKey,
+        };
+
+    /// <summary>Gives the unit lines of the receipt fresh item codes after a code conflict.</summary>
+    private async Task RenumberUnitsAsync(StockReceipt receipt, Dictionary<Guid, Component> components, CancellationToken ct)
+    {
+        var nextUnitNumbers = await NextUnitNumbersAsync(components, ct);
+        foreach (var line in receipt.StockReceiptItems)
+        {
+            foreach (var unit in line.ComponentItems)
+                unit.ItemCode = NextItemCode(components[line.ComponentId], nextUnitNumbers);
+        }
+    }
+
+    /// <summary>The 409 for a unique index that is not a generated code: same invoice entered twice, or a serial already in stock.</summary>
+    private static ConflictException ConflictFor(PostgresException ex, string supplierName, string? invoiceNumber)
+    {
+        if (ex.ConstraintName == SupplierInvoiceUniqueConstraint)
+            return new ConflictException($"Hóa đơn số {invoiceNumber} của {supplierName} đã được nhập ở phiếu khác");
+        if (ex.ConstraintName == SerialUniqueConstraint)
+            return new ConflictException("Có serial vừa được nhập ở phiếu khác, vui lòng kiểm tra lại");
+        return new ConflictException("Có thao tác nhập kho khác đang chạy cùng lúc, vui lòng thử lại");
     }
 
     public async Task<StockReceiptDetailResponse> UpdateReceiptAsync(
@@ -241,7 +304,7 @@ public class StockReceiptService : IStockReceiptService
                     .SetProperty(i => i.UpdatedAt, now), ct);
         }
 
-        await SaveReceiptChangesAsync(ct);
+        await SaveReceiptChangesAsync(supplierName, invoiceNumber, ct);
         await tx.CommitAsync(ct);
 
         return await GetReceiptByIdAsync(receiptId, ct);
@@ -543,7 +606,7 @@ public class StockReceiptService : IStockReceiptService
 
     /// <summary>
     /// For each REUSABLE/HIGH_VALUE component of the request, the next unit number: highest number in its item codes + 1.
-    /// Two receipts saved at the same time can pick the same code; the unique index then gives 409 and the user retries.
+    /// Two receipts saved at the same time can pick the same code; CreateReceiptAsync then renumbers and saves again.
     /// </summary>
     private async Task<Dictionary<Guid, int>> NextUnitNumbersAsync(Dictionary<Guid, Component> components, CancellationToken ct)
     {
@@ -578,15 +641,15 @@ public class StockReceiptService : IStockReceiptService
         return $"{component.ComponentCode}-{number:D4}";
     }
 
-    private async Task SaveReceiptChangesAsync(CancellationToken ct)
+    private async Task SaveReceiptChangesAsync(string supplierName, string? invoiceNumber, CancellationToken ct)
     {
         try
         {
             await _uow.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } pg)
         {
-            throw new ConflictException("Có thao tác nhập kho khác đang chạy cùng lúc, vui lòng thử lại");
+            throw ConflictFor(pg, supplierName, invoiceNumber);
         }
     }
 
@@ -821,10 +884,12 @@ public class StockReceiptService : IStockReceiptService
     /// <summary>
     /// Adds CONSUMABLE quantities to consumable_stocks, one row per component and cabinet.
     /// The increment runs as SQL (quantity = quantity + n) so two receipts saved at the same time cannot overwrite each other.
+    /// Returns the new rows added to the change tracker, so a retry can drop them first.
     /// </summary>
-    private async Task AddConsumableStockAsync(List<StockReceiptLineRequest> lines, DateTime now, CancellationToken ct)
+    private async Task<List<ConsumableStock>> AddConsumableStockAsync(List<StockReceiptLineRequest> lines, DateTime now, CancellationToken ct)
     {
         var stocks = _uow.Repository<ConsumableStock>();
+        var added = new List<ConsumableStock>();
 
         foreach (var line in lines)
         {
@@ -836,15 +901,19 @@ public class StockReceiptService : IStockReceiptService
 
             if (updated == 0)
             {
-                await stocks.AddAsync(new ConsumableStock
+                var stock = new ConsumableStock
                 {
                     ComponentId = line.ComponentId,
                     CabinetId = line.CabinetId,
                     Quantity = line.Quantity,
                     UpdatedAt = now,
-                }, ct);
+                };
+                await stocks.AddAsync(stock, ct);
+                added.Add(stock);
             }
         }
+
+        return added;
     }
 
     private static DateTime ToReceivedAt(DateTime value, DateTime now)
@@ -891,11 +960,22 @@ public class StockReceiptService : IStockReceiptService
         return serial.Trim().ToUpperInvariant();
     }
 
+    /// <summary>PN-yyyyMMdd-nnn (Vietnam date): highest number of the day + 1, so a gap left by a deleted receipt is never reused.</summary>
     private async Task<string> GenerateReceiptCodeAsync(DateTime now, CancellationToken ct)
     {
         var prefix = $"PN-{now.Add(VietnamUtcOffset):yyyyMMdd}-";
-        var todayCount = await _uow.Repository<StockReceipt>().QueryNoTracking()
-            .CountAsync(r => r.ReceiptCode.StartsWith(prefix), ct);
-        return $"{prefix}{todayCount + 1:D3}";
+        var todayCodes = await _uow.Repository<StockReceipt>().QueryNoTracking()
+            .Where(r => r.ReceiptCode.StartsWith(prefix))
+            .Select(r => r.ReceiptCode)
+            .ToListAsync(ct);
+
+        var maxNumber = 0;
+        foreach (var code in todayCodes)
+        {
+            if (int.TryParse(code.Substring(prefix.Length), out var number) && number > maxNumber)
+                maxNumber = number;
+        }
+
+        return $"{prefix}{maxNumber + 1:D3}";
     }
 }
