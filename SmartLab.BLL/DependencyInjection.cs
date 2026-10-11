@@ -46,6 +46,7 @@ public static class DependencyInjection
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRoleService, RoleService>();
 
+        services.AddScoped<ICategoryService, CategoryService>();
         services.AddScoped<ILabRoomService, LabRoomService>();
         services.AddScoped<ICabinetService, CabinetService>();
 
