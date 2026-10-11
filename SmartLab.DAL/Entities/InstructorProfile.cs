@@ -11,11 +11,13 @@ public partial class InstructorProfile
 
     public string InstructorCode { get; set; } = null!;
 
-    public string? Department { get; set; }
-
     public string? AcademicTitle { get; set; }
 
+    public Guid? DepartmentId { get; set; }
+
     public virtual ICollection<Class> Classes { get; set; } = new List<Class>();
+
+    public virtual Department? Department { get; set; }
 
     public virtual User User { get; set; } = null!;
 }
