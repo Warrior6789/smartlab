@@ -14,6 +14,7 @@ builder.Services.AddSmartLabSwagger();
 var app = builder.Build();
 
 app.UseMiddleware<ExceptionMiddleware>();
+app.UseSmartLabStatusCodePages();
 
 if (app.Environment.IsDevelopment())
 {
