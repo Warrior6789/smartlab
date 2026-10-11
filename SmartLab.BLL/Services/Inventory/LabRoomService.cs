@@ -23,7 +23,7 @@ public class LabRoomService : ILabRoomService
     public async Task<IReadOnlyList<LabRoomResponse>> GetLabRoomsAsync(CancellationToken ct = default)
     {
         return await ToResponses(_uow.Repository<LabRoom>().QueryNoTracking()
-                .OrderBy(r => r.RoomCode))
+                .OrderBy(r => EF.Functions.Collate(r.RoomCode, DbCollations.Vietnamese)))
             .ToListAsync(ct);
     }
 

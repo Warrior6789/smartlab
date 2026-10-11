@@ -41,7 +41,9 @@ public class CabinetService : ICabinetService
         }
 
         var result = ToResponses(cabinets
-            .OrderBy(c => c.Room.RoomCode).ThenBy(c => c.CabinetCode).ThenBy(c => c.CabinetId));
+            .OrderBy(c => EF.Functions.Collate(c.Room.RoomCode, DbCollations.Vietnamese))
+            .ThenBy(c => EF.Functions.Collate(c.CabinetCode, DbCollations.Vietnamese))
+            .ThenBy(c => c.CabinetId));
 
         return PagedResult<CabinetResponse>.CreateAsync(result, paging, ct);
     }
