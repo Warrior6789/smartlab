@@ -16,5 +16,12 @@ public class UpdateStockReceiptRequestValidator : AbstractValidator<UpdateStockR
 
         RuleFor(x => x.DelivererName)
             .MaximumLength(100).WithMessage("Tên người giao hàng tối đa 100 ký tự");
+
+        RuleFor(x => x.Note)
+            .MaximumLength(CreateStockReceiptRequestValidator.NoteMaxLength)
+            .WithMessage($"Ghi chú tối đa {CreateStockReceiptRequestValidator.NoteMaxLength} ký tự");
+
+        RuleFor(x => x.ReceivedAt)
+            .NotNull().WithMessage("Ngày nhận hàng là bắt buộc");
     }
 }

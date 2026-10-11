@@ -2,7 +2,7 @@ namespace SmartLab.BLL.DTOs.Inventory;
 
 /// <summary>
 /// Corrects the receipt info only. The lines cannot be edited: a receipt with wrong goods is cancelled and entered again.
-/// A null ReceivedAt keeps the current value.
+/// Replaces the whole header: send every field (empty optional fields are cleared); ReceivedAt is required.
 /// </summary>
 public class UpdateStockReceiptRequest
 {

@@ -5,6 +5,8 @@ namespace SmartLab.BLL.Validators.Inventory;
 
 public class CreateStockReceiptRequestValidator : AbstractValidator<CreateStockReceiptRequest>
 {
+    public const int NoteMaxLength = 1000;
+
     public CreateStockReceiptRequestValidator()
     {
         RuleFor(x => x.SupplierName)
@@ -16,6 +18,9 @@ public class CreateStockReceiptRequestValidator : AbstractValidator<CreateStockR
 
         RuleFor(x => x.DelivererName)
             .MaximumLength(100).WithMessage("Tên người giao hàng tối đa 100 ký tự");
+
+        RuleFor(x => x.Note)
+            .MaximumLength(NoteMaxLength).WithMessage($"Ghi chú tối đa {NoteMaxLength} ký tự");
 
         RuleFor(x => x.Items)
             .Cascade(CascadeMode.Stop)

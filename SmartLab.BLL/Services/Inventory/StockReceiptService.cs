@@ -21,6 +21,7 @@ public class StockReceiptService : IStockReceiptService
     private const string SupplierInvoiceUniqueConstraint = "stock_receipts_supplier_invoice_key";
     private const string SerialUniqueConstraint = "ux_component_items_serial";
     private const string ConsumableStockKey = "consumable_stocks_pkey";
+    private const string CancelledReceiptMessage = "Phiếu nhập kho đã bị hủy, không sửa được";
 
     /// <summary>Each round at least one of the racing receipts is saved, so this covers that many simultaneous receipts.</summary>
     private const int MaxCodeAttempts = 10;
@@ -276,7 +277,7 @@ public class StockReceiptService : IStockReceiptService
                           .FirstOrDefaultAsync(r => r.ReceiptId == receiptId, ct)
                       ?? throw new NotFoundException("Không tìm thấy phiếu nhập kho");
         if (receipt.Status == StockReceiptStatuses.Cancelled)
-            throw new ConflictException("Phiếu nhập kho đã bị hủy, không sửa được");
+            throw new ConflictException(CancelledReceiptMessage);
 
         var supplierName = request.SupplierName.Trim();
         var invoiceNumber = CleanInvoiceNumber(request.InvoiceNumber);
@@ -293,9 +294,9 @@ public class StockReceiptService : IStockReceiptService
 
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
-        if (request.ReceivedAt.HasValue)
+        var receivedAt = ToReceivedAt(request.ReceivedAt!.Value, now);
+        if (receivedAt != receipt.ReceivedAt)
         {
-            var receivedAt = ToReceivedAt(request.ReceivedAt.Value, now);
             receipt.ReceivedAt = receivedAt;
             await _uow.Repository<ComponentItem>().Query()
                 .Where(i => i.ReceiptItem != null && i.ReceiptItem.ReceiptId == receiptId)
@@ -396,6 +397,8 @@ public class StockReceiptService : IStockReceiptService
         var receipt = await _uow.Repository<StockReceipt>().Query()
                           .FirstOrDefaultAsync(r => r.ReceiptId == receiptId, ct)
                       ?? throw new NotFoundException("Không tìm thấy phiếu nhập kho");
+        if (receipt.Status == StockReceiptStatuses.Cancelled)
+            throw new ConflictException(CancelledReceiptMessage);
 
         StoredFile stored;
         await using (var content = request.File.OpenReadStream())
@@ -435,6 +438,8 @@ public class StockReceiptService : IStockReceiptService
         var receipt = await _uow.Repository<StockReceipt>().Query()
                           .FirstOrDefaultAsync(r => r.ReceiptId == receiptId, ct)
                       ?? throw new NotFoundException("Không tìm thấy phiếu nhập kho");
+        if (receipt.Status == StockReceiptStatuses.Cancelled)
+            throw new ConflictException(CancelledReceiptMessage);
         if (receipt.InvoiceStorageKey == null)
             throw new NotFoundException("Phiếu chưa có hóa đơn");
 
