@@ -162,6 +162,15 @@ public class ComponentItemService : IComponentItemService
         var now = DateTime.UtcNow;
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
+        if (request.FromStatus == ComponentItemStatuses.Available)
+        {
+            var leavesLendableStock = toStatus != ComponentItemStatuses.Available
+                                      || !await RoomStock.SameRoomAsync(_uow, request.FromCabinetId, toCabinetId, ct);
+            if (leavesLendableStock)
+                await RoomStock.EnsureNotReservedAsync(_uow,
+                    new[] { new StockRemoval(request.ComponentId, request.FromCabinetId, itemIds.Count) }, ct);
+        }
+
         var moved = await _uow.Repository<ComponentItem>().Query()
             .Where(i => itemIds.Contains(i.ItemId)
                         && i.CabinetId == request.FromCabinetId

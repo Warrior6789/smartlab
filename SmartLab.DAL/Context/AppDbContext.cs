@@ -64,6 +64,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<ProjectComponent> ProjectComponents { get; set; }
 
+    public virtual DbSet<ProjectSelfSuppliedItem> ProjectSelfSuppliedItems { get; set; }
+
     public virtual DbSet<Role> Roles { get; set; }
 
     public virtual DbSet<Semester> Semesters { get; set; }
@@ -1078,6 +1080,36 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.Project).WithMany(p => p.ProjectComponents)
                 .HasForeignKey(d => d.ProjectId)
                 .HasConstraintName("project_components_project_id_fkey");
+        });
+
+        modelBuilder.Entity<ProjectSelfSuppliedItem>(entity =>
+        {
+            entity.HasKey(e => e.ItemId).HasName("project_self_supplied_items_pkey");
+
+            entity.ToTable("project_self_supplied_items", tb => tb.HasComment("Linh kien nhom tu mua (khong co trong kho), nhom truong nhap khi tao/sua project"));
+
+            entity.HasIndex(e => e.ProjectId, "ix_project_self_supplied_items_project_id");
+
+            entity.Property(e => e.ItemId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("item_id");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("created_at");
+            entity.Property(e => e.ItemName)
+                .HasMaxLength(200)
+                .HasColumnName("item_name");
+            entity.Property(e => e.Note)
+                .HasMaxLength(255)
+                .HasColumnName("note");
+            entity.Property(e => e.ProjectId).HasColumnName("project_id");
+            entity.Property(e => e.Quantity)
+                .HasDefaultValue(1)
+                .HasColumnName("quantity");
+
+            entity.HasOne(d => d.Project).WithMany(p => p.ProjectSelfSuppliedItems)
+                .HasForeignKey(d => d.ProjectId)
+                .HasConstraintName("project_self_supplied_items_project_id_fkey");
         });
 
         modelBuilder.Entity<Role>(entity =>

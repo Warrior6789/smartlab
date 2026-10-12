@@ -42,3 +42,9 @@ public class ConflictException : AppException
 {
     public ConflictException(string message, IDictionary<string, string[]>? errors = null) : base(message, errors) { }
 }
+
+/// <summary>503: an external service (e.g. the AI provider) is not configured, overloaded or down.</summary>
+public class ServiceUnavailableException : AppException
+{
+    public ServiceUnavailableException(string message) : base(message) { }
+}

@@ -2,14 +2,18 @@ using System.Text;
 using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using SmartLab.BLL.External.Ai;
 using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.External.Email;
 using SmartLab.BLL.External.Jwt;
 using SmartLab.BLL.External.Security;
 using SmartLab.BLL.External.Storage;
+using SmartLab.BLL.Interfaces.Academic;
 using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.BLL.Interfaces.Inventory;
 using SmartLab.BLL.Seeding;
+using SmartLab.BLL.Services.Academic;
 using SmartLab.BLL.Services.Identity;
 using SmartLab.BLL.Services.Inventory;
 
@@ -37,10 +41,21 @@ public static class DependencyInjection
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
         services.AddSingleton<IEmailSender, SmtpEmailSender>();
 
+        services.Configure<GeminiOptions>(configuration.GetSection(GeminiOptions.SectionName));
+        services.AddHttpClient<IAiComponentAdvisor, GeminiComponentAdvisor>((provider, client) =>
+        {
+            var options = provider.GetRequiredService<IOptions<GeminiOptions>>().Value;
+            client.BaseAddress = new Uri(options.BaseUrl);
+            client.Timeout = Timeout.InfiniteTimeSpan;
+        });
+
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
 
         services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly);
+
+        services.AddMemoryCache();
+        services.AddScoped<IActiveUserChecker, ActiveUserChecker>();
 
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
@@ -55,6 +70,10 @@ public static class DependencyInjection
         services.AddScoped<IComponentImageService, ComponentImageService>();
         services.AddScoped<IStockReceiptService, StockReceiptService>();
         services.AddScoped<IInventoryTransactionService, InventoryTransactionService>();
+
+        services.AddScoped<IProjectService, ProjectService>();
+        services.AddScoped<IComponentSuggestionService, ComponentSuggestionService>();
+        services.AddScoped<IProjectReviewService, ProjectReviewService>();
 
         services.AddHostedService<AdminSeeder>();
 

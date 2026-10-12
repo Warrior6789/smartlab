@@ -503,12 +503,20 @@ public class StockReceiptService : IStockReceiptService
         var consumableLines = ConsumableLines(receipt);
         await EnsureCanTakeOutAsync(receipt, consumableLines,
             "Không hủy được phiếu vì hàng của phiếu không còn nguyên trong kho", ct);
-        await TakeConsumablesOutAsync(consumableLines, now, ct);
 
         var units = await _uow.Repository<ComponentItem>().QueryNoTracking()
             .Where(i => i.ReceiptItem != null && i.ReceiptItem.ReceiptId == receiptId)
             .Select(i => new { i.ItemId, i.ComponentId, i.CabinetId })
             .ToListAsync(ct);
+
+        var removals = new List<StockRemoval>();
+        foreach (var line in consumableLines)
+            removals.Add(new StockRemoval(line.ComponentId, line.CabinetId, line.Quantity));
+        foreach (var group in units.GroupBy(u => new { u.ComponentId, u.CabinetId }))
+            removals.Add(new StockRemoval(group.Key.ComponentId, group.Key.CabinetId, group.Count()));
+        await RoomStock.EnsureNotReservedAsync(_uow, removals, ct);
+
+        await TakeConsumablesOutAsync(consumableLines, now, ct);
         await DeleteUnitsAsync(units.Select(u => u.ItemId).ToList(), ct);
 
         var transactions = new List<InventoryTransaction>();
