@@ -70,6 +70,7 @@ public static class DependencyInjection
         services.AddScoped<IComponentImageService, ComponentImageService>();
         services.AddScoped<IStockReceiptService, StockReceiptService>();
         services.AddScoped<IInventoryTransactionService, InventoryTransactionService>();
+        services.AddScoped<IInventoryAuditService, InventoryAuditService>();
 
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<IComponentSuggestionService, ComponentSuggestionService>();

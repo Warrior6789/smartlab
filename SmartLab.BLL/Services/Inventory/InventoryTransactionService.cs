@@ -35,6 +35,9 @@ public class InventoryTransactionService : IInventoryTransactionService
         if (query.ReceiptId.HasValue)
             transactions = transactions.Where(t => t.ReceiptId == query.ReceiptId.Value);
 
+        if (query.AuditId.HasValue)
+            transactions = transactions.Where(t => t.AuditId == query.AuditId.Value);
+
         if (query.CreatedBy.HasValue)
             transactions = transactions.Where(t => t.CreatedBy == query.CreatedBy.Value);
 
@@ -56,28 +59,30 @@ public class InventoryTransactionService : IInventoryTransactionService
             transactions = transactions.Where(t => t.CreatedAt < toExclusive);
         }
 
-        var result = transactions
-            .OrderByDescending(t => t.CreatedAt).ThenBy(t => t.TransactionId)
-            .Select(t => new InventoryTransactionResponse
-            {
-                TransactionId = t.TransactionId,
-                Type = t.Type,
-                ComponentId = t.ComponentId,
-                ComponentCode = t.Component.ComponentCode,
-                ComponentName = t.Component.ComponentName,
-                CabinetId = t.CabinetId,
-                CabinetCode = t.Cabinet != null ? t.Cabinet.CabinetCode : null,
-                ItemId = t.ItemId,
-                SerialNumber = t.Item != null ? t.Item.SerialNumber : null,
-                QuantityChange = t.QuantityChange,
-                Reason = t.Reason,
-                ReceiptId = t.ReceiptId,
-                ReceiptCode = t.Receipt != null ? t.Receipt.ReceiptCode : null,
-                CreatedBy = t.CreatedBy,
-                CreatedByName = t.CreatedByNavigation.FullName,
-                CreatedAt = t.CreatedAt,
-            });
+        var result = ToResponses(transactions.OrderByDescending(t => t.CreatedAt).ThenBy(t => t.TransactionId));
 
         return PagedResult<InventoryTransactionResponse>.CreateAsync(result, paging, ct);
     }
+
+    internal static IQueryable<InventoryTransactionResponse> ToResponses(IQueryable<InventoryTransaction> transactions) =>
+        transactions.Select(t => new InventoryTransactionResponse
+        {
+            TransactionId = t.TransactionId,
+            Type = t.Type,
+            ComponentId = t.ComponentId,
+            ComponentCode = t.Component.ComponentCode,
+            ComponentName = t.Component.ComponentName,
+            CabinetId = t.CabinetId,
+            CabinetCode = t.Cabinet != null ? t.Cabinet.CabinetCode : null,
+            ItemId = t.ItemId,
+            SerialNumber = t.Item != null ? t.Item.SerialNumber : null,
+            QuantityChange = t.QuantityChange,
+            Reason = t.Reason,
+            ReceiptId = t.ReceiptId,
+            ReceiptCode = t.Receipt != null ? t.Receipt.ReceiptCode : null,
+            AuditId = t.AuditId,
+            CreatedBy = t.CreatedBy,
+            CreatedByName = t.CreatedByNavigation.FullName,
+            CreatedAt = t.CreatedAt,
+        });
 }

@@ -809,6 +809,8 @@ public partial class AppDbContext : DbContext
 
             entity.ToTable("inventory_transactions");
 
+            entity.HasIndex(e => e.AuditId, "ix_inventory_transactions_audit_id").HasFilter("(audit_id IS NOT NULL)");
+
             entity.HasIndex(e => e.ComponentId, "ix_inventory_transactions_component_id");
 
             entity.HasIndex(e => e.CreatedAt, "ix_inventory_transactions_created_at");
@@ -820,6 +822,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.TransactionId)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("transaction_id");
+            entity.Property(e => e.AuditId).HasColumnName("audit_id");
             entity.Property(e => e.CabinetId).HasColumnName("cabinet_id");
             entity.Property(e => e.ComponentId).HasColumnName("component_id");
             entity.Property(e => e.CreatedAt)
@@ -835,6 +838,10 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Type)
                 .HasMaxLength(30)
                 .HasColumnName("type");
+
+            entity.HasOne(d => d.Audit).WithMany(p => p.InventoryTransactions)
+                .HasForeignKey(d => d.AuditId)
+                .HasConstraintName("inventory_transactions_audit_id_fkey");
 
             entity.HasOne(d => d.Cabinet).WithMany(p => p.InventoryTransactions)
                 .HasForeignKey(d => d.CabinetId)

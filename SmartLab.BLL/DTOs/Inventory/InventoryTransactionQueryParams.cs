@@ -6,6 +6,7 @@ public class InventoryTransactionQueryParams
     public Guid? CabinetId { get; set; }
     public Guid? ItemId { get; set; }
     public Guid? ReceiptId { get; set; }
+    public Guid? AuditId { get; set; }
     public Guid? CreatedBy { get; set; }
 
     /// <summary>Receipt, ReceiptCancel, Adjust, Move, Retire, Borrow or Return.</summary>

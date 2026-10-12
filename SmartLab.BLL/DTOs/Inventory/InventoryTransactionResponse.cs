@@ -17,6 +17,9 @@ public class InventoryTransactionResponse
     public string? Reason { get; set; }
     public Guid? ReceiptId { get; set; }
     public string? ReceiptCode { get; set; }
+
+    /// <summary>The inventory audit that wrote this line, if any.</summary>
+    public Guid? AuditId { get; set; }
     public Guid CreatedBy { get; set; }
     public string CreatedByName { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
