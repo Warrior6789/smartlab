@@ -5,7 +5,7 @@ namespace SmartLab.BLL.Interfaces.Academic;
 
 /// <summary>
 /// Review of submitted projects. The approval steps live on the borrow request created when the project was submitted
-/// (lecturer, then department head or Admin for HIGH_VALUE components).
+/// (one step: the class lecturer, also for HIGH_VALUE components).
 /// </summary>
 public interface IProjectReviewService
 {

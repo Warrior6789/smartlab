@@ -41,8 +41,6 @@ public partial class User
 
     public virtual ICollection<ComponentTutorial> ComponentTutorials { get; set; } = new List<ComponentTutorial>();
 
-    public virtual ICollection<Department> Departments { get; set; } = new List<Department>();
-
     public virtual InstructorProfile? InstructorProfile { get; set; }
 
     public virtual ICollection<InventoryAudit> InventoryAudits { get; set; } = new List<InventoryAudit>();

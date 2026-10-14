@@ -22,6 +22,6 @@ public class BorrowRequestSummaryResponse
 
     public string? RejectReason { get; set; }
 
-    /// <summary>Approval steps in order: 1 = lecturer, 2 = department head (only with HIGH_VALUE components).</summary>
+    /// <summary>Approval steps; currently a single step, the class lecturer.</summary>
     public List<BorrowApprovalResponse> Approvals { get; set; } = new();
 }

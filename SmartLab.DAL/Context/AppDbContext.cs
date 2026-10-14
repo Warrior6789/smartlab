@@ -44,8 +44,6 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<Course> Courses { get; set; }
 
-    public virtual DbSet<Department> Departments { get; set; }
-
     public virtual DbSet<InstructorProfile> InstructorProfiles { get; set; }
 
     public virtual DbSet<InventoryAudit> InventoryAudits { get; set; }
@@ -716,31 +714,6 @@ public partial class AppDbContext : DbContext
                 .HasColumnName("is_active");
         });
 
-        modelBuilder.Entity<Department>(entity =>
-        {
-            entity.HasKey(e => e.DepartmentId).HasName("departments_pkey");
-
-            entity.ToTable("departments");
-
-            entity.Property(e => e.DepartmentId)
-                .HasDefaultValueSql("gen_random_uuid()")
-                .HasColumnName("department_id");
-            entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("now()")
-                .HasColumnName("created_at");
-            entity.Property(e => e.DepartmentName)
-                .HasMaxLength(150)
-                .HasColumnName("department_name");
-            entity.Property(e => e.HeadId).HasColumnName("head_id");
-            entity.Property(e => e.UpdatedAt)
-                .HasDefaultValueSql("now()")
-                .HasColumnName("updated_at");
-
-            entity.HasOne(d => d.Head).WithMany(p => p.Departments)
-                .HasForeignKey(d => d.HeadId)
-                .HasConstraintName("departments_head_id_fkey");
-        });
-
         modelBuilder.Entity<InstructorProfile>(entity =>
         {
             entity.HasKey(e => e.InstructorProfileId).HasName("instructor_profiles_pkey");
@@ -757,15 +730,10 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.AcademicTitle)
                 .HasMaxLength(50)
                 .HasColumnName("academic_title");
-            entity.Property(e => e.DepartmentId).HasColumnName("department_id");
             entity.Property(e => e.InstructorCode)
                 .HasMaxLength(20)
                 .HasColumnName("instructor_code");
             entity.Property(e => e.UserId).HasColumnName("user_id");
-
-            entity.HasOne(d => d.Department).WithMany(p => p.InstructorProfiles)
-                .HasForeignKey(d => d.DepartmentId)
-                .HasConstraintName("instructor_profiles_department_id_fkey");
 
             entity.HasOne(d => d.User).WithOne(p => p.InstructorProfile)
                 .HasForeignKey<InstructorProfile>(d => d.UserId)
@@ -879,9 +847,6 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("issue_report_id");
             entity.Property(e => e.BorrowItemId).HasColumnName("borrow_item_id");
-            entity.Property(e => e.CompensationAmount)
-                .HasPrecision(18, 2)
-                .HasColumnName("compensation_amount");
             entity.Property(e => e.ComponentItemId).HasColumnName("component_item_id");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("now()")

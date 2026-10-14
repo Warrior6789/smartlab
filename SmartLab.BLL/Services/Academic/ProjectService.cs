@@ -311,19 +311,11 @@ public class ProjectService : IProjectService
         if (room.Status != LabRoomStatuses.Active)
             throw new BadRequestException("Lab đang ngừng hoạt động");
 
-        var lecturer = await _uow.Repository<Class>().QueryNoTracking()
+        var lecturerId = await _uow.Repository<Class>().QueryNoTracking()
             .Where(c => c.ClassId == project.ClassId && c.Instructor != null)
-            .Select(c => new
-            {
-                c.Instructor!.UserId,
-                HeadId = c.Instructor.Department != null
-                         && c.Instructor.Department.Head != null
-                         && c.Instructor.Department.Head.IsActive
-                    ? c.Instructor.Department.HeadId
-                    : null,
-            })
+            .Select(c => (Guid?)c.Instructor!.UserId)
             .FirstOrDefaultAsync(ct);
-        if (lecturer == null)
+        if (lecturerId == null)
             throw new BadRequestException("Lớp chưa có giảng viên phụ trách nên chưa gửi duyệt được");
 
         BorrowRequest? borrowRequest = null;
@@ -349,10 +341,6 @@ public class ProjectService : IProjectService
                 var lines = await LoadSubmitLinesAsync(projectId, ct);
                 await EnsureRoomHasStockAsync(request.RoomId, lines, ct);
 
-                Guid? secondApproverId = null;
-                if (lines.Any(l => l.TrackingType == ComponentTrackingTypes.HighValue))
-                    secondApproverId = await GetSecondApproverIdAsync(lecturer.UserId, lecturer.HeadId, ct);
-
                 borrowRequest = new BorrowRequest
                 {
                     RequestCode = await GenerateRequestCodeAsync(now, ct),
@@ -375,7 +363,14 @@ public class ProjectService : IProjectService
                         Status = BorrowItemStatuses.Pending,
                     });
                 }
-                AddApprovalSteps(borrowRequest, lecturer.UserId, secondApproverId, now);
+                borrowRequest.BorrowApprovals.Add(new BorrowApproval
+                {
+                    StepNo = 1,
+                    ApproverRole = ApproverRoles.Lecturer,
+                    ApproverId = lecturerId.Value,
+                    Status = BorrowApprovalStatuses.Pending,
+                    CreatedAt = now,
+                });
 
                 await _uow.Repository<BorrowRequest>().AddAsync(borrowRequest, ct);
             }
@@ -432,8 +427,7 @@ public class ProjectService : IProjectService
     }
 
     /// <summary>
-    /// Admin sees every project; others see their team's, their classes', the classes taught by lecturers of the department
-    /// they head, and the ones they approve.
+    /// Admin sees every project; others see their team's, their classes', and the ones they approve.
     /// </summary>
     private IQueryable<Project> VisibleProjects()
     {
@@ -447,8 +441,6 @@ public class ProjectService : IProjectService
                                 || p.Team.TeamMembers.Any(tm => tm.Student.UserId == userId
                                                                 && tm.Status == TeamMemberStatuses.Accepted)))
             || (p.Class != null && p.Class.Instructor != null && p.Class.Instructor.UserId == userId)
-            || (p.Class != null && p.Class.Instructor != null && p.Class.Instructor.Department != null
-                && p.Class.Instructor.Department.HeadId == userId)
             || p.BorrowRequests.Any(r => r.BorrowApprovals.Any(a => a.ApproverId == userId)));
     }
 
@@ -510,7 +502,7 @@ public class ProjectService : IProjectService
             throw new BadRequestException($"Linh kiện đã ngừng sử dụng: {string.Join(", ", inactive)}");
     }
 
-    private sealed record SubmitLine(Guid ComponentId, string ComponentName, string TrackingType, bool IsActive, int Quantity);
+    private sealed record SubmitLine(Guid ComponentId, string ComponentName, bool IsActive, int Quantity);
 
     /// <summary>Reads the saved components after the project row is locked, and checks the project can be sent.</summary>
     private async Task<List<SubmitLine>> LoadSubmitLinesAsync(Guid projectId, CancellationToken ct)
@@ -525,7 +517,7 @@ public class ProjectService : IProjectService
         var lines = await _uow.Repository<ProjectComponent>().QueryNoTracking()
             .Where(pc => pc.ProjectId == projectId)
             .OrderBy(pc => pc.Component.ComponentCode)
-            .Select(pc => new SubmitLine(pc.ComponentId, pc.Component.ComponentName, pc.Component.TrackingType,
+            .Select(pc => new SubmitLine(pc.ComponentId, pc.Component.ComponentName,
                 pc.Component.IsActive, pc.Quantity))
             .ToListAsync(ct);
         if (lines.Count == 0)
@@ -557,55 +549,6 @@ public class ProjectService : IProjectService
 
         if (shortages.Count > 0)
             throw new BadRequestException($"Lab không đủ linh kiện: {string.Join("; ", shortages)}");
-    }
-
-    /// <summary>
-    /// Step 2 approver for HIGH_VALUE requests: the head of the lecturer's department, or the earliest active Admin
-    /// when the department has no active head or the head is the class lecturer.
-    /// </summary>
-    private async Task<Guid> GetSecondApproverIdAsync(Guid lecturerId, Guid? headId, CancellationToken ct)
-    {
-        if (headId != null && headId.Value != lecturerId)
-            return headId.Value;
-
-        var adminId = await _uow.Repository<User>().QueryNoTracking()
-            .Where(u => u.IsActive && u.UserRoles.Any(ur => ur.Role.RoleName == RoleNames.Admin))
-            .OrderBy(u => u.CreatedAt)
-            .Select(u => (Guid?)u.UserId)
-            .FirstOrDefaultAsync(ct);
-        if (adminId == null)
-            throw new BadRequestException("Chưa có Admin để duyệt đơn có thiết bị giá trị cao");
-
-        return adminId.Value;
-    }
-
-    /// <summary>
-    /// Step 1 is the class lecturer. Step 2 (role DepartmentHead) is added only when the request has HIGH_VALUE
-    /// components; its approver is the department head or the Admin standing in.
-    /// </summary>
-    private static void AddApprovalSteps(
-        BorrowRequest borrowRequest, Guid lecturerId, Guid? secondApproverId, DateTime now)
-    {
-        borrowRequest.BorrowApprovals.Add(new BorrowApproval
-        {
-            StepNo = 1,
-            ApproverRole = ApproverRoles.Lecturer,
-            ApproverId = lecturerId,
-            Status = BorrowApprovalStatuses.Pending,
-            CreatedAt = now,
-        });
-
-        if (secondApproverId == null)
-            return;
-
-        borrowRequest.BorrowApprovals.Add(new BorrowApproval
-        {
-            StepNo = 2,
-            ApproverRole = ApproverRoles.DepartmentHead,
-            ApproverId = secondApproverId.Value,
-            Status = BorrowApprovalStatuses.Pending,
-            CreatedAt = now,
-        });
     }
 
     /// <summary>PM-yyyyMMdd-nnn by Vietnam date: highest number of the day + 1.</summary>

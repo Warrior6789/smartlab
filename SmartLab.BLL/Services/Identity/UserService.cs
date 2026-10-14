@@ -42,10 +42,6 @@ public class UserService : IUserService
         if (errors.Count > 0)
             throw new ConflictException("Thông tin tài khoản bị trùng", errors);
 
-        if (isLecturer && request.DepartmentId.HasValue
-            && !await _uow.Repository<Department>().QueryNoTracking().AnyAsync(d => d.DepartmentId == request.DepartmentId.Value, ct))
-            throw new NotFoundException("Không tìm thấy bộ môn");
-
         var role = await _uow.Repository<Role>().QueryNoTracking()
                        .FirstOrDefaultAsync(r => r.RoleName == request.Role, ct)
                    ?? throw new InvalidOperationException($"Role '{request.Role}' chưa được seed trong database");
@@ -70,7 +66,6 @@ public class UserService : IUserService
             user.InstructorProfile = new InstructorProfile
             {
                 InstructorCode = instructorCode!,
-                DepartmentId = request.DepartmentId,
                 AcademicTitle = string.IsNullOrWhiteSpace(request.AcademicTitle) ? null : request.AcademicTitle.Trim(),
             };
         }
@@ -93,7 +88,7 @@ public class UserService : IUserService
     {
         var user = await _uow.Repository<User>().Query()
                        .Include(u => u.StudentProfile)
-                       .Include(u => u.InstructorProfile).ThenInclude(p => p!.Department)
+                       .Include(u => u.InstructorProfile)
                        .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
                        .AsSplitQuery()
                        .FirstOrDefaultAsync(u => u.UserId == userId, ct)
@@ -172,7 +167,7 @@ public class UserService : IUserService
     {
         var user = await _uow.Repository<User>().QueryNoTracking()
                        .Include(u => u.StudentProfile)
-                       .Include(u => u.InstructorProfile).ThenInclude(p => p!.Department)
+                       .Include(u => u.InstructorProfile)
                        .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
                        .AsSplitQuery()
                        .FirstOrDefaultAsync(u => u.UserId == userId, ct)

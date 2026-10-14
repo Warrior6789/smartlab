@@ -7,7 +7,7 @@ public interface IProjectService
 {
     /// <summary>
     /// Paged projects the current user can see, newest first: Admin sees all; others see the projects of their own team,
-    /// of the classes they teach, of the classes taught in the department they head, and of the borrow requests they approve.
+    /// of the classes they teach, and of the borrow requests they approve.
     /// </summary>
     Task<PagedResult<ProjectResponse>> GetProjectsAsync(ProjectQueryParams query, PageParams paging, CancellationToken ct = default);
 
@@ -25,8 +25,8 @@ public interface IProjectService
 
     /// <summary>
     /// Team leader sends a Draft or Rejected project for review: the project becomes Submitted and a Pending borrow request
-    /// for its components is created in the chosen lab, with approval steps lecturer (+ department head, or Admin standing in,
-    /// when it has HIGH_VALUE components).
+    /// for its components is created in the chosen lab, with one approval step for the class lecturer (also when it has
+    /// HIGH_VALUE components).
     /// </summary>
     Task<ProjectDetailResponse> SubmitProjectAsync(Guid projectId, SubmitProjectRequest request, CancellationToken ct = default);
 

@@ -40,8 +40,8 @@ public class ProjectsController : ControllerBase
     }
 
     /// <summary>
-    /// Duyệt bước hiện tại (người được giao: giảng viên lớp, rồi trưởng bộ môn nếu có HIGH_VALUE; Admin duyệt thay được).
-    /// Duyệt bước cuối thì project và đơn mượn thành Approved.
+    /// Giảng viên của lớp duyệt (Admin duyệt thay được), kể cả đơn có HIGH_VALUE.
+    /// Duyệt xong thì project và đơn mượn thành Approved.
     /// </summary>
     [HttpPost("{id:guid}/approve")]
     [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
@@ -70,8 +70,7 @@ public class ProjectsController : ControllerBase
 
     /// <summary>
     /// Danh sách project (phân trang, tìm theo tên project/nhóm, lọc theo lớp, trạng thái).
-    /// Admin thấy tất cả; sinh viên thấy project nhóm mình; giảng viên thấy project các lớp mình dạy và các đơn mình duyệt;
-    /// trưởng bộ môn thấy thêm project các lớp do giảng viên trong bộ môn dạy.
+    /// Admin thấy tất cả; sinh viên thấy project nhóm mình; giảng viên thấy project các lớp mình dạy và các đơn mình duyệt.
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<PagedResult<ProjectResponse>>), StatusCodes.Status200OK)]
@@ -156,8 +155,7 @@ public class ProjectsController : ControllerBase
 
     /// <summary>
     /// Gửi duyệt: project thành Submitted và tạo luôn đơn mượn (Pending) từ danh sách linh kiện ở lab đã chọn.
-    /// Duyệt bước 1 là giảng viên của lớp; có thiết bị HIGH_VALUE thì thêm bước 2 là trưởng bộ môn
-    /// (bộ môn chưa có trưởng hoặc trưởng bộ môn là giảng viên của lớp thì Admin duyệt).
+    /// Người duyệt là giảng viên của lớp, kể cả khi có thiết bị HIGH_VALUE.
     /// </summary>
     [HttpPost("{id:guid}/submit")]
     [Authorize(Policy = PermissionCodes.ProjectCreate)]
