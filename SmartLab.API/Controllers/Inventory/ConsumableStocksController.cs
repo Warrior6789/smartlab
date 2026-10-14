@@ -45,17 +45,20 @@ public class ConsumableStocksController : ControllerBase
         return Ok(ApiResponse<IReadOnlyList<ConsumableStockResponse>>.Ok(stocks, "Chuyển tủ thành công"));
     }
 
-    /// <summary>Điều chỉnh kiểm kê: đặt tồn kho bằng số đếm thực tế, có ghi lý do vào nhật ký.</summary>
+    /// <summary>
+    /// Điều chỉnh kiểm kê: đặt tồn kho bằng số đếm thực tế, có ghi lý do vào nhật ký. Số đếm thấp hơn luôn được ghi nhận;
+    /// nếu làm lab thiếu hàng cho đơn đã duyệt thì <c>reservationShortages</c> liệt kê linh kiện thiếu và các mã đơn bị ảnh hưởng.
+    /// </summary>
     [HttpPost("adjust")]
     [Authorize(Policy = PermissionCodes.InventoryAudit)]
-    [ProducesResponseType(typeof(ApiResponse<ConsumableStockResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<AdjustConsumableStockResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> AdjustStock([FromBody] AdjustConsumableStockRequest request, CancellationToken ct)
     {
-        var stock = await _consumableStockService.AdjustStockAsync(request, ct);
-        return Ok(ApiResponse<ConsumableStockResponse>.Ok(stock, "Điều chỉnh tồn kho thành công"));
+        var result = await _consumableStockService.AdjustStockAsync(request, ct);
+        return Ok(ApiResponse<AdjustConsumableStockResponse>.Ok(result, "Điều chỉnh tồn kho thành công"));
     }
 }

@@ -11,6 +11,9 @@ public interface IConsumableStockService
     /// <summary>Moves CONSUMABLE stock between two cabinets. Returns the source and target stock after the move.</summary>
     Task<IReadOnlyList<ConsumableStockResponse>> MoveStockAsync(MoveConsumableStockRequest request, CancellationToken ct = default);
 
-    /// <summary>Sets CONSUMABLE stock to the counted quantity and writes the old/new quantity and reason to audit_logs.</summary>
-    Task<ConsumableStockResponse> AdjustStockAsync(AdjustConsumableStockRequest request, CancellationToken ct = default);
+    /// <summary>
+    /// Sets CONSUMABLE stock to the counted quantity and writes the old/new quantity and reason to audit_logs.
+    /// A lower count is always accepted; the response lists the shortages it causes for Approved requests.
+    /// </summary>
+    Task<AdjustConsumableStockResponse> AdjustStockAsync(AdjustConsumableStockRequest request, CancellationToken ct = default);
 }

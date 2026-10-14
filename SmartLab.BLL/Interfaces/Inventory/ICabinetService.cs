@@ -17,6 +17,9 @@ public interface ICabinetService
     /// <summary>Creates a cabinet with status Active in an Active room; the code is generated as &lt;room code&gt;-T&lt;nn&gt;.</summary>
     Task<CabinetResponse> CreateCabinetAsync(CreateCabinetRequest request, CancellationToken ct = default);
 
-    /// <summary>Updates name, room, location and status (the code never changes); cannot set Inactive while it still holds items that are not Lost/Retired.</summary>
+    /// <summary>
+    /// Updates name, room, location and status (the code never changes); cannot set Inactive while it still holds items that are not Lost/Retired.
+    /// Moving it to another room is refused (409) while its stock is reserved by Approved requests of the old room.
+    /// </summary>
     Task<CabinetResponse> UpdateCabinetAsync(Guid cabinetId, UpdateCabinetRequest request, CancellationToken ct = default);
 }

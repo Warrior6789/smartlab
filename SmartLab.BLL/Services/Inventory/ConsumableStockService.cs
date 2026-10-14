@@ -145,7 +145,7 @@ public class ConsumableStockService : IConsumableStockService
             .ToListAsync(ct);
     }
 
-    public async Task<ConsumableStockResponse> AdjustStockAsync(
+    public async Task<AdjustConsumableStockResponse> AdjustStockAsync(
         AdjustConsumableStockRequest request, CancellationToken ct = default)
     {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
@@ -209,9 +209,20 @@ public class ConsumableStockService : IConsumableStockService
         await SaveStockChangesAsync(ct);
         await tx.CommitAsync(ct);
 
-        return await ToResponses(stocks.QueryNoTracking()
-                .Where(st => st.ComponentId == request.ComponentId && st.CabinetId == request.CabinetId))
-            .FirstAsync(ct);
+        var response = new AdjustConsumableStockResponse
+        {
+            Stock = await ToResponses(stocks.QueryNoTracking()
+                    .Where(st => st.ComponentId == request.ComponentId && st.CabinetId == request.CabinetId))
+                .FirstAsync(ct),
+        };
+
+        if (request.CountedQuantity < oldQuantity)
+        {
+            var roomId = await RoomStock.GetRoomIdAsync(_uow, request.CabinetId, ct);
+            response.ReservationShortages = await RoomStock.GetShortagesAsync(_uow, roomId, new[] { request.ComponentId }, ct);
+        }
+
+        return response;
     }
 
     private async Task EnsureConsumableAsync(Guid componentId, CancellationToken ct)

@@ -56,7 +56,10 @@ public class CabinetsController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, ApiResponse<CabinetResponse>.Ok(cabinet, "Tạo tủ thành công"));
     }
 
-    /// <summary>Sửa tủ/kệ, bao gồm ngừng sử dụng (Inactive) khi tủ đã trống.</summary>
+    /// <summary>
+    /// Sửa tủ/kệ, bao gồm ngừng sử dụng (Inactive) khi tủ đã trống. Đổi sang phòng khác bị chặn (409)
+    /// nếu hàng trong tủ đang được giữ chỗ cho đơn mượn đã duyệt của phòng cũ.
+    /// </summary>
     [HttpPut("{id:guid}")]
     [Authorize(Policy = PermissionCodes.ComponentManage)]
     [ProducesResponseType(typeof(ApiResponse<CabinetResponse>), StatusCodes.Status200OK)]

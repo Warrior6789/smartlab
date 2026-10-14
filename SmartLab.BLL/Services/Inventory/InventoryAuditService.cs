@@ -262,7 +262,13 @@ public class InventoryAuditService : IInventoryAuditService
 
         await tx.CommitAsync(ct);
 
-        return await GetAuditByIdAsync(auditId, ct);
+        var detail = await GetAuditByIdAsync(auditId, ct);
+
+        var touchedIds = detail.Differences.Select(d => d.ComponentId).Distinct().ToList();
+        var roomId = await RoomStock.GetRoomIdAsync(_uow, audit.CabinetId, ct);
+        detail.ReservationShortages = await RoomStock.GetShortagesAsync(_uow, roomId, touchedIds, ct);
+
+        return detail;
     }
 
     public async Task CancelAuditAsync(Guid auditId, CancellationToken ct = default)

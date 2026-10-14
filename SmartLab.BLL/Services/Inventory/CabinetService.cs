@@ -152,14 +152,42 @@ public class CabinetService : ICabinetService
             && await _uow.Repository<ConsumableStock>().QueryNoTracking().AnyAsync(st => st.CabinetId == cabinetId && st.Quantity > 0, ct))
             throw new ConflictException("Tủ còn linh kiện tiêu hao, hãy chuyển sang tủ khác trước khi ngừng sử dụng");
 
+        await using var tx = await _uow.BeginTransactionAsync(ct);
+
+        if (request.RoomId != cabinet.RoomId)
+            await RoomStock.EnsureNotReservedAsync(_uow, await GetLendableStockAsync(cabinetId, ct), ct);
+
         cabinet.CabinetName = request.CabinetName.Trim();
         cabinet.RoomId = request.RoomId;
         cabinet.Location = string.IsNullOrWhiteSpace(request.Location) ? null : request.Location.Trim();
         cabinet.Status = request.Status;
 
         await _uow.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
 
         return await ToResponses(cabinets.QueryNoTracking().Where(c => c.CabinetId == cabinetId)).FirstAsync(ct);
+    }
+
+    /// <summary>
+    /// Everything in the cabinet a lab could lend (CONSUMABLE quantity + Available units): moving the cabinet to
+    /// another room takes it out of the old room, so it must not be reserved there.
+    /// </summary>
+    private async Task<List<StockRemoval>> GetLendableStockAsync(Guid cabinetId, CancellationToken ct)
+    {
+        var removals = await _uow.Repository<ConsumableStock>().QueryNoTracking()
+            .Where(st => st.CabinetId == cabinetId && st.Quantity > 0)
+            .Select(st => new StockRemoval(st.ComponentId, cabinetId, st.Quantity))
+            .ToListAsync(ct);
+
+        var units = await _uow.Repository<ComponentItem>().QueryNoTracking()
+            .Where(i => i.CabinetId == cabinetId && i.Status == ComponentItemStatuses.Available)
+            .GroupBy(i => i.ComponentId)
+            .Select(g => new { ComponentId = g.Key, Quantity = g.Count() })
+            .ToListAsync(ct);
+        foreach (var unit in units)
+            removals.Add(new StockRemoval(unit.ComponentId, cabinetId, unit.Quantity));
+
+        return removals;
     }
 
     /// <summary>

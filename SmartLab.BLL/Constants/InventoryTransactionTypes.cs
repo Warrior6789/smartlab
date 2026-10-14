@@ -10,4 +10,9 @@ public static class InventoryTransactionTypes
     public const string Retire = "Retire";
     public const string Borrow = "Borrow";
     public const string Return = "Return";
+
+    public static readonly IReadOnlyList<string> All = new[] { Receipt, ReceiptCancel, Adjust, Move, Retire, Borrow, Return };
+
+    /// <summary>"move" / " MOVE " → "Move"; null when the text is not a type.</summary>
+    public static string? Normalize(string? type) => StatusLookup.Find(All, type);
 }

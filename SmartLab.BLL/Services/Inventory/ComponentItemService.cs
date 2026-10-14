@@ -116,7 +116,7 @@ public class ComponentItemService : IComponentItemService
         return await GetItemByIdAsync(itemId, ct);
     }
 
-    public async Task<IReadOnlyList<ComponentItemResponse>> MoveItemsAsync(MoveComponentItemsRequest request, CancellationToken ct = default)
+    public async Task<MoveComponentItemsResponse> MoveItemsAsync(MoveComponentItemsRequest request, CancellationToken ct = default)
     {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
 
@@ -162,14 +162,11 @@ public class ComponentItemService : IComponentItemService
         var now = DateTime.UtcNow;
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
-        if (request.FromStatus == ComponentItemStatuses.Available)
-        {
-            var leavesLendableStock = toStatus != ComponentItemStatuses.Available
-                                      || !await RoomStock.SameRoomAsync(_uow, request.FromCabinetId, toCabinetId, ct);
-            if (leavesLendableStock)
-                await RoomStock.EnsureNotReservedAsync(_uow,
-                    new[] { new StockRemoval(request.ComponentId, request.FromCabinetId, itemIds.Count) }, ct);
-        }
+        var fromAvailable = request.FromStatus == ComponentItemStatuses.Available;
+        var sameRoom = await RoomStock.SameRoomAsync(_uow, request.FromCabinetId, toCabinetId, ct);
+        if (fromAvailable && (!sameRoom || toStatus == ComponentItemStatuses.Maintenance))
+            await RoomStock.EnsureNotReservedAsync(_uow,
+                new[] { new StockRemoval(request.ComponentId, request.FromCabinetId, itemIds.Count) }, ct);
 
         var moved = await _uow.Repository<ComponentItem>().Query()
             .Where(i => itemIds.Contains(i.ItemId)
@@ -216,13 +213,24 @@ public class ComponentItemService : IComponentItemService
 
         await tx.CommitAsync(ct);
 
-        return await ToResponses(_uow.Repository<ComponentItem>().QueryNoTracking()
-                .Where(i => itemIds.Contains(i.ItemId))
-                .OrderBy(i => i.ImportedAt).ThenBy(i => i.ItemId))
-            .ToListAsync(ct);
+        var response = new MoveComponentItemsResponse
+        {
+            Items = await ToResponses(_uow.Repository<ComponentItem>().QueryNoTracking()
+                    .Where(i => itemIds.Contains(i.ItemId))
+                    .OrderBy(i => i.ImportedAt).ThenBy(i => i.ItemId))
+                .ToListAsync(ct),
+        };
+
+        if (fromAvailable && toStatus == ComponentItemStatuses.Broken)
+        {
+            var roomId = await RoomStock.GetRoomIdAsync(_uow, request.FromCabinetId, ct);
+            response.ReservationShortages = await RoomStock.GetShortagesAsync(_uow, roomId, new[] { request.ComponentId }, ct);
+        }
+
+        return response;
     }
 
-    public async Task<ComponentItemResponse> RetireItemAsync(
+    public async Task<RetireComponentItemResponse> RetireItemAsync(
         Guid itemId, RetireComponentItemRequest request, CancellationToken ct = default)
     {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
@@ -241,8 +249,13 @@ public class ComponentItemService : IComponentItemService
         if (request.ReceiptId.HasValue)
             await StockReceiptService.EnsureReceiptHasComponentAsync(_uow, request.ReceiptId.Value, item.ComponentId, ct);
 
+        var fromAvailable = item.Status == ComponentItemStatuses.Available;
         var now = DateTime.UtcNow;
         await using var tx = await _uow.BeginTransactionAsync(ct);
+
+        if (fromAvailable && request.Status == ComponentItemStatuses.Retired)
+            await RoomStock.EnsureNotReservedAsync(_uow,
+                new[] { new StockRemoval(item.ComponentId, item.CabinetId, 1) }, ct);
 
         var updated = await _uow.Repository<ComponentItem>().Query()
             .Where(i => i.ItemId == itemId && i.Status == item.Status)
@@ -268,7 +281,15 @@ public class ComponentItemService : IComponentItemService
 
         await tx.CommitAsync(ct);
 
-        return await GetItemByIdAsync(itemId, ct);
+        var response = new RetireComponentItemResponse { Item = await GetItemByIdAsync(itemId, ct) };
+
+        if (fromAvailable && request.Status == ComponentItemStatuses.Lost)
+        {
+            var roomId = await RoomStock.GetRoomIdAsync(_uow, item.CabinetId, ct);
+            response.ReservationShortages = await RoomStock.GetShortagesAsync(_uow, roomId, new[] { item.ComponentId }, ct);
+        }
+
+        return response;
     }
 
     private static InventoryTransaction NewMoveTransaction(

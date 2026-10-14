@@ -16,7 +16,8 @@ public interface IInventoryAuditService
 
     /// <summary>
     /// Applies the count: consumables that differ are adjusted, missing units become Lost, each change is written
-    /// to inventory_transactions with this audit id. Everything succeeds or nothing does.
+    /// to inventory_transactions with this audit id. Everything succeeds or nothing does. Reserved stock is never a
+    /// reason to refuse (the count is a fact); the response lists the shortages it causes for Approved requests.
     /// </summary>
     Task<InventoryAuditDetailResponse> CompleteAuditAsync(Guid auditId, CompleteInventoryAuditRequest request, CancellationToken ct = default);
 

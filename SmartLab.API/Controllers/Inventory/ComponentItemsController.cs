@@ -57,30 +57,37 @@ public class ComponentItemsController : ControllerBase
         return Ok(ApiResponse<ComponentItemResponse>.Ok(item, "Cập nhật linh kiện thành công"));
     }
 
-    /// <summary>Chuyển tủ và/hoặc đổi trạng thái (Available/Broken/Maintenance). Gửi itemIds để chọn đúng con (vd 1 serial), hoặc quantity để hệ thống tự chọn con cũ nhất. Có thể kèm lý do và phiếu nhập đang sửa. Báo mất hoặc thanh lý dùng API retire.</summary>
+    /// <summary>
+    /// Chuyển tủ và/hoặc đổi trạng thái (Available/Broken/Maintenance). Gửi itemIds để chọn đúng con (vd 1 serial), hoặc quantity để hệ thống tự chọn con cũ nhất. Có thể kèm lý do và phiếu nhập đang sửa. Báo mất hoặc thanh lý dùng API retire.
+    /// Hàng đang được giữ chỗ cho đơn đã duyệt: không chuyển sang Maintenance hay sang lab khác được (409); báo Broken vẫn được,
+    /// khi đó <c>reservationShortages</c> liệt kê linh kiện thiếu và các mã đơn bị ảnh hưởng.
+    /// </summary>
     [HttpPost("move")]
     [Authorize(Policy = PermissionCodes.ComponentManage)]
-    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<ComponentItemResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<MoveComponentItemsResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> MoveItems([FromBody] MoveComponentItemsRequest request, CancellationToken ct)
     {
-        var items = await _componentItemService.MoveItemsAsync(request, ct);
-        return Ok(ApiResponse<IReadOnlyList<ComponentItemResponse>>.Ok(items, $"Đã cập nhật {items.Count} con linh kiện"));
+        var result = await _componentItemService.MoveItemsAsync(request, ct);
+        return Ok(ApiResponse<MoveComponentItemsResponse>.Ok(result, $"Đã cập nhật {result.Items.Count} con linh kiện"));
     }
 
-    /// <summary>Loại đúng 1 con khỏi kho (Lost hoặc Retired), bắt buộc ghi lý do (lưu vào sổ kho). Con đang được mượn phải trả về trước.</summary>
+    /// <summary>
+    /// Loại đúng 1 con khỏi kho (Lost hoặc Retired), bắt buộc ghi lý do (lưu vào sổ kho). Con đang được mượn phải trả về trước.
+    /// Con đang được giữ chỗ cho đơn đã duyệt: không thanh lý (Retired) được (409); báo Lost vẫn được, kèm <c>reservationShortages</c>.
+    /// </summary>
     [HttpPost("{id:guid}/retire")]
     [Authorize(Policy = PermissionCodes.ComponentManage)]
-    [ProducesResponseType(typeof(ApiResponse<ComponentItemResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<RetireComponentItemResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> RetireItem(Guid id, [FromBody] RetireComponentItemRequest request, CancellationToken ct)
     {
-        var item = await _componentItemService.RetireItemAsync(id, request, ct);
-        return Ok(ApiResponse<ComponentItemResponse>.Ok(item, "Đã loại linh kiện khỏi kho"));
+        var result = await _componentItemService.RetireItemAsync(id, request, ct);
+        return Ok(ApiResponse<RetireComponentItemResponse>.Ok(result, "Đã loại linh kiện khỏi kho"));
     }
 }

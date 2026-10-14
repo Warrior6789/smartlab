@@ -228,7 +228,7 @@ public class ComponentService : IComponentService
             Manufacturer = string.IsNullOrWhiteSpace(request.Manufacturer) ? null : request.Manufacturer.Trim(),
             Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
             DatasheetUrl = string.IsNullOrWhiteSpace(request.DatasheetUrl) ? null : request.DatasheetUrl.Trim(),
-            TrackingType = request.TrackingType,
+            TrackingType = request.TrackingType.Trim().ToUpper(),
             Unit = CleanUnit(request.Unit),
             MinStock = request.MinStock,
             IsActive = true,

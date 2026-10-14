@@ -20,12 +20,15 @@ public interface IComponentItemService
     /// <summary>
     /// Picks the requested quantity of matching units (oldest first) and moves them to the target cabinet and/or status.
     /// Borrowed units are never touched and the target cabinet must be Active. Taking units out of stock uses RetireItemAsync.
+    /// Available units reserved by Approved requests cannot go to Maintenance or another lab (409); marking them Broken
+    /// is allowed and returns the resulting shortages.
     /// </summary>
-    Task<IReadOnlyList<ComponentItemResponse>> MoveItemsAsync(MoveComponentItemsRequest request, CancellationToken ct = default);
+    Task<MoveComponentItemsResponse> MoveItemsAsync(MoveComponentItemsRequest request, CancellationToken ct = default);
 
     /// <summary>
     /// Marks one specific unit as Lost or Retired and records it in inventory_transactions with the reason.
-    /// Borrowed units must be returned first.
+    /// Borrowed units must be returned first. Retiring a reserved Available unit is refused (409); marking it Lost is
+    /// allowed and returns the resulting shortages.
     /// </summary>
-    Task<ComponentItemResponse> RetireItemAsync(Guid itemId, RetireComponentItemRequest request, CancellationToken ct = default);
+    Task<RetireComponentItemResponse> RetireItemAsync(Guid itemId, RetireComponentItemRequest request, CancellationToken ct = default);
 }

@@ -32,7 +32,7 @@ public class CreateComponentRequestValidator : AbstractValidator<CreateComponent
         RuleFor(x => x.TrackingType)
             .Cascade(CascadeMode.Stop)
             .NotEmpty().WithMessage("Loại linh kiện là bắt buộc")
-            .Must(t => ComponentTrackingTypes.All.Contains(t))
+            .Must(t => ComponentTrackingTypes.All.Contains(t.Trim().ToUpper()))
             .WithMessage("Loại linh kiện phải là CONSUMABLE, REUSABLE hoặc HIGH_VALUE");
 
         RuleFor(x => x.Unit)

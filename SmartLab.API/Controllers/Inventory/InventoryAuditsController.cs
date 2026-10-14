@@ -59,6 +59,7 @@ public class InventoryAuditsController : ControllerBase
     /// <summary>
     /// Hoàn tất kiểm kê: gửi số đếm vật tư và danh sách con không tìm thấy. Vật tư lệch được điều chỉnh,
     /// con không tìm thấy chuyển sang Lost, mọi thay đổi ghi vào sổ kho kèm mã phiên.
+    /// Nếu làm lab thiếu hàng cho đơn mượn đã duyệt thì <c>reservationShortages</c> liệt kê linh kiện thiếu và các mã đơn bị ảnh hưởng.
     /// </summary>
     [HttpPost("{id:guid}/complete")]
     [ProducesResponseType(typeof(ApiResponse<InventoryAuditDetailResponse>), StatusCodes.Status200OK)]

@@ -1,4 +1,5 @@
 using SmartLab.BLL.Common;
+using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Inventory;
 using SmartLab.BLL.Interfaces.Inventory;
 using SmartLab.DAL.Entities;
@@ -41,11 +42,9 @@ public class InventoryTransactionService : IInventoryTransactionService
         if (query.CreatedBy.HasValue)
             transactions = transactions.Where(t => t.CreatedBy == query.CreatedBy.Value);
 
-        if (!string.IsNullOrWhiteSpace(query.Type))
-        {
-            var type = query.Type.Trim();
+        var type = InventoryTransactionTypes.Normalize(query.Type);
+        if (type != null)
             transactions = transactions.Where(t => t.Type == type);
-        }
 
         if (query.FromDate.HasValue)
         {
