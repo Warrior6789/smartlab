@@ -45,6 +45,8 @@ public partial class Project
 
     public virtual ICollection<ProjectComponent> ProjectComponents { get; set; } = new List<ProjectComponent>();
 
+    public virtual ICollection<ProjectSelfSuppliedItem> ProjectSelfSuppliedItems { get; set; } = new List<ProjectSelfSuppliedItem>();
+
     public virtual User? ReviewedByNavigation { get; set; }
 
     public virtual Team? Team { get; set; }

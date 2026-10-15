@@ -25,6 +25,14 @@ public partial class InventoryTransaction
 
     public DateTime CreatedAt { get; set; }
 
+    public Guid? AuditId { get; set; }
+
+    public Guid? BorrowRequestId { get; set; }
+
+    public virtual InventoryAudit? Audit { get; set; }
+
+    public virtual BorrowRequest? BorrowRequest { get; set; }
+
     public virtual StorageCabinet? Cabinet { get; set; }
 
     public virtual Component Component { get; set; } = null!;
