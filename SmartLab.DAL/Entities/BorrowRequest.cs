@@ -37,9 +37,13 @@ public partial class BorrowRequest
 
     public virtual ICollection<BorrowExtension> BorrowExtensions { get; set; } = new List<BorrowExtension>();
 
+    public virtual ICollection<BorrowHandoverPhoto> BorrowHandoverPhotos { get; set; } = new List<BorrowHandoverPhoto>();
+
     public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
 
     public virtual Class? Class { get; set; }
+
+    public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
 
     public virtual Project? Project { get; set; }
 
