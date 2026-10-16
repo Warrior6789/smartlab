@@ -15,9 +15,13 @@ namespace SmartLab.API.Controllers.Academic;
 public class ClassesController : ControllerBase
 {
     private readonly IClassService _classService;
+    private readonly IClassRosterService _rosterService;
 
-    public ClassesController(IClassService classService)
-        => _classService = classService;
+    public ClassesController(IClassService classService, IClassRosterService rosterService)
+    {
+        _classService = classService;
+        _rosterService = rosterService;
+    }
 
     [HttpPost]
     [Authorize(Policy = PermissionCodes.AcademicManage)]
@@ -55,5 +59,29 @@ public class ClassesController : ControllerBase
     {
         await _classService.DeleteAsync(id, ct);
         return NoContent();
+    }
+
+    /// <summary>Import danh sách sinh viên từ Excel.</summary>
+    [HttpPost("{id:guid}/roster")]
+    [Authorize(Policy = PermissionCodes.AcademicManage)]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(ApiResponse<ImportRosterResult>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ImportRoster(Guid id, IFormFile file, CancellationToken ct)
+    {
+        var result = await _rosterService.ImportStudentsAsync(id, file, ct);
+        return Ok(ApiResponse<ImportRosterResult>.Ok(result, "Import hoàn tất"));
+    }
+    /// <summary>Phân công giảng viên vào lớp.</summary>
+    [HttpPost("assign-instructor")]
+    [Authorize(Policy = PermissionCodes.AcademicManage)]
+    [ProducesResponseType(typeof(ApiResponse<AssignInstructorResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AssignInstructor([FromBody] AssignInstructorRequest request, CancellationToken ct)
+    {
+        var result = await _rosterService.AssignInstructorAsync(request, ct);
+        return Ok(ApiResponse<AssignInstructorResponse>.Ok(result, "Phân công giảng viên thành công"));
     }
 }
