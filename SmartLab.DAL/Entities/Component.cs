@@ -37,10 +37,6 @@ public partial class Component
 
     public virtual ComponentCategory Category { get; set; } = null!;
 
-    public virtual ICollection<CompatibleComponent> CompatibleComponentCompatibleComponentNavigations { get; set; } = new List<CompatibleComponent>();
-
-    public virtual ICollection<CompatibleComponent> CompatibleComponentComponents { get; set; } = new List<CompatibleComponent>();
-
     public virtual ICollection<ComponentImage> ComponentImages { get; set; } = new List<ComponentImage>();
 
     public virtual ICollection<ComponentItem> ComponentItems { get; set; } = new List<ComponentItem>();
