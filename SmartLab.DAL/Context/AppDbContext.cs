@@ -28,8 +28,6 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<ClassStudent> ClassStudents { get; set; }
 
-    public virtual DbSet<CompatibleComponent> CompatibleComponents { get; set; }
-
     public virtual DbSet<Component> Components { get; set; }
 
     public virtual DbSet<ComponentCategory> ComponentCategories { get; set; }
@@ -455,27 +453,6 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.Student).WithMany(p => p.ClassStudents)
                 .HasForeignKey(d => d.StudentId)
                 .HasConstraintName("class_students_student_id_fkey");
-        });
-
-        modelBuilder.Entity<CompatibleComponent>(entity =>
-        {
-            entity.HasKey(e => new { e.ComponentId, e.CompatibleComponentId }).HasName("compatible_components_pkey");
-
-            entity.ToTable("compatible_components");
-
-            entity.Property(e => e.ComponentId).HasColumnName("component_id");
-            entity.Property(e => e.CompatibleComponentId).HasColumnName("compatible_component_id");
-            entity.Property(e => e.Note)
-                .HasMaxLength(255)
-                .HasColumnName("note");
-
-            entity.HasOne(d => d.CompatibleComponentNavigation).WithMany(p => p.CompatibleComponentCompatibleComponentNavigations)
-                .HasForeignKey(d => d.CompatibleComponentId)
-                .HasConstraintName("compatible_components_compatible_component_id_fkey");
-
-            entity.HasOne(d => d.Component).WithMany(p => p.CompatibleComponentComponents)
-                .HasForeignKey(d => d.ComponentId)
-                .HasConstraintName("compatible_components_component_id_fkey");
         });
 
         modelBuilder.Entity<Component>(entity =>
