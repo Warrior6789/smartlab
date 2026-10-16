@@ -41,7 +41,8 @@ public class ProjectsController : ControllerBase
 
     /// <summary>
     /// Giảng viên của lớp duyệt (Admin duyệt thay được), kể cả đơn có HIGH_VALUE.
-    /// Duyệt xong thì project và đơn mượn thành Approved.
+    /// Duyệt xong thì project thành Approved; hệ thống chia mỗi dòng lấy từ lab nào (ưu tiên lab nhận đồ).
+    /// Đơn mượn thành Approved (chờ mang hàng từ lab khác về), hoặc Ready nếu mọi thứ đã có sẵn ở lab nhận đồ.
     /// </summary>
     [HttpPost("{id:guid}/approve")]
     [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
@@ -153,7 +154,8 @@ public class ProjectsController : ControllerBase
     }
 
     /// <summary>
-    /// Gửi duyệt: project thành Submitted và tạo luôn đơn mượn (Pending) từ danh sách linh kiện ở lab đã chọn.
+    /// Gửi duyệt: project thành Submitted và tạo luôn đơn mượn (Pending) từ danh sách linh kiện, nhận đồ ở lab nhận đồ chung.
+    /// Kiểm tra tồn trên tất cả lab (đã trừ các đơn đã duyệt chưa giao).
     /// Người duyệt là giảng viên của lớp, kể cả khi có thiết bị HIGH_VALUE.
     /// </summary>
     [HttpPost("{id:guid}/submit")]

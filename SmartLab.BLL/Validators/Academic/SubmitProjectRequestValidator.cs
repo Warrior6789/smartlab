@@ -9,9 +9,6 @@ public class SubmitProjectRequestValidator : AbstractValidator<SubmitProjectRequ
 
     public SubmitProjectRequestValidator()
     {
-        RuleFor(x => x.RoomId)
-            .NotEmpty().WithMessage("Phải chọn lab mượn");
-
         RuleFor(x => x.BorrowDate)
             .NotNull().WithMessage("Ngày mượn là bắt buộc");
 

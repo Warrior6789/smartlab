@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,10 +10,12 @@ using SmartLab.BLL.External.Jwt;
 using SmartLab.BLL.External.Security;
 using SmartLab.BLL.External.Storage;
 using SmartLab.BLL.Interfaces.Academic;
+using SmartLab.BLL.Interfaces.Borrowing;
 using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.BLL.Interfaces.Inventory;
 using SmartLab.BLL.Seeding;
 using SmartLab.BLL.Services.Academic;
+using SmartLab.BLL.Services.Borrowing;
 using SmartLab.BLL.Services.Identity;
 using SmartLab.BLL.Services.Inventory;
 
@@ -48,6 +50,12 @@ public static class DependencyInjection
             client.BaseAddress = new Uri(options.BaseUrl);
             client.Timeout = Timeout.InfiniteTimeSpan;
         });
+        services.AddHttpClient<IStudentCardChecker, GeminiStudentCardChecker>((provider, client) =>
+        {
+            var options = provider.GetRequiredService<IOptions<GeminiOptions>>().Value;
+            client.BaseAddress = new Uri(options.BaseUrl);
+            client.Timeout = Timeout.InfiniteTimeSpan;
+        });
 
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
@@ -75,6 +83,11 @@ public static class DependencyInjection
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<IComponentSuggestionService, ComponentSuggestionService>();
         services.AddScoped<IProjectReviewService, ProjectReviewService>();
+
+        services.AddScoped<IBorrowNotifier, BorrowNotifier>();
+        services.AddScoped<IBorrowRequestService, BorrowRequestService>();
+        services.AddScoped<IBorrowReminderService, BorrowReminderService>();
+        services.AddHostedService<BorrowReminderWorker>();
 
         services.AddHostedService<AdminSeeder>();
 

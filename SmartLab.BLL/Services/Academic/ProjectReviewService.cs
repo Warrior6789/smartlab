@@ -1,10 +1,11 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using SmartLab.BLL.Common;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Academic;
 using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.Interfaces.Academic;
+using SmartLab.BLL.Interfaces.Borrowing;
 using SmartLab.BLL.Services.Inventory;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
@@ -23,12 +24,15 @@ public class ProjectReviewService : IProjectReviewService
     private readonly IUnitOfWork _uow;
     private readonly ICurrentUserService _currentUser;
     private readonly IProjectService _projectService;
+    private readonly IBorrowNotifier _notifier;
 
-    public ProjectReviewService(IUnitOfWork uow, ICurrentUserService currentUser, IProjectService projectService)
+    public ProjectReviewService(
+        IUnitOfWork uow, ICurrentUserService currentUser, IProjectService projectService, IBorrowNotifier notifier)
     {
         _uow = uow;
         _currentUser = currentUser;
         _projectService = projectService;
+        _notifier = notifier;
     }
 
     public Task<PagedResult<PendingApprovalProjectResponse>> GetPendingAsync(
@@ -90,22 +94,38 @@ public class ProjectReviewService : IProjectReviewService
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
         var step = await LockAndGetCurrentStepAsync(projectId, userId, ct);
-        await EnsureRoomCanLendAsync(step, ct);
 
         await DecideStepAsync(step.ApprovalId, BorrowApprovalStatuses.Approved, userId, comment, now, ct);
 
+        var allAtPickup = false;
         if (step.IsLast)
         {
+            allAtPickup = await AllocateSourcesAsync(step, userId, now, ct);
+
+            var status = BorrowRequestStatuses.Approved;
+            if (allAtPickup)
+                status = BorrowRequestStatuses.Ready;
+
             await _uow.Repository<BorrowRequest>().Query()
                 .Where(r => r.BorrowRequestId == step.BorrowRequestId)
                 .ExecuteUpdateAsync(s => s
-                    .SetProperty(r => r.Status, BorrowRequestStatuses.Approved)
+                    .SetProperty(r => r.Status, status)
                     .SetProperty(r => r.ApprovedAt, now), ct);
 
             await ReviewProjectAsync(projectId, ProjectStatuses.Approved, userId, comment, now, ct);
         }
 
         await tx.CommitAsync(ct);
+
+        if (step.IsLast)
+        {
+            if (allAtPickup)
+                await _notifier.ReadyAsync(step.BorrowRequestId, ct);
+            else
+                await _notifier.ApprovedAsync(step.BorrowRequestId, ct);
+
+            await _notifier.StaffApprovedAsync(step.BorrowRequestId, ct);
+        }
 
         return await _projectService.GetProjectByIdAsync(projectId, ct);
     }
@@ -132,52 +152,128 @@ public class ProjectReviewService : IProjectReviewService
 
         await tx.CommitAsync(ct);
 
+        await _notifier.RejectedAsync(step.BorrowRequestId, ct);
+
         return await _projectService.GetProjectByIdAsync(projectId, ct);
     }
 
     private sealed record CurrentStep(Guid ApprovalId, Guid BorrowRequestId, Guid RoomId, bool IsLast);
 
     /// <summary>
-    /// Approving reserves the lab's stock, so the same checks as submitting are run again (things may have changed since):
-    /// the lab is still active, every component is still in use, and the lab can still lend every line after the requests
-    /// it already approved. The lab row is locked first, so two approvals in the same lab run one after another and cannot
-    /// both take the last units. Rejecting is always allowed.
+    /// Approving reserves stock, so the checks of submitting run again (things may have changed since): the pickup lab is
+    /// still active, every component is still in use, and all labs together can still lend every line. Then each line gets
+    /// its source lab: the pickup lab first, the rest from the labs with the most left (a line may be split over several
+    /// labs). Lines taken from the pickup lab count as received. Every lab is locked first, so two approvals cannot both
+    /// take the last units. Returns true when everything is already at the pickup lab. Rejecting is always allowed.
     /// </summary>
-    private async Task EnsureRoomCanLendAsync(CurrentStep step, CancellationToken ct)
+    private async Task<bool> AllocateSourcesAsync(CurrentStep step, Guid userId, DateTime now, CancellationToken ct)
     {
-        await RoomStock.LockRoomAsync(_uow, step.RoomId, ct);
+        await RoomStock.LockAllRoomsAsync(_uow, ct);
 
-        var roomActive = await _uow.Repository<LabRoom>().QueryNoTracking()
+        var pickupActive = await _uow.Repository<LabRoom>().QueryNoTracking()
             .AnyAsync(r => r.RoomId == step.RoomId && r.Status == LabRoomStatuses.Active, ct);
-        if (!roomActive)
-            throw new BadRequestException("Lab của đơn mượn đã ngừng hoạt động. Hãy từ chối để nhóm chọn lab khác.");
+        if (!pickupActive)
+            throw new BadRequestException("Lab nhận đồ của đơn mượn đã ngừng hoạt động, vui lòng báo Admin.");
 
-        var lines = await _uow.Repository<BorrowItem>().QueryNoTracking()
+        var lines = await _uow.Repository<BorrowItem>().Query()
+            .Include(i => i.Component)
             .Where(i => i.BorrowRequestId == step.BorrowRequestId)
-            .GroupBy(i => new { i.ComponentId, i.Component.ComponentName, i.Component.IsActive })
-            .Select(g => new { g.Key.ComponentId, g.Key.ComponentName, g.Key.IsActive, Quantity = g.Sum(i => i.Quantity) })
+            .OrderBy(i => i.Component.ComponentCode)
             .ToListAsync(ct);
 
-        var inactive = lines.Where(l => !l.IsActive).Select(l => l.ComponentName).ToList();
+        var inactive = lines.Where(l => !l.Component.IsActive).Select(l => l.Component.ComponentName).ToList();
         if (inactive.Count > 0)
             throw new BadRequestException(
                 $"Linh kiện đã ngừng sử dụng: {string.Join(", ", inactive)}. Hãy từ chối để nhóm đổi linh kiện khác.");
 
-        var ids = lines.Select(l => l.ComponentId).ToList();
-        var available = await RoomStock.GetAvailableAsync(_uow, step.RoomId, ids, ct);
+        var ids = lines.Select(l => l.ComponentId).Distinct().ToList();
+        var availableByRoom = await RoomStock.GetAvailableByRoomAsync(_uow, ids, ct);
 
+        var plans = new List<(BorrowItem Line, List<(Guid RoomId, int Quantity)> Parts)>();
         var shortages = new List<string>();
         foreach (var line in lines)
         {
-            var left = available.GetValueOrDefault(line.ComponentId);
-            if (left < line.Quantity)
-                shortages.Add($"{line.ComponentName} (cần {line.Quantity}, còn {left})");
+            var parts = TakeFromRooms(availableByRoom, step.RoomId, line.ComponentId, line.Quantity);
+            var taken = parts.Sum(p => p.Quantity);
+            if (taken < line.Quantity)
+                shortages.Add($"{line.Component.ComponentName} (cần {line.Quantity}, còn {taken})");
+
+            plans.Add((line, parts));
         }
 
         if (shortages.Count > 0)
             throw new BadRequestException(
-                $"Lab không còn đủ linh kiện (đã trừ các đơn đã duyệt chưa cấp): {string.Join("; ", shortages)}. " +
-                "Hãy từ chối để nhóm đổi lab hoặc giảm số lượng.");
+                $"Kho không còn đủ linh kiện (đã trừ các đơn đã duyệt chưa cấp): {string.Join("; ", shortages)}. " +
+                "Hãy từ chối để nhóm giảm số lượng hoặc đổi linh kiện.");
+
+        var borrowItems = _uow.Repository<BorrowItem>();
+        var allAtPickup = true;
+        foreach (var (line, parts) in plans)
+        {
+            for (var index = 0; index < parts.Count; index++)
+            {
+                var (roomId, quantity) = parts[index];
+
+                var target = line;
+                if (index > 0)
+                {
+                    target = new BorrowItem
+                    {
+                        BorrowRequestId = line.BorrowRequestId,
+                        ComponentId = line.ComponentId,
+                        Status = BorrowItemStatuses.Pending,
+                    };
+                    await borrowItems.AddAsync(target, ct);
+                }
+
+                target.Quantity = quantity;
+                target.SourceRoomId = roomId;
+                if (roomId == step.RoomId)
+                {
+                    target.ReceivedAt = now;
+                    target.ReceivedBy = userId;
+                }
+                else
+                {
+                    allAtPickup = false;
+                }
+            }
+        }
+
+        await _uow.SaveChangesAsync(ct);
+        return allAtPickup;
+    }
+
+    /// <summary>
+    /// Takes up to <paramref name="quantity"/> of a component: the pickup lab first, then the labs with the most left
+    /// (ties by lab id so the result is stable). Taken amounts are removed from <paramref name="availableByRoom"/>.
+    /// </summary>
+    private static List<(Guid RoomId, int Quantity)> TakeFromRooms(
+        Dictionary<Guid, Dictionary<Guid, int>> availableByRoom, Guid pickupRoomId, Guid componentId, int quantity)
+    {
+        var order = availableByRoom
+            .Where(r => r.Key != pickupRoomId && r.Value.GetValueOrDefault(componentId) > 0)
+            .OrderByDescending(r => r.Value[componentId]).ThenBy(r => r.Key)
+            .Select(r => r.Key)
+            .ToList();
+        if (availableByRoom.TryGetValue(pickupRoomId, out var pickup) && pickup.GetValueOrDefault(componentId) > 0)
+            order.Insert(0, pickupRoomId);
+
+        var parts = new List<(Guid RoomId, int Quantity)>();
+        var left = quantity;
+        foreach (var roomId in order)
+        {
+            if (left == 0)
+                break;
+
+            var room = availableByRoom[roomId];
+            var take = Math.Min(left, room[componentId]);
+            room[componentId] -= take;
+            left -= take;
+            parts.Add((roomId, take));
+        }
+
+        return parts;
     }
 
     /// <summary>

@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SmartLab.BLL.Common;
 using SmartLab.BLL.Common.Exceptions;
@@ -7,6 +7,8 @@ using SmartLab.BLL.DTOs.Academic;
 using SmartLab.BLL.DTOs.Borrowing;
 using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.Interfaces.Academic;
+using SmartLab.BLL.Interfaces.Borrowing;
+using SmartLab.BLL.Services.Borrowing;
 using SmartLab.BLL.Services.Inventory;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
@@ -28,11 +30,13 @@ public class ProjectService : IProjectService
 
     private readonly IUnitOfWork _uow;
     private readonly ICurrentUserService _currentUser;
+    private readonly IBorrowNotifier _notifier;
 
-    public ProjectService(IUnitOfWork uow, ICurrentUserService currentUser)
+    public ProjectService(IUnitOfWork uow, ICurrentUserService currentUser, IBorrowNotifier notifier)
     {
         _uow = uow;
         _currentUser = currentUser;
+        _notifier = notifier;
     }
 
     public Task<PagedResult<ProjectResponse>> GetProjectsAsync(
@@ -305,11 +309,7 @@ public class ProjectService : IProjectService
         if (borrowDate < ToVietnamDateUtc(now.Add(VietnamUtcOffset)))
             throw new BadRequestException("Ngày mượn không được trước hôm nay");
 
-        var room = await _uow.Repository<LabRoom>().QueryNoTracking()
-                       .FirstOrDefaultAsync(r => r.RoomId == request.RoomId, ct)
-                   ?? throw new NotFoundException("Không tìm thấy lab");
-        if (room.Status != LabRoomStatuses.Active)
-            throw new BadRequestException("Lab đang ngừng hoạt động");
+        var pickupRoomId = await PickupRoom.GetActiveIdAsync(_uow, ct);
 
         var lecturerId = await _uow.Repository<Class>().QueryNoTracking()
             .Where(c => c.ClassId == project.ClassId && c.Instructor != null)
@@ -339,7 +339,7 @@ public class ProjectService : IProjectService
             if (borrowRequest == null)
             {
                 var lines = await LoadSubmitLinesAsync(projectId, ct);
-                await EnsureRoomHasStockAsync(request.RoomId, lines, ct);
+                await EnsureStockAsync(lines, ct);
 
                 borrowRequest = new BorrowRequest
                 {
@@ -352,7 +352,7 @@ public class ProjectService : IProjectService
                     RequestDate = now,
                     BorrowDate = borrowDate,
                     DueDate = dueDate,
-                    RoomId = request.RoomId,
+                    RoomId = pickupRoomId,
                 };
                 foreach (var line in lines)
                 {
@@ -392,6 +392,8 @@ public class ProjectService : IProjectService
                 borrowRequest.RequestCode = await GenerateRequestCodeAsync(now, ct);
             }
         }
+
+        await _notifier.SubmittedAsync(borrowRequest.BorrowRequestId, ct);
 
         return await GetProjectByIdAsync(projectId, ct);
     }
@@ -531,13 +533,13 @@ public class ProjectService : IProjectService
     }
 
     /// <summary>
-    /// The lab must be able to lend each component now: its stock minus what Approved requests of that lab already
-    /// reserve (see <see cref="RoomStock"/>).
+    /// All labs together must be able to lend each component now: their stock minus what Approved / Ready requests
+    /// already reserve (see <see cref="RoomStock"/>). Which lab gives what is decided when the lecturer approves.
     /// </summary>
-    private async Task EnsureRoomHasStockAsync(Guid roomId, List<SubmitLine> lines, CancellationToken ct)
+    private async Task EnsureStockAsync(List<SubmitLine> lines, CancellationToken ct)
     {
         var ids = lines.Select(l => l.ComponentId).ToList();
-        var available = await RoomStock.GetAvailableAsync(_uow, roomId, ids, ct);
+        var available = await RoomStock.GetTotalAvailableAsync(_uow, ids, ct);
 
         var shortages = new List<string>();
         foreach (var line in lines)
@@ -548,7 +550,7 @@ public class ProjectService : IProjectService
         }
 
         if (shortages.Count > 0)
-            throw new BadRequestException($"Lab không đủ linh kiện: {string.Join("; ", shortages)}");
+            throw new BadRequestException($"Kho không đủ linh kiện: {string.Join("; ", shortages)}");
     }
 
     /// <summary>PM-yyyyMMdd-nnn by Vietnam date: highest number of the day + 1.</summary>
