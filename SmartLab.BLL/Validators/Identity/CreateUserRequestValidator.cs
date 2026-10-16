@@ -51,9 +51,6 @@ public class CreateUserRequestValidator : AbstractValidator<CreateUserRequest>
                 .NotEmpty().WithMessage("Mã giảng viên là bắt buộc với role Lecturer")
                 .MaximumLength(20).WithMessage("Mã giảng viên tối đa 20 ký tự");
 
-            RuleFor(x => x.Department)
-                .MaximumLength(100).WithMessage("Khoa tối đa 100 ký tự");
-
             RuleFor(x => x.AcademicTitle)
                 .MaximumLength(50).WithMessage("Học hàm/học vị tối đa 50 ký tự");
         });

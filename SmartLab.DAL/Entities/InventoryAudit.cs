@@ -20,4 +20,6 @@ public partial class InventoryAudit
     public virtual User Auditor { get; set; } = null!;
 
     public virtual StorageCabinet Cabinet { get; set; } = null!;
+
+    public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
 }

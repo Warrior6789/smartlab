@@ -65,7 +65,6 @@ public class UserService : IUserService
             user.InstructorProfile = new InstructorProfile
             {
                 InstructorCode = instructorCode!,
-                Department = string.IsNullOrWhiteSpace(request.Department) ? null : request.Department.Trim(),
                 AcademicTitle = string.IsNullOrWhiteSpace(request.AcademicTitle) ? null : request.AcademicTitle.Trim(),
             };
         }

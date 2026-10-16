@@ -1,0 +1,55 @@
+﻿using System;
+using System.Collections.Generic;
+
+namespace SmartLab.DAL.Entities;
+
+public partial class StockReceipt
+{
+    public Guid ReceiptId { get; set; }
+
+    public string ReceiptCode { get; set; } = null!;
+
+    public string SupplierName { get; set; } = null!;
+
+    public DateTime ReceivedAt { get; set; }
+
+    public Guid CreatedBy { get; set; }
+
+    public decimal TotalAmount { get; set; }
+
+    public string? Note { get; set; }
+
+    public string Status { get; set; } = null!;
+
+    public DateTime CreatedAt { get; set; }
+
+    public DateTime? CancelledAt { get; set; }
+
+    public Guid? CancelledBy { get; set; }
+
+    public string? CancelReason { get; set; }
+
+    public string? InvoiceUrl { get; set; }
+
+    public string? InvoiceStorageKey { get; set; }
+
+    public string? InvoiceNumber { get; set; }
+
+    public DateTime? UpdatedAt { get; set; }
+
+    public Guid? UpdatedBy { get; set; }
+
+    public DateTime? InvoiceDate { get; set; }
+
+    public string? DelivererName { get; set; }
+
+    public virtual User? CancelledByNavigation { get; set; }
+
+    public virtual User CreatedByNavigation { get; set; } = null!;
+
+    public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
+
+    public virtual ICollection<StockReceiptItem> StockReceiptItems { get; set; } = new List<StockReceiptItem>();
+
+    public virtual User? UpdatedByNavigation { get; set; }
+}
