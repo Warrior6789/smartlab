@@ -1,16 +1,21 @@
 using System.Text;
+
 using FluentValidation;
+
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+
 using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.External.Email;
 using SmartLab.BLL.External.Jwt;
 using SmartLab.BLL.External.Security;
 using SmartLab.BLL.External.Storage;
 using SmartLab.BLL.Interfaces.Identity;
+using SmartLab.BLL.Interfaces.IssueReports;
 using SmartLab.BLL.Interfaces.Teamwork;
 using SmartLab.BLL.Seeding;
 using SmartLab.BLL.Services.Identity;
+using SmartLab.BLL.Services.IssueReports;
 using SmartLab.BLL.Services.Teamwork;
 
 namespace SmartLab.BLL;
@@ -46,6 +51,7 @@ public static class DependencyInjection
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<ITeamService, TeamService>();
+        services.AddScoped<IIssueReportService, IssueReportService>();
 
         services.AddHostedService<AdminSeeder>();
 

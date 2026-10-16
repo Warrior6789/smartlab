@@ -42,6 +42,6 @@ public class IssueReportQueryParamsValidator : AbstractValidator<IssueReportQuer
             .When(x => x.FromDate.HasValue && x.ToDate.HasValue)
             .WithMessage("ToDate phải lớn hơn hoặc bằng FromDate");
 
-        // Mine semantics remain pending; GĐ1 only defines the optional query contract.
+        // Mine is optional; true narrows the role-based read scope to reports created by the caller.
     }
 }
