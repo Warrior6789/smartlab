@@ -54,6 +54,7 @@ public static class DependencyInjection
         services.AddScoped<ICourseService, CourseService>();
         services.AddScoped<IClassService, ClassService>();
         services.AddScoped<IClassRosterService, ClassRosterService>();
+        services.AddScoped<ITeamService, TeamService>();
 
         services.AddHostedService<AdminSeeder>();
 
