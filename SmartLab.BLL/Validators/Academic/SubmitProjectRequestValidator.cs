@@ -5,8 +5,6 @@ namespace SmartLab.BLL.Validators.Academic;
 
 public class SubmitProjectRequestValidator : AbstractValidator<SubmitProjectRequest>
 {
-    public const int MaxBorrowDays = 180;
-
     public SubmitProjectRequestValidator()
     {
         RuleFor(x => x.BorrowDate)
@@ -18,8 +16,6 @@ public class SubmitProjectRequestValidator : AbstractValidator<SubmitProjectRequ
         RuleFor(x => x.DueDate)
             .Must((x, dueDate) => dueDate!.Value.Date > x.BorrowDate!.Value.Date)
             .WithMessage("Ngày trả phải sau ngày mượn")
-            .Must((x, dueDate) => (dueDate!.Value.Date - x.BorrowDate!.Value.Date).TotalDays <= MaxBorrowDays)
-            .WithMessage($"Thời gian mượn tối đa {MaxBorrowDays} ngày")
             .When(x => x.BorrowDate.HasValue && x.DueDate.HasValue);
     }
 }

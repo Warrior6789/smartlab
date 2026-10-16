@@ -309,6 +309,11 @@ public class ProjectService : IProjectService
         if (borrowDate < ToVietnamDateUtc(now.Add(VietnamUtcOffset)))
             throw new BadRequestException("Ngày mượn không được trước hôm nay");
 
+        var maxBorrowDays = await SystemSettingValues.GetPositiveIntAsync(
+            _uow, SystemSettingKeys.BorrowMaxDays, "số ngày mượn tối đa", ct);
+        if (dueDate > borrowDate.AddDays(maxBorrowDays))
+            throw new BadRequestException($"Thời gian mượn tối đa {maxBorrowDays} ngày");
+
         var pickupRoomId = await PickupRoom.GetActiveIdAsync(_uow, ct);
 
         var lecturerId = await _uow.Repository<Class>().QueryNoTracking()

@@ -8,4 +8,10 @@ public static class SystemSettingKeys
 
     /// <summary>Vietnam date (yyyy-MM-dd) of the last daily due / overdue reminder run, so each day runs only once.</summary>
     public const string BorrowReminderLastRun = "BORROW_REMINDER_LAST_RUN";
+
+    /// <summary>Most days from the borrow date to the due date when a project is submitted (positive whole number).</summary>
+    public const string BorrowMaxDays = "BORROW_MAX_DAYS";
+
+    /// <summary>Vietnam hour (0-23) from which the daily due / overdue reminders are sent.</summary>
+    public const string BorrowReminderHour = "BORROW_REMINDER_HOUR";
 }

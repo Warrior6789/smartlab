@@ -8,14 +8,12 @@ using SmartLab.DAL.UnitOfWork;
 namespace SmartLab.BLL.Services.Borrowing;
 
 /// <summary>
-/// Every day from 07:00 Vietnam time: "due tomorrow" to borrowers whose due date is tomorrow, and "overdue" on the 1st,
+/// Every day from the hour in system_settings BORROW_REMINDER_HOUR (Vietnam time): "due tomorrow" to borrowers whose due date is tomorrow, and "overdue" on the 1st,
 /// 3rd and 7th day after the due date, then every 7 days, while components are still out. The run of a day is claimed
 /// in system_settings (BORROW_REMINDER_LAST_RUN) so a restart or a second instance never sends it twice.
 /// </summary>
 public class BorrowReminderService : IBorrowReminderService
 {
-    private const int SendHour = 7;
-
     private static readonly TimeSpan VietnamUtcOffset = TimeSpan.FromHours(7);
     private static readonly string[] BorrowedStatuses = { BorrowRequestStatuses.Borrowing, BorrowRequestStatuses.Overdue };
 
@@ -32,8 +30,16 @@ public class BorrowReminderService : IBorrowReminderService
 
     public async Task<int> SendDailyRemindersAsync(CancellationToken ct = default)
     {
+        var sendHour = await SystemSettingValues.GetIntAsync(_uow, SystemSettingKeys.BorrowReminderHour, ct);
+        if (sendHour == null || sendHour < 0 || sendHour > 23)
+        {
+            _logger.LogWarning("Borrow reminders skipped: system_settings {Key} must be an hour from 0 to 23",
+                SystemSettingKeys.BorrowReminderHour);
+            return 0;
+        }
+
         var nowVietnam = DateTime.UtcNow.Add(VietnamUtcOffset);
-        if (nowVietnam.Hour < SendHour)
+        if (nowVietnam.Hour < sendHour)
             return 0;
 
         var today = nowVietnam.Date;
