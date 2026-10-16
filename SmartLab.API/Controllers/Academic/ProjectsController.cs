@@ -108,7 +108,7 @@ public class ProjectsController : ControllerBase
     }
 
     /// <summary>
-    /// AI đọc mô tả project và gợi ý linh kiện, chia 3 nhóm: mượn được ở lab đã chọn, kho có nhưng lab không đủ,
+    /// AI đọc mô tả project và gợi ý linh kiện, chia 3 nhóm: mượn được (tính tồn của mọi lab), kho có nhưng không đủ,
     /// và món tự mua (kho không có). Không lưu gì: nhóm trưởng chọn món rồi lưu bằng PUT /api/projects/{id}.
     /// Mỗi tài khoản tối đa 10 lần / giờ (quá thì 429).
     /// </summary>
@@ -117,7 +117,6 @@ public class ProjectsController : ControllerBase
     [EnableRateLimiting(RateLimitExtensions.AiSuggestionPolicy)]
     [ProducesResponseType(typeof(ApiResponse<ComponentSuggestionResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> SuggestComponents([FromBody] SuggestComponentsRequest request, CancellationToken ct)

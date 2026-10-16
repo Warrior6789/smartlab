@@ -16,8 +16,5 @@ public class SuggestComponentsRequestValidator : AbstractValidator<SuggestCompon
             .WithMessage($"Mô tả project tối thiểu {DescriptionMinLength} ký tự để AI gợi ý được")
             .MaximumLength(CreateProjectRequestValidator.DescriptionMaxLength)
             .WithMessage($"Mô tả tối đa {CreateProjectRequestValidator.DescriptionMaxLength} ký tự");
-
-        RuleFor(x => x.RoomId)
-            .NotEmpty().WithMessage("Phải chọn lab mượn");
     }
 }

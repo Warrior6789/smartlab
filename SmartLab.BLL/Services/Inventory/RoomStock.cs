@@ -8,12 +8,16 @@ using SmartLab.DAL.UnitOfWork;
 namespace SmartLab.BLL.Services.Inventory;
 
 /// <summary>
-/// What a lab can still lend: stock in the lab's cabinets (CONSUMABLE quantity + Available units) minus what Approved
-/// borrow requests of that lab already reserve (approved but not issued yet). Used when submitting, approving and
-/// suggesting, so "còn" means the same everywhere.
+/// What a lab can still lend: stock in the lab's cabinets (CONSUMABLE quantity + Available units) minus what Approved or
+/// Ready borrow requests reserve there (not issued yet). A line of such a request is reserved in its source lab until the
+/// pickup lab receives it, then in the pickup lab. Used when submitting, approving and suggesting, so "còn" means the
+/// same everywhere.
 /// </summary>
 internal static class RoomStock
 {
+    /// <summary>Borrow request statuses whose lines hold stock.</summary>
+    public static readonly string[] ReservingStatuses = { BorrowRequestStatuses.Approved, BorrowRequestStatuses.Ready };
+
     /// <summary>Available quantity per component (never negative); components with nothing left are absent.</summary>
     public static async Task<Dictionary<Guid, int>> GetAvailableAsync(
         IUnitOfWork uow, Guid roomId, IReadOnlyCollection<Guid>? componentIds, CancellationToken ct)
@@ -32,8 +36,49 @@ internal static class RoomStock
         return available;
     }
 
+    /// <summary>Available quantity per lab, then per component (never negative); empty entries are absent.</summary>
+    public static async Task<Dictionary<Guid, Dictionary<Guid, int>>> GetAvailableByRoomAsync(
+        IUnitOfWork uow, IReadOnlyCollection<Guid>? componentIds, CancellationToken ct)
+    {
+        var inStock = await GetInStockRowsAsync(uow, null, componentIds, ct);
+        var reserved = await GetReservedRowsAsync(uow, componentIds, ct);
+
+        var byRoom = new Dictionary<Guid, Dictionary<Guid, int>>();
+        foreach (var row in inStock)
+        {
+            var quantity = row.Quantity;
+            foreach (var hold in reserved.Where(r => r.RoomId == row.RoomId && r.ComponentId == row.ComponentId))
+                quantity -= hold.Quantity;
+
+            if (quantity <= 0)
+                continue;
+
+            if (!byRoom.ContainsKey(row.RoomId))
+                byRoom[row.RoomId] = new Dictionary<Guid, int>();
+            byRoom[row.RoomId][row.ComponentId] = quantity;
+        }
+
+        return byRoom;
+    }
+
+    /// <summary>Available quantity per component summed over all labs; components with nothing left are absent.</summary>
+    public static async Task<Dictionary<Guid, int>> GetTotalAvailableAsync(
+        IUnitOfWork uow, IReadOnlyCollection<Guid>? componentIds, CancellationToken ct)
+    {
+        var byRoom = await GetAvailableByRoomAsync(uow, componentIds, ct);
+
+        var total = new Dictionary<Guid, int>();
+        foreach (var room in byRoom.Values)
+        {
+            foreach (var (componentId, quantity) in room)
+                total[componentId] = total.GetValueOrDefault(componentId) + quantity;
+        }
+
+        return total;
+    }
+
     /// <summary>
-    /// Components (of the given ones) whose stock in the lab is now below what Approved requests of the lab reserve,
+    /// Components (of the given ones) whose stock in the lab is now below what Approved / Ready requests reserve there,
     /// with the affected request codes. Called after a staff operation records broken or lost stock, which is allowed
     /// even when the stock was reserved, so the response can warn the staff.
     /// </summary>
@@ -62,8 +107,9 @@ internal static class RoomStock
 
         var requests = await uow.Repository<BorrowItem>().QueryNoTracking()
             .Where(i => shortIds.Contains(i.ComponentId)
-                        && i.BorrowRequest.RoomId == roomId
-                        && i.BorrowRequest.Status == BorrowRequestStatuses.Approved)
+                        && ReservingStatuses.Contains(i.BorrowRequest.Status)
+                        && ((i.ReceivedAt == null && i.SourceRoomId == roomId)
+                            || (i.ReceivedAt != null && i.BorrowRequest.RoomId == roomId)))
             .Select(i => new { i.ComponentId, i.BorrowRequest.RequestCode })
             .Distinct()
             .ToListAsync(ct);
@@ -107,10 +153,31 @@ internal static class RoomStock
     private static async Task<Dictionary<Guid, int>> GetInStockAsync(
         IUnitOfWork uow, Guid roomId, IReadOnlyCollection<Guid>? componentIds, CancellationToken ct)
     {
+        var rows = await GetInStockRowsAsync(uow, roomId, componentIds, ct);
+
+        var inStock = new Dictionary<Guid, int>();
+        foreach (var row in rows)
+            inStock[row.ComponentId] = inStock.GetValueOrDefault(row.ComponentId) + row.Quantity;
+
+        return inStock;
+    }
+
+    private sealed record RoomQuantity(Guid RoomId, Guid ComponentId, int Quantity);
+
+    /// <summary>Lendable stock per lab and component (one lab when <paramref name="roomId"/> is given).</summary>
+    private static async Task<List<RoomQuantity>> GetInStockRowsAsync(
+        IUnitOfWork uow, Guid? roomId, IReadOnlyCollection<Guid>? componentIds, CancellationToken ct)
+    {
         var stocks = uow.Repository<ConsumableStock>().QueryNoTracking()
-            .Where(s => s.Cabinet.RoomId == roomId);
+            .Where(s => s.Quantity > 0);
         var units = uow.Repository<ComponentItem>().QueryNoTracking()
-            .Where(i => i.Cabinet.RoomId == roomId && i.Status == ComponentItemStatuses.Available);
+            .Where(i => i.Status == ComponentItemStatuses.Available);
+
+        if (roomId != null)
+        {
+            stocks = stocks.Where(s => s.Cabinet.RoomId == roomId);
+            units = units.Where(i => i.Cabinet.RoomId == roomId);
+        }
 
         if (componentIds != null)
         {
@@ -119,28 +186,32 @@ internal static class RoomStock
         }
 
         var consumable = await stocks
-            .GroupBy(s => s.ComponentId)
-            .Select(g => new { ComponentId = g.Key, Quantity = g.Sum(s => s.Quantity) })
-            .ToDictionaryAsync(x => x.ComponentId, x => x.Quantity, ct);
+            .GroupBy(s => new { s.Cabinet.RoomId, s.ComponentId })
+            .Select(g => new { g.Key.RoomId, g.Key.ComponentId, Quantity = g.Sum(s => s.Quantity) })
+            .ToListAsync(ct);
 
         var unitCounts = await units
-            .GroupBy(i => i.ComponentId)
-            .Select(g => new { ComponentId = g.Key, Quantity = g.Count() })
-            .ToDictionaryAsync(x => x.ComponentId, x => x.Quantity, ct);
+            .GroupBy(i => new { i.Cabinet.RoomId, i.ComponentId })
+            .Select(g => new { g.Key.RoomId, g.Key.ComponentId, Quantity = g.Count() })
+            .ToListAsync(ct);
 
-        var inStock = new Dictionary<Guid, int>();
-        foreach (var componentId in consumable.Keys.Union(unitCounts.Keys))
-            inStock[componentId] = consumable.GetValueOrDefault(componentId) + unitCounts.GetValueOrDefault(componentId);
+        var rows = new List<RoomQuantity>();
+        foreach (var row in consumable)
+            rows.Add(new RoomQuantity(row.RoomId, row.ComponentId, row.Quantity));
+        foreach (var row in unitCounts)
+            rows.Add(new RoomQuantity(row.RoomId, row.ComponentId, row.Quantity));
 
-        return inStock;
+        return rows;
     }
 
-    /// <summary>Quantity per component reserved by Approved (not issued yet) requests of the lab.</summary>
+    /// <summary>Quantity per component reserved in the lab by Approved / Ready requests (not issued yet).</summary>
     private static async Task<Dictionary<Guid, int>> GetReservedAsync(
         IUnitOfWork uow, Guid roomId, IReadOnlyCollection<Guid>? componentIds, CancellationToken ct)
     {
         var reservations = uow.Repository<BorrowItem>().QueryNoTracking()
-            .Where(i => i.BorrowRequest.RoomId == roomId && i.BorrowRequest.Status == BorrowRequestStatuses.Approved);
+            .Where(i => ReservingStatuses.Contains(i.BorrowRequest.Status)
+                        && ((i.ReceivedAt == null && i.SourceRoomId == roomId)
+                            || (i.ReceivedAt != null && i.BorrowRequest.RoomId == roomId)));
 
         if (componentIds != null)
             reservations = reservations.Where(i => componentIds.Contains(i.ComponentId));
@@ -152,6 +223,40 @@ internal static class RoomStock
     }
 
     /// <summary>
+    /// Reserved quantity per lab and component: lines not received yet count in their source lab, received lines in the
+    /// request's pickup lab.
+    /// </summary>
+    private static async Task<List<RoomQuantity>> GetReservedRowsAsync(
+        IUnitOfWork uow, IReadOnlyCollection<Guid>? componentIds, CancellationToken ct)
+    {
+        var lines = uow.Repository<BorrowItem>().QueryNoTracking()
+            .Where(i => ReservingStatuses.Contains(i.BorrowRequest.Status));
+
+        if (componentIds != null)
+            lines = lines.Where(i => componentIds.Contains(i.ComponentId));
+
+        var waiting = await lines
+            .Where(i => i.ReceivedAt == null && i.SourceRoomId != null)
+            .GroupBy(i => new { RoomId = i.SourceRoomId!.Value, i.ComponentId })
+            .Select(g => new { g.Key.RoomId, g.Key.ComponentId, Quantity = g.Sum(i => i.Quantity) })
+            .ToListAsync(ct);
+
+        var received = await lines
+            .Where(i => i.ReceivedAt != null)
+            .GroupBy(i => new { i.BorrowRequest.RoomId, i.ComponentId })
+            .Select(g => new { g.Key.RoomId, g.Key.ComponentId, Quantity = g.Sum(i => i.Quantity) })
+            .ToListAsync(ct);
+
+        var rows = new List<RoomQuantity>();
+        foreach (var row in waiting)
+            rows.Add(new RoomQuantity(row.RoomId, row.ComponentId, row.Quantity));
+        foreach (var row in received)
+            rows.Add(new RoomQuantity(row.RoomId, row.ComponentId, row.Quantity));
+
+        return rows;
+    }
+
+    /// <summary>
     /// Locks the lab row (no-op UPDATE). Approving a request and taking stock out of a lab both take this lock,
     /// so they run one after another and cannot both use the same free units.
     /// </summary>
@@ -159,6 +264,22 @@ internal static class RoomStock
         => uow.Repository<LabRoom>().Query()
             .Where(r => r.RoomId == roomId)
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, r => r.Status), ct);
+
+    /// <summary>Locks several labs one by one in the same order as <see cref="EnsureNotReservedAsync"/>, so they cannot deadlock.</summary>
+    public static async Task LockRoomsAsync(IUnitOfWork uow, IEnumerable<Guid> roomIds, CancellationToken ct)
+    {
+        foreach (var roomId in roomIds.Distinct().OrderBy(id => id))
+            await LockRoomAsync(uow, roomId, ct);
+    }
+
+    /// <summary>Locks every lab: approving may take stock from any of them.</summary>
+    public static async Task LockAllRoomsAsync(IUnitOfWork uow, CancellationToken ct)
+    {
+        var roomIds = await uow.Repository<LabRoom>().QueryNoTracking()
+            .Select(r => r.RoomId)
+            .ToListAsync(ct);
+        await LockRoomsAsync(uow, roomIds, ct);
+    }
 
     public static async Task<bool> SameRoomAsync(IUnitOfWork uow, Guid cabinetId, Guid otherCabinetId, CancellationToken ct)
     {
@@ -175,7 +296,7 @@ internal static class RoomStock
 
     /// <summary>
     /// Stock removed from a lab by a staff decision (cancel a receipt, move to another lab, send to Maintenance,
-    /// retire) may only come from the part not reserved by Approved requests; otherwise 409. Must run inside the caller's
+    /// retire) may only come from the part not reserved by Approved / Ready requests; otherwise 409. Must run inside the caller's
     /// transaction, before the removal. Facts (counted stock, Broken, Lost) are never blocked: callers report them
     /// with <see cref="GetShortagesAsync"/> instead.
     /// </summary>

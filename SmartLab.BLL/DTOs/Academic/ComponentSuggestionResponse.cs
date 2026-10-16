@@ -6,14 +6,10 @@ namespace SmartLab.BLL.DTOs.Academic;
 /// </summary>
 public class ComponentSuggestionResponse
 {
-    public Guid RoomId { get; set; }
-
-    public string RoomCode { get; set; } = string.Empty;
-
-    /// <summary>In the catalog and the lab has enough now.</summary>
+    /// <summary>In the catalog and the labs together have enough now.</summary>
     public List<SuggestedComponentResponse> Borrowable { get; set; } = new();
 
-    /// <summary>In the catalog but the lab has less than suggested (lower the quantity, pick another lab or buy the rest).</summary>
+    /// <summary>In the catalog but the labs together have less than suggested (lower the quantity or buy the rest).</summary>
     public List<NotEnoughStockComponentResponse> NotEnoughStock { get; set; } = new();
 
     /// <summary>Not in the catalog: the team buys these itself.</summary>

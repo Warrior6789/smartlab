@@ -34,13 +34,7 @@ public class ComponentSuggestionService : IComponentSuggestionService
 
     public async Task<ComponentSuggestionResponse> SuggestAsync(SuggestComponentsRequest request, CancellationToken ct = default)
     {
-        var room = await _uow.Repository<LabRoom>().QueryNoTracking()
-                       .FirstOrDefaultAsync(r => r.RoomId == request.RoomId, ct)
-                   ?? throw new NotFoundException("Không tìm thấy lab");
-        if (room.Status != LabRoomStatuses.Active)
-            throw new BadRequestException("Lab đang ngừng hoạt động");
-
-        var catalog = await LoadCatalogAsync(request.RoomId, ct);
+        var catalog = await LoadCatalogAsync(ct);
 
         var aiCatalog = catalog.Select(c => new AiCatalogItem
         {
@@ -59,7 +53,7 @@ public class ComponentSuggestionService : IComponentSuggestionService
         foreach (var row in catalog)
             byName.TryAdd(row.ComponentName.Trim().ToLower(), row);
 
-        var result = new ComponentSuggestionResponse { RoomId = room.RoomId, RoomCode = room.RoomCode };
+        var result = new ComponentSuggestionResponse();
         var addedComponents = new HashSet<Guid>();
         var addedSelfSupplied = new HashSet<string>();
 
@@ -117,10 +111,10 @@ public class ComponentSuggestionService : IComponentSuggestionService
     }
 
     /// <summary>
-    /// Active components with what the lab can still lend (stock minus approved reservations, see <see cref="RoomStock"/>),
-    /// the same rule as submitting and approving a project.
+    /// Active components with what all labs together can still lend (stock minus approved reservations, see
+    /// <see cref="RoomStock"/>), the same rule as submitting and approving a project.
     /// </summary>
-    private async Task<List<CatalogRow>> LoadCatalogAsync(Guid roomId, CancellationToken ct)
+    private async Task<List<CatalogRow>> LoadCatalogAsync(CancellationToken ct)
     {
         var rows = await _uow.Repository<Component>().QueryNoTracking()
             .Where(c => c.IsActive)
@@ -137,7 +131,7 @@ public class ComponentSuggestionService : IComponentSuggestionService
             })
             .ToListAsync(ct);
 
-        var available = await RoomStock.GetAvailableAsync(_uow, roomId, null, ct);
+        var available = await RoomStock.GetTotalAvailableAsync(_uow, null, ct);
         foreach (var row in rows)
             row.Available = available.GetValueOrDefault(row.ComponentId);
 
@@ -174,7 +168,7 @@ public class ComponentSuggestionService : IComponentSuggestionService
                 TrackingType = row.TrackingType,
                 Unit = row.Unit,
                 Quantity = suggestedQuantity,
-                AvailableInRoom = row.Available,
+                Available = row.Available,
                 Reason = CleanReason(reason),
             });
         }

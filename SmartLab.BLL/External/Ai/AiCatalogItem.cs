@@ -13,6 +13,6 @@ public class AiCatalogItem
 
     public string Unit { get; set; } = string.Empty;
 
-    /// <summary>Quantity available now in the chosen lab.</summary>
+    /// <summary>Quantity available now in all labs together.</summary>
     public int Available { get; set; }
 }

@@ -25,13 +25,13 @@ public class GeminiComponentAdvisor : IAiComponentAdvisor
         "và liệt kê phần cứng nhóm cần để làm 1 sản phẩm mẫu.\n" +
         "Quy tắc:\n" +
         "- Món có trong DANH MỤC KHO (ở bất kỳ phần nào) thì đưa vào inStock và ghi đúng mã ở cột đầu (dạng LK-xxxx), " +
-        "kể cả khi lab còn 0. Không tự đặt mã, không đưa món có trong danh mục vào selfSupplied.\n" +
+        "kể cả khi kho còn 0. Không tự đặt mã, không đưa món có trong danh mục vào selfSupplied.\n" +
         "- Chỉ chọn món trong danh mục khi đúng thông số project cần (ví dụ trị số điện trở, điện áp, giao tiếp). " +
         "Sai thông số thì đưa món đúng thông số vào selfSupplied.\n" +
-        "- Danh mục chia 2 phần: CÓ Ở LAB NÀY và LAB NÀY HẾT. Khi 2 món dùng thay nhau được cho project " +
-        "thì chọn món ở phần CÓ Ở LAB NÀY (ví dụ cần cảm biến nhiệt độ độ ẩm: lab có DHT11 thì chọn DHT11, không chọn DHT22 đã hết). " +
-        "Món cần đúng loại mà chỉ có ở phần LAB NÀY HẾT thì vẫn chọn món đó (hệ thống báo lab không đủ).\n" +
-        "- Không giảm số lượng cho vừa số còn ở lab: ghi đúng số project cần, hệ thống tự báo phần lab không đủ.\n" +
+        "- Danh mục chia 2 phần: CÒN TRONG KHO và KHO ĐÃ HẾT. Khi 2 món dùng thay nhau được cho project " +
+        "thì chọn món ở phần CÒN TRONG KHO (ví dụ cần cảm biến nhiệt độ độ ẩm: kho có DHT11 thì chọn DHT11, không chọn DHT22 đã hết). " +
+        "Món cần đúng loại mà chỉ có ở phần KHO ĐÃ HẾT thì vẫn chọn món đó (hệ thống báo kho không đủ).\n" +
+        "- Không giảm số lượng cho vừa số còn trong kho: ghi đúng số project cần, hệ thống tự báo phần kho không đủ.\n" +
         "- Món cần nhưng danh mục không có thì đưa vào selfSupplied, ghi tên thông dụng kèm thông số chính " +
         "(ví dụ: Module relay 5V 2 kênh). Không ghi giá, không ghi nơi bán.\n" +
         "- Số lượng chỉ đủ làm 1 mô hình demo của đồ án, không phải hệ thống triển khai thật: " +
@@ -193,14 +193,14 @@ public class GeminiComponentAdvisor : IAiComponentAdvisor
     private static string BuildUserPrompt(string projectDescription, IReadOnlyList<AiCatalogItem> catalog)
     {
         var prompt = new StringBuilder();
-        prompt.AppendLine("DANH MỤC KHO (mã | tên | danh mục | còn ở lab | mô tả ngắn)");
+        prompt.AppendLine("DANH MỤC KHO (mã | tên | danh mục | còn trong kho | mô tả ngắn)");
 
         prompt.AppendLine();
-        prompt.AppendLine("CÓ Ở LAB NÀY:");
+        prompt.AppendLine("CÒN TRONG KHO:");
         AppendCatalogLines(prompt, catalog.Where(i => i.Available > 0).ToList());
 
         prompt.AppendLine();
-        prompt.AppendLine("LAB NÀY HẾT (lab khác có, vẫn chọn được khi cần đúng loại này):");
+        prompt.AppendLine("KHO ĐÃ HẾT (vẫn chọn được khi cần đúng loại này):");
         AppendCatalogLines(prompt, catalog.Where(i => i.Available <= 0).ToList());
 
         prompt.AppendLine();
