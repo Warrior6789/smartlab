@@ -1,4 +1,5 @@
-﻿using ClosedXML.Excel;
+using ClosedXML.Excel;
+using System.Text.RegularExpressions;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -74,6 +75,13 @@ public class ClassRosterService : IClassRosterService
                         continue;
                     }
 
+                    if (!Regex.IsMatch(email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+                    {
+                        result.SkippedRows++;
+                        result.Errors.Add($"Row {row.RowNumber()}: Email '{email}' sai định dạng.");
+                        continue;
+                    }
+
                     // 5. Tìm hoặc tạo User
                     var user = await _uow.Repository<User>().Query()
                         .Include(u => u.StudentProfile)
@@ -86,7 +94,7 @@ public class ClassRosterService : IClassRosterService
                         var now = DateTime.UtcNow;
                         user = new User
                         {
-                            Username = email.Split('@')[0],
+                            Username = studentCode.ToLowerInvariant(),
                             Email = email,
                             FullName = fullName,
                             PasswordHash = _passwordHasher.Hash(studentCode), // mật khẩu mặc định = mã SV
@@ -176,7 +184,7 @@ public class ClassRosterService : IClassRosterService
                 var now = DateTime.UtcNow;
                 user = new User
                 {
-                    Username = request.Email.Split('@')[0],
+                    Username = request.InstructorCode.Trim().ToLowerInvariant(),
                     Email = request.Email.Trim().ToLowerInvariant(),
                     FullName = request.FullName.Trim(),
                     PasswordHash = _passwordHasher.Hash(request.InstructorCode), // mật khẩu mặc định = mã GV
@@ -186,7 +194,6 @@ public class ClassRosterService : IClassRosterService
                     InstructorProfile = new InstructorProfile
                     {
                         InstructorCode = request.InstructorCode.Trim().ToUpperInvariant(),
-                        Department = string.IsNullOrWhiteSpace(request.Department) ? null : request.Department.Trim(),
                         AcademicTitle = string.IsNullOrWhiteSpace(request.AcademicTitle) ? null : request.AcademicTitle.Trim(),
                     }
                 };
@@ -224,7 +231,6 @@ public class ClassRosterService : IClassRosterService
                 InstructorCode = instructorProfile.InstructorCode,
                 FullName = user.FullName,
                 Email = user.Email,
-                Department = instructorProfile.Department,
                 AcademicTitle = instructorProfile.AcademicTitle,
             };
         }

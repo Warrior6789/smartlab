@@ -16,7 +16,6 @@ public class AssignInstructorRequest
     public string InstructorCode { get; set; } = null!; 
     public string FullName { get; set; } = null!;
     public string Email { get; set; } = null!;
-    public string? Department { get; set; }
     public string? AcademicTitle { get; set; }
 }
 
@@ -26,6 +25,5 @@ public class AssignInstructorResponse
     public string InstructorCode { get; set; } = null!;
     public string FullName { get; set; } = null!;
     public string Email { get; set; } = null!;
-    public string? Department { get; set; }
     public string? AcademicTitle { get; set; }
 }
