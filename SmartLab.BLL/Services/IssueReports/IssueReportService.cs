@@ -20,8 +20,11 @@ public class IssueReportService : IIssueReportService
     private const string ComponentItemBorrowed = "Borrowed";
     private const string ComponentItemBroken = "Broken";
     private const string ComponentItemRetired = "Retired";
+    private const string BorrowItemIssued = "Issued";
     private const string BorrowItemDamaged = "Damaged";
     private const string BorrowItemLost = "Lost";
+    private const string BorrowRequestBorrowing = "Borrowing";
+    private const string BorrowRequestOverdue = "Overdue";
     private const string TrackingReusable = "REUSABLE";
     private const string TrackingHighValue = "HIGH_VALUE";
     private const string InventoryMove = "Move";
@@ -364,8 +367,11 @@ public class IssueReportService : IIssueReportService
         var matches = await _uow.Repository<BorrowItem>().QueryNoTracking()
             .Include(borrowItem => borrowItem.BorrowRequest)
             .Where(borrowItem => borrowItem.ComponentItemId == item.ItemId &&
+                                 borrowItem.Status == BorrowItemIssued &&
                                  borrowItem.IssuedAt != null &&
                                  borrowItem.ReturnedAt == null &&
+                                 (borrowItem.BorrowRequest.Status == BorrowRequestBorrowing ||
+                                  borrowItem.BorrowRequest.Status == BorrowRequestOverdue) &&
                                  borrowItem.BorrowRequest.ReturnedAt == null)
             .Take(2)
             .ToListAsync(ct);
@@ -487,8 +493,11 @@ public class IssueReportService : IIssueReportService
             if (report.BorrowItem is null ||
                 report.BorrowItem.BorrowItemId != report.BorrowItemId.Value ||
                 report.BorrowItem.ComponentItemId != report.ComponentItemId ||
+                report.BorrowItem.Status != BorrowItemIssued ||
                 report.BorrowItem.IssuedAt is null ||
                 report.BorrowItem.ReturnedAt is not null ||
+                report.BorrowItem.BorrowRequest.Status is not
+                    (BorrowRequestBorrowing or BorrowRequestOverdue) ||
                 report.BorrowItem.BorrowRequest.ReturnedAt is not null)
                 throw new ConflictException("Dòng mượn liên kết không còn ở trạng thái hoạt động");
         }
@@ -524,10 +533,12 @@ public class IssueReportService : IIssueReportService
             var affectedBorrowItems = await _uow.Repository<BorrowItem>().Query()
                 .Where(item => item.BorrowItemId == report.BorrowItemId.Value &&
                                item.ComponentItemId == report.ComponentItemId &&
+                               item.Status == BorrowItemIssued &&
                                item.IssuedAt != null &&
                                item.ReturnedAt == null &&
-                               item.Status != BorrowItemDamaged &&
-                               item.Status != BorrowItemLost)
+                               (item.BorrowRequest.Status == BorrowRequestBorrowing ||
+                                item.BorrowRequest.Status == BorrowRequestOverdue) &&
+                               item.BorrowRequest.ReturnedAt == null)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(item => item.Status, borrowItemStatus), ct);
 
