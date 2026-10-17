@@ -52,6 +52,7 @@ public static class DependencyInjection
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<ITeamService, TeamService>();
         services.AddScoped<IIssueReportService, IssueReportService>();
+        services.AddScoped<IIssueReportBorrowingIntegration, IssueReportBorrowingIntegrationService>();
 
         services.AddHostedService<AdminSeeder>();
 

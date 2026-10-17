@@ -19,16 +19,12 @@ public class IssueReportService : IIssueReportService
     private const string ComponentItemAvailable = "Available";
     private const string ComponentItemBorrowed = "Borrowed";
     private const string ComponentItemBroken = "Broken";
-    private const string ComponentItemRetired = "Retired";
     private const string BorrowItemIssued = "Issued";
-    private const string BorrowItemDamaged = "Damaged";
-    private const string BorrowItemLost = "Lost";
     private const string BorrowRequestBorrowing = "Borrowing";
     private const string BorrowRequestOverdue = "Overdue";
     private const string TrackingReusable = "REUSABLE";
     private const string TrackingHighValue = "HIGH_VALUE";
     private const string InventoryMove = "Move";
-    private const string InventoryRetire = "Retire";
     private const string IssueImageFolder = "issues";
 
     private readonly IUnitOfWork _uow;
@@ -196,7 +192,13 @@ public class IssueReportService : IIssueReportService
 
             if (result == IssueReportStatuses.Confirmed)
             {
-                await ConfirmReportAsync(report, userId, request.Note, now, ct);
+                await IssueReportConfirmationHandler.ConfirmAsync(
+                    _uow,
+                    report,
+                    userId,
+                    request.Note,
+                    now,
+                    ct);
             }
             else if (report.BorrowItemId is null)
             {
@@ -523,63 +525,6 @@ public class IssueReportService : IIssueReportService
                 report.BorrowItem.BorrowRequest.ReturnedAt is not null)
                 throw new ConflictException("Dòng mượn liên kết không còn ở trạng thái hoạt động");
         }
-    }
-
-    private async Task ConfirmReportAsync(
-        IssueReport report,
-        Guid actorId,
-        string? note,
-        DateTime now,
-        CancellationToken ct)
-    {
-        var expectedItemStatus = report.BorrowItemId.HasValue
-            ? ComponentItemBorrowed
-            : ComponentItemBroken;
-
-        var affectedItems = await _uow.Repository<ComponentItem>().Query()
-            .Where(item => item.ItemId == report.ComponentItemId &&
-                           item.Status == expectedItemStatus)
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(item => item.Status, ComponentItemRetired)
-                .SetProperty(item => item.UpdatedAt, now), ct);
-
-        if (affectedItems != 1)
-            throw new ConflictException("Trạng thái linh kiện đã thay đổi, không thể xác nhận sự cố");
-
-        if (report.BorrowItemId.HasValue)
-        {
-            var borrowItemStatus = report.IssueType == IssueTypes.Lost
-                ? BorrowItemLost
-                : BorrowItemDamaged;
-
-            var affectedBorrowItems = await _uow.Repository<BorrowItem>().Query()
-                .Where(item => item.BorrowItemId == report.BorrowItemId.Value &&
-                               item.ComponentItemId == report.ComponentItemId &&
-                               item.Status == BorrowItemIssued &&
-                               item.IssuedAt != null &&
-                               item.ReturnedAt == null &&
-                               (item.BorrowRequest.Status == BorrowRequestBorrowing ||
-                                item.BorrowRequest.Status == BorrowRequestOverdue) &&
-                               item.BorrowRequest.ReturnedAt == null)
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(item => item.Status, borrowItemStatus), ct);
-
-            if (affectedBorrowItems != 1)
-                throw new ConflictException("Dòng mượn đã thay đổi, không thể xác nhận sự cố");
-        }
-
-        var reasonPrefix = report.IssueType == IssueTypes.Lost ? "Lost" : "Retired";
-        var reason = AppendNote($"{reasonPrefix}: sự cố {report.IssueReportId}", note);
-        await _uow.Repository<InventoryTransaction>().AddAsync(
-            CreateInventoryTransaction(
-                report.ComponentItem,
-                actorId,
-                InventoryRetire,
-                -1,
-                reason,
-                now,
-                report.BorrowItem?.BorrowRequestId),
-            ct);
     }
 
     private async Task RestoreBrokenItemAsync(
