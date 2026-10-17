@@ -62,6 +62,7 @@ public class IssueReportService : IIssueReportService
             throw new BadRequestException("Mô tả sự cố không được vượt quá 1000 ký tự");
 
         var item = await FindItemAsync(request.ComponentItemId, request.ItemCode, ct);
+        EnsureInventoryManagerCreateStatus(item);
         var activeBorrowItem = await ResolveActiveBorrowItemAsync(item, ct);
         await EnsureCanCreateAsync(item, activeBorrowItem, userId, ct);
 
@@ -93,6 +94,7 @@ public class IssueReportService : IIssueReportService
             try
             {
                 item = await FindItemByIdAsync(item.ItemId, ct);
+                EnsureInventoryManagerCreateStatus(item);
                 activeBorrowItem = await ResolveActiveBorrowItemAsync(item, ct);
                 await EnsureCanCreateAsync(item, activeBorrowItem, userId, ct);
 
@@ -386,15 +388,35 @@ public class IssueReportService : IIssueReportService
         };
     }
 
+    private void EnsureInventoryManagerCreateStatus(ComponentItem item)
+    {
+        if (_currentUser.IsInRole(RoleNames.Admin) ||
+            !_currentUser.IsInRole(RoleNames.InventoryManager))
+            return;
+
+        if (item.Status == ComponentItemBorrowed)
+            throw new ForbiddenException(
+                "InventoryManager không được báo sự cố cho linh kiện đang được mượn");
+    }
+
     private async Task EnsureCanCreateAsync(
         ComponentItem item,
         BorrowItem? activeBorrowItem,
         Guid userId,
         CancellationToken ct)
     {
-        if (_currentUser.IsInRole(RoleNames.Admin) ||
-            _currentUser.IsInRole(RoleNames.InventoryManager))
+        if (_currentUser.IsInRole(RoleNames.Admin))
             return;
+
+        if (_currentUser.IsInRole(RoleNames.InventoryManager))
+        {
+            if (item.Status == ComponentItemAvailable &&
+                (item.Cabinet is null || item.Cabinet.Room is null))
+                throw new ConflictException(
+                    "Linh kiện Available không có vị trí tủ và phòng lab hợp lệ trong kho");
+
+            return;
+        }
 
         if (_currentUser.IsInRole(RoleNames.LabStaff) &&
             await IsAssignedToRoomAsync(item.Cabinet.RoomId, userId, ct))
