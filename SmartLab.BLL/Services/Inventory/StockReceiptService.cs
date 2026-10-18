@@ -848,7 +848,9 @@ public class StockReceiptService : IStockReceiptService
             var existing = await _uow.Repository<ComponentItem>().QueryNoTracking()
                 .Where(x => checkComponentIds.Contains(x.ComponentId)
                             && x.SerialNumber != null
-                            && checkSerials.Contains(x.SerialNumber))
+                            && checkSerials.Contains(x.SerialNumber)
+                            && x.Status != ComponentItemStatuses.Retired
+                            && x.Status != ComponentItemStatuses.Lost)
                 .Select(x => new { x.ComponentId, x.SerialNumber })
                 .ToListAsync(ct);
 
