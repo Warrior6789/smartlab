@@ -1,5 +1,6 @@
 ﻿using System.Text;
 using FluentValidation;
+
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -13,11 +14,15 @@ using SmartLab.BLL.Interfaces.Academic;
 using SmartLab.BLL.Interfaces.Borrowing;
 using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.BLL.Interfaces.Inventory;
+using SmartLab.BLL.Interfaces.IssueReports;
+using SmartLab.BLL.Interfaces.Teamwork;
 using SmartLab.BLL.Seeding;
 using SmartLab.BLL.Services.Academic;
 using SmartLab.BLL.Services.Borrowing;
 using SmartLab.BLL.Services.Identity;
 using SmartLab.BLL.Services.Inventory;
+using SmartLab.BLL.Services.IssueReports;
+using SmartLab.BLL.Services.Teamwork;
 
 namespace SmartLab.BLL;
 
@@ -68,6 +73,9 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRoleService, RoleService>();
+        services.AddScoped<ITeamService, TeamService>();
+        services.AddScoped<IIssueReportService, IssueReportService>();
+        services.AddScoped<IIssueReportBorrowingIntegration, IssueReportBorrowingIntegrationService>();
 
         services.AddScoped<ICategoryService, CategoryService>();
         services.AddScoped<ILabRoomService, LabRoomService>();
