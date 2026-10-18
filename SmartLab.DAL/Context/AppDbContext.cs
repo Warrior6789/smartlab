@@ -585,7 +585,7 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => new { e.ComponentId, e.SerialNumber }, "ux_component_items_serial")
                 .IsUnique()
-                .HasFilter("(serial_number IS NOT NULL)");
+                .HasFilter("((serial_number IS NOT NULL) AND ((status)::text <> ALL ((ARRAY['Retired'::character varying, 'Lost'::character varying])::text[])))");
 
             entity.Property(e => e.ItemId)
                 .HasDefaultValueSql("gen_random_uuid()")
