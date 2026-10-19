@@ -18,13 +18,13 @@ public class IssueReportService : IIssueReportService
 {
     private const string ComponentItemAvailable = "Available";
     private const string ComponentItemBorrowed = "Borrowed";
-    private const string ComponentItemBroken = "Broken";
     private const string BorrowItemIssued = "Issued";
+    private const string BorrowItemReturned = "Returned";
+    private const string ReturnConditionGood = "Good";
     private const string BorrowRequestBorrowing = "Borrowing";
     private const string BorrowRequestOverdue = "Overdue";
     private const string TrackingReusable = "REUSABLE";
     private const string TrackingHighValue = "HIGH_VALUE";
-    private const string InventoryMove = "Move";
     private const string IssueImageFolder = "issues";
 
     private readonly IUnitOfWork _uow;
@@ -89,38 +89,26 @@ public class IssueReportService : IIssueReportService
 
             try
             {
+                var expectedItemStatus = item.Status;
+                // Serialize Create and return confirmation before reloading business state.
+                var affectedItems = await _uow.Repository<ComponentItem>().Query()
+                    .Where(candidate => candidate.ItemId == item.ItemId &&
+                                        candidate.Status == expectedItemStatus)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(candidate => candidate.Status, candidate => candidate.Status), ct);
+
+                if (affectedItems != 1)
+                    throw new ConflictException("Trạng thái linh kiện đã thay đổi, vui lòng tải lại dữ liệu");
+
                 item = await FindItemByIdAsync(item.ItemId, ct);
                 EnsureInventoryManagerCreateStatus(item);
                 activeBorrowItem = await ResolveActiveBorrowItemAsync(item, ct);
                 await EnsureCanCreateAsync(item, activeBorrowItem, userId, ct);
 
-                if (await HasOpenReportAsync(item.ItemId, ct))
-                    throw new ConflictException("Linh kiện này đã có báo cáo sự cố đang chờ xử lý");
                 EnsureSupportedItem(item);
 
-                var now = DateTime.UtcNow;
-                if (item.Status == ComponentItemAvailable)
-                {
-                    var affectedItems = await _uow.Repository<ComponentItem>().Query()
-                        .Where(candidate => candidate.ItemId == item.ItemId &&
-                                            candidate.Status == ComponentItemAvailable)
-                        .ExecuteUpdateAsync(setters => setters
-                            .SetProperty(candidate => candidate.Status, ComponentItemBroken)
-                            .SetProperty(candidate => candidate.UpdatedAt, now), ct);
-
-                    if (affectedItems != 1)
-                        throw new ConflictException("Trạng thái linh kiện đã thay đổi, vui lòng tải lại dữ liệu");
-
-                    await _uow.Repository<InventoryTransaction>().AddAsync(
-                        CreateInventoryTransaction(
-                            item,
-                            userId,
-                            InventoryMove,
-                            0,
-                            $"Available -> Broken: sự cố {reportId}",
-                            now),
-                        ct);
-                }
+                if (await HasOpenReportAsync(item.ItemId, ct))
+                    throw new ConflictException("Linh kiện này đã có báo cáo sự cố đang chờ xử lý");
 
                 await _uow.Repository<IssueReport>().AddAsync(new IssueReport
                 {
@@ -132,7 +120,7 @@ public class IssueReportService : IIssueReportService
                     Description = description,
                     ImageUrl = uploadedImage?.Url,
                     Status = IssueReportStatuses.Open,
-                    CreatedAt = now,
+                    CreatedAt = DateTime.UtcNow,
                 }, ct);
 
                 await _uow.SaveChangesAsync(ct);
@@ -169,6 +157,7 @@ public class IssueReportService : IIssueReportService
         var report = await FindReportAsync(issueReportId, ct);
         await EnsureCanResolveAsync(report, userId, ct);
         EnsureOpenReport(report);
+        EnsureCanResolveDirectly(report, result);
 
         await using var transaction = await _uow.BeginTransactionAsync(ct);
         try
@@ -176,6 +165,7 @@ public class IssueReportService : IIssueReportService
             report = await FindReportAsync(issueReportId, ct);
             await EnsureCanResolveAsync(report, userId, ct);
             EnsureOpenReport(report);
+            EnsureCanResolveDirectly(report, result);
             EnsureConsistentItemState(report);
 
             var now = DateTime.UtcNow;
@@ -199,10 +189,6 @@ public class IssueReportService : IIssueReportService
                     request.Note,
                     now,
                     ct);
-            }
-            else if (report.BorrowItemId is null)
-            {
-                await RestoreBrokenItemAsync(report, userId, request.Note, now, ct);
             }
 
             await _uow.SaveChangesAsync(ct);
@@ -245,9 +231,6 @@ public class IssueReportService : IIssueReportService
 
             if (affectedReports != 1)
                 throw new ConflictException("Báo cáo sự cố đã được xử lý bởi yêu cầu khác");
-
-            if (report.BorrowItemId is null)
-                await RestoreBrokenItemAsync(report, userId, note: null, now, ct);
 
             await _uow.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
@@ -441,33 +424,6 @@ public class IssueReportService : IIssueReportService
             .AnyAsync(report => report.ComponentItemId == itemId &&
                                 report.Status == IssueReportStatuses.Open, ct);
 
-    private static InventoryTransaction CreateInventoryTransaction(
-        ComponentItem item,
-        Guid actorId,
-        string type,
-        int quantityChange,
-        string reason,
-        DateTime createdAt,
-        Guid? borrowRequestId = null)
-    {
-        if (reason.Length > 255)
-            throw new BadRequestException("Nội dung ghi chú làm lý do lịch sử kho vượt quá 255 ký tự");
-
-        return new InventoryTransaction
-        {
-            TransactionId = Guid.NewGuid(),
-            Type = type,
-            ComponentId = item.ComponentId,
-            CabinetId = item.CabinetId,
-            ItemId = item.ItemId,
-            QuantityChange = quantityChange,
-            Reason = reason,
-            CreatedBy = actorId,
-            CreatedAt = createdAt,
-            BorrowRequestId = borrowRequestId,
-        };
-    }
-
     private async Task<IssueReport> FindReportAsync(Guid issueReportId, CancellationToken ct)
         => await DetailQuery()
                .FirstOrDefaultAsync(report => report.IssueReportId == issueReportId, ct)
@@ -502,72 +458,43 @@ public class IssueReportService : IIssueReportService
             throw new ConflictException("Chỉ báo cáo đang ở trạng thái Open mới được xử lý");
     }
 
+    private static void EnsureCanResolveDirectly(IssueReport report, string result)
+    {
+        if (result == IssueReportStatuses.Confirmed && report.BorrowItemId.HasValue)
+            throw new ConflictException(
+                "Báo cáo gắn dòng mượn phải được xác nhận trong quy trình nhận trả của Borrowing");
+    }
+
     private static void EnsureConsistentItemState(IssueReport report)
     {
-        if (report.BorrowItemId is null && report.ComponentItem.Status != ComponentItemBroken)
-            throw new ConflictException(
-                "Báo cáo trong kho yêu cầu linh kiện ở trạng thái Broken nhưng dữ liệu hiện tại đã thay đổi");
-
-        if (report.BorrowItemId.HasValue)
+        if (report.BorrowItemId is null)
         {
-            if (report.ComponentItem.Status != ComponentItemBorrowed)
+            if (report.ComponentItem.Status != ComponentItemAvailable)
                 throw new ConflictException(
-                    "Báo cáo khi mượn yêu cầu linh kiện ở trạng thái Borrowed nhưng dữ liệu hiện tại đã thay đổi");
+                    "Báo cáo tại tủ yêu cầu linh kiện còn Available nhưng trạng thái hiện tại đã thay đổi");
 
-            if (report.BorrowItem is null ||
-                report.BorrowItem.BorrowItemId != report.BorrowItemId.Value ||
-                report.BorrowItem.ComponentItemId != report.ComponentItemId ||
-                report.BorrowItem.Status != BorrowItemIssued ||
-                report.BorrowItem.IssuedAt is null ||
-                report.BorrowItem.ReturnedAt is not null ||
-                report.BorrowItem.BorrowRequest.Status is not
-                    (BorrowRequestBorrowing or BorrowRequestOverdue) ||
-                report.BorrowItem.BorrowRequest.ReturnedAt is not null)
-                throw new ConflictException("Dòng mượn liên kết không còn ở trạng thái hoạt động");
+            return;
         }
-    }
 
-    private async Task RestoreBrokenItemAsync(
-        IssueReport report,
-        Guid actorId,
-        string? note,
-        DateTime now,
-        CancellationToken ct)
-    {
-        var affectedItems = await _uow.Repository<ComponentItem>().Query()
-            .Where(item => item.ItemId == report.ComponentItemId &&
-                           item.Status == ComponentItemBroken)
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(item => item.Status, ComponentItemAvailable)
-                .SetProperty(item => item.UpdatedAt, now), ct);
+        var borrowItem = report.BorrowItem;
+        if (borrowItem is null ||
+            borrowItem.BorrowItemId != report.BorrowItemId.Value ||
+            borrowItem.ComponentItemId != report.ComponentItemId ||
+            borrowItem.ComponentId != report.ComponentItem.ComponentId ||
+            borrowItem.Quantity != 1 || borrowItem.IssuedAt is null)
+            throw new ConflictException("Báo cáo không liên kết đúng dòng mượn của linh kiện");
 
-        if (affectedItems != 1)
-            throw new ConflictException("Trạng thái linh kiện đã thay đổi, không thể hoàn tác báo cáo sự cố");
+        // Historical Good returns can close a report without touching the item's next loan.
+        if (borrowItem.Status == BorrowItemReturned &&
+            borrowItem.ReturnCondition == ReturnConditionGood &&
+            borrowItem.ReturnedAt is not null && borrowItem.ReturnedQuantity == 1)
+            return;
 
-        var reason = AppendNote($"Broken -> Available: sự cố {report.IssueReportId}", note);
-        await _uow.Repository<InventoryTransaction>().AddAsync(
-            CreateInventoryTransaction(
-                report.ComponentItem,
-                actorId,
-                InventoryMove,
-                0,
-                reason,
-                now),
-            ct);
-    }
-
-    private static string AppendNote(string prefix, string? note)
-    {
-        var normalizedNote = note?.Trim();
-        var reason = string.IsNullOrWhiteSpace(normalizedNote)
-            ? prefix
-            : $"{prefix}, {normalizedNote}";
-
-        if (reason.Length > 255)
-            throw new BadRequestException(
-                "Ghi chú quá dài để lưu trong lý do lịch sử kho (tối đa 255 ký tự cho toàn bộ nội dung)");
-
-        return reason;
+        if (report.ComponentItem.Status != ComponentItemBorrowed ||
+            borrowItem.Status != BorrowItemIssued || borrowItem.ReturnedAt is not null ||
+            borrowItem.BorrowRequest.Status is not (BorrowRequestBorrowing or BorrowRequestOverdue) ||
+            borrowItem.BorrowRequest.ReturnedAt is not null)
+            throw new ConflictException("Dòng mượn liên kết không còn ở trạng thái hoạt động hoặc đã trả Good hợp lệ");
     }
 
     private async Task<IssueReportDetailResponse> LoadDetailAsync(
