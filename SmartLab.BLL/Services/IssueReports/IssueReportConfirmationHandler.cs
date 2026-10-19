@@ -10,8 +10,9 @@ namespace SmartLab.BLL.Services.IssueReports;
 internal static class IssueReportConfirmationHandler
 {
     private const string ComponentItemBorrowed = "Borrowed";
-    private const string ComponentItemBroken = "Broken";
+    private const string ComponentItemAvailable = "Available";
     private const string ComponentItemRetired = "Retired";
+    private const string ComponentItemLost = "Lost";
     private const string BorrowItemIssued = "Issued";
     private const string BorrowItemDamaged = "Damaged";
     private const string BorrowItemLost = "Lost";
@@ -29,13 +30,16 @@ internal static class IssueReportConfirmationHandler
     {
         var expectedItemStatus = report.BorrowItemId.HasValue
             ? ComponentItemBorrowed
-            : ComponentItemBroken;
+            : ComponentItemAvailable;
+        var finalItemStatus = report.IssueType == IssueTypes.Lost
+            ? ComponentItemLost
+            : ComponentItemRetired;
 
         var affectedItems = await uow.Repository<ComponentItem>().Query()
             .Where(item => item.ItemId == report.ComponentItemId &&
                            item.Status == expectedItemStatus)
             .ExecuteUpdateAsync(setters => setters
-                .SetProperty(item => item.Status, ComponentItemRetired)
+                .SetProperty(item => item.Status, finalItemStatus)
                 .SetProperty(item => item.UpdatedAt, now), ct);
 
         if (affectedItems != 1)
