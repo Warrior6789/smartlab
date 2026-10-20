@@ -8,15 +8,22 @@ using SmartLab.DAL.UnitOfWork;
 namespace SmartLab.BLL.Services.Inventory;
 
 /// <summary>
-/// What a lab can still lend: stock in the lab's cabinets (CONSUMABLE quantity + Available units) minus what Approved or
-/// Ready borrow requests reserve there (not issued yet). A line of such a request is reserved in its source lab until the
-/// pickup lab receives it, then in the pickup lab. Used when submitting, approving and suggesting, so "còn" means the
-/// same everywhere.
+/// What a lab can still lend: stock in the lab's cabinets (CONSUMABLE quantity + Available units) minus what borrow
+/// requests reserve there: every line of an Approved or Ready request, and a replacement line of a request being borrowed
+/// (all of them still Pending, not issued yet). A reserved line holds stock in its source lab until the pickup lab receives
+/// it, then in the pickup lab. Used when submitting, approving and suggesting, so "còn" means the same everywhere.
 /// </summary>
 internal static class RoomStock
 {
-    /// <summary>Borrow request statuses whose lines hold stock.</summary>
+    /// <summary>Borrow request statuses whose lines hold stock (nothing handed over yet).</summary>
     public static readonly string[] ReservingStatuses = { BorrowRequestStatuses.Approved, BorrowRequestStatuses.Ready };
+
+    /// <summary>Borrow request statuses whose Pending lines hold stock: <see cref="ReservingStatuses"/> plus replacements.</summary>
+    private static readonly string[] HoldingStatuses =
+    {
+        BorrowRequestStatuses.Approved, BorrowRequestStatuses.Ready,
+        BorrowRequestStatuses.Borrowing, BorrowRequestStatuses.Overdue,
+    };
 
     /// <summary>Available quantity per component (never negative); components with nothing left are absent.</summary>
     public static async Task<Dictionary<Guid, int>> GetAvailableAsync(
@@ -78,7 +85,7 @@ internal static class RoomStock
     }
 
     /// <summary>
-    /// Components (of the given ones) whose stock in the lab is now below what Approved / Ready requests reserve there,
+    /// Components (of the given ones) whose stock in the lab is now below what borrow requests reserve there,
     /// with the affected request codes. Called after a staff operation records broken or lost stock, which is allowed
     /// even when the stock was reserved, so the response can warn the staff.
     /// </summary>
@@ -107,7 +114,8 @@ internal static class RoomStock
 
         var requests = await uow.Repository<BorrowItem>().QueryNoTracking()
             .Where(i => shortIds.Contains(i.ComponentId)
-                        && ReservingStatuses.Contains(i.BorrowRequest.Status)
+                        && i.Status == BorrowItemStatuses.Pending
+                        && HoldingStatuses.Contains(i.BorrowRequest.Status)
                         && ((i.ReceivedAt == null && i.SourceRoomId == roomId)
                             || (i.ReceivedAt != null && i.BorrowRequest.RoomId == roomId)))
             .Select(i => new { i.ComponentId, i.BorrowRequest.RequestCode })
@@ -149,7 +157,7 @@ internal static class RoomStock
             .Select(c => c.RoomId)
             .FirstAsync(ct);
 
-    /// <summary>Lendable stock per component in the lab: CONSUMABLE quantity + Available units.</summary>
+    /// <summary>Lendable stock per component in the lab: CONSUMABLE quantity + Available units without an Open issue report.</summary>
     private static async Task<Dictionary<Guid, int>> GetInStockAsync(
         IUnitOfWork uow, Guid roomId, IReadOnlyCollection<Guid>? componentIds, CancellationToken ct)
     {
@@ -171,7 +179,8 @@ internal static class RoomStock
         var stocks = uow.Repository<ConsumableStock>().QueryNoTracking()
             .Where(s => s.Quantity > 0);
         var units = uow.Repository<ComponentItem>().QueryNoTracking()
-            .Where(i => i.Status == ComponentItemStatuses.Available);
+            .Where(i => i.Status == ComponentItemStatuses.Available
+                        && !i.IssueReports.Any(r => r.Status == IssueReportStatuses.Open));
 
         if (roomId != null)
         {
@@ -204,12 +213,13 @@ internal static class RoomStock
         return rows;
     }
 
-    /// <summary>Quantity per component reserved in the lab by Approved / Ready requests (not issued yet).</summary>
+    /// <summary>Quantity per component reserved in the lab by Pending lines (see the class summary).</summary>
     private static async Task<Dictionary<Guid, int>> GetReservedAsync(
         IUnitOfWork uow, Guid roomId, IReadOnlyCollection<Guid>? componentIds, CancellationToken ct)
     {
         var reservations = uow.Repository<BorrowItem>().QueryNoTracking()
-            .Where(i => ReservingStatuses.Contains(i.BorrowRequest.Status)
+            .Where(i => i.Status == BorrowItemStatuses.Pending
+                        && HoldingStatuses.Contains(i.BorrowRequest.Status)
                         && ((i.ReceivedAt == null && i.SourceRoomId == roomId)
                             || (i.ReceivedAt != null && i.BorrowRequest.RoomId == roomId)));
 
@@ -230,7 +240,7 @@ internal static class RoomStock
         IUnitOfWork uow, IReadOnlyCollection<Guid>? componentIds, CancellationToken ct)
     {
         var lines = uow.Repository<BorrowItem>().QueryNoTracking()
-            .Where(i => ReservingStatuses.Contains(i.BorrowRequest.Status));
+            .Where(i => i.Status == BorrowItemStatuses.Pending && HoldingStatuses.Contains(i.BorrowRequest.Status));
 
         if (componentIds != null)
             lines = lines.Where(i => componentIds.Contains(i.ComponentId));
@@ -296,7 +306,7 @@ internal static class RoomStock
 
     /// <summary>
     /// Stock removed from a lab by a staff decision (cancel a receipt, move to another lab, send to Maintenance,
-    /// retire) may only come from the part not reserved by Approved / Ready requests; otherwise 409. Must run inside the caller's
+    /// retire) may only come from the part not reserved by borrow requests; otherwise 409. Must run inside the caller's
     /// transaction, before the removal. Facts (counted stock, Broken, Lost) are never blocked: callers report them
     /// with <see cref="GetShortagesAsync"/> instead.
     /// </summary>
@@ -337,7 +347,7 @@ internal static class RoomStock
             .ToArray();
 
         throw new ConflictException(
-            "Không lấy được hàng đang được giữ chỗ cho đơn mượn đã duyệt (chưa cấp đồ)",
+            "Không lấy được hàng đang được giữ chỗ cho đơn mượn (chưa giao đồ)",
             new Dictionary<string, string[]> { ["items"] = details });
     }
 }

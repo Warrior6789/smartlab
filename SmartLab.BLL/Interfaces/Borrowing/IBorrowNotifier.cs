@@ -26,6 +26,27 @@ public interface IBorrowNotifier
     /// </summary>
     Task ReturnedAsync(Guid borrowRequestId, IReadOnlyCollection<Guid> returnedLineIds, CancellationToken ct = default);
 
+    /// <summary>
+    /// A broken unit was swapped: tells the borrower the replacement is ready at the pickup lab, is being carried from
+    /// another lab, or that no lab has one left (<paramref name="replacementLineId"/> null). When it must be carried over,
+    /// also tells the staff of the source lab.
+    /// </summary>
+    Task ReplacementAsync(Guid borrowRequestId, Guid damagedLineId, Guid? replacementLineId, CancellationToken ct = default);
+
+    /// <summary>A replacement carried from another lab reached the pickup lab: come and pick it up with the student card.</summary>
+    Task ReplacementArrivedAsync(Guid borrowRequestId, Guid replacementLineId, CancellationToken ct = default);
+
+    /// <summary>Receipt after handing a replacement unit over.</summary>
+    Task ReplacementIssuedAsync(Guid borrowRequestId, Guid replacementLineId, CancellationToken ct = default);
+
+    /// <summary>
+    /// A replacement was dropped: tells the borrower with the reason, and the source lab (when the unit was not carried
+    /// over yet, <paramref name="notCarriedFromRoomId"/>) that it no longer needs to bring it.
+    /// </summary>
+    Task ReplacementCancelledAsync(
+        Guid borrowRequestId, string componentName, Guid? notCarriedFromRoomId, string reason, Guid cancelledBy,
+        CancellationToken ct = default);
+
     /// <summary>The due date is tomorrow and components are still out.</summary>
     Task DueSoonAsync(Guid borrowRequestId, CancellationToken ct = default);
 
@@ -46,4 +67,10 @@ public interface IBorrowNotifier
     /// them, and the pickup lab staff (except the one who cancelled) stop preparing it.
     /// </summary>
     Task StaffCancelledAsync(Guid borrowRequestId, Guid cancelledBy, CancellationToken ct = default);
+
+    /// <summary>The borrower asked to extend the due date: tells the lecturer of the class.</summary>
+    Task ExtensionRequestedAsync(Guid extensionId, CancellationToken ct = default);
+
+    /// <summary>The lecturer approved (new due date) or rejected (reason) an extension: tells the borrower.</summary>
+    Task ExtensionReviewedAsync(Guid extensionId, CancellationToken ct = default);
 }

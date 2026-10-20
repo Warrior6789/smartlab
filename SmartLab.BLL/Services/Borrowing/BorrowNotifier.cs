@@ -157,10 +157,16 @@ public class BorrowNotifier : IBorrowNotifier
             body += "<p>Linh kiện hỏng hoặc mất đã được ghi nhận vào hệ thống.</p>";
 
         string subject;
-        if (stillOut.Count == 0)
+        var waitingReplacement = lines.Any(l => l.Status == BorrowItemStatuses.Pending);
+        if (stillOut.Count == 0 && !waitingReplacement)
         {
             subject = $"SmartLab - Đơn {info.RequestCode} đã trả xong";
             body += "<p>Bạn đã trả xong toàn bộ đơn này. Cảm ơn bạn!</p>";
+        }
+        else if (stillOut.Count == 0)
+        {
+            subject = $"SmartLab - Xác nhận trả đồ đơn {info.RequestCode}";
+            body += "<p>Bạn đã trả hết đồ đang mượn. Đơn vẫn còn món thay thế đang được chuẩn bị cho bạn.</p>";
         }
         else
         {
@@ -170,6 +176,155 @@ public class BorrowNotifier : IBorrowNotifier
 
         await SendAsync(info, subject, body);
     }
+
+    public async Task ReplacementAsync(
+        Guid borrowRequestId, Guid damagedLineId, Guid? replacementLineId, CancellationToken ct = default)
+    {
+        var info = await LoadAsync(borrowRequestId, ct);
+        if (info == null)
+            return;
+
+        var damaged = (await LoadLinesAsync(borrowRequestId, ct)).FirstOrDefault(l => l.BorrowItemId == damagedLineId);
+        if (damaged == null)
+            return;
+
+        var body =
+            Greeting(info) +
+            $"<p>Lab <b>{Encode(info.RoomCode)}</b> đã nhận lại con <b>{Encode(damaged.ComponentName)}</b> {UnitText(damaged)} " +
+            $"bị hỏng của đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)}.</p>";
+
+        if (replacementLineId == null)
+        {
+            body += "<p>Hiện không lab nào còn linh kiện này để đổi, nên đơn không có con thay thế.</p>";
+            await SendAsync(info, $"SmartLab - Không còn linh kiện để đổi cho đơn {info.RequestCode}", body);
+            return;
+        }
+
+        var replacement = await LoadReplacementAsync(replacementLineId.Value, ct);
+        if (replacement == null)
+            return;
+
+        string subject;
+        if (replacement.ReceivedAt != null)
+        {
+            subject = $"SmartLab - Món thay thế của đơn {info.RequestCode} đã sẵn sàng";
+            body += $"<p>Con thay thế đã có sẵn tại <b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b>. " +
+                    "Mời bạn đến nhận, nhớ mang theo <b>thẻ sinh viên</b>.</p>";
+        }
+        else
+        {
+            subject = $"SmartLab - Đang chuẩn bị món thay thế cho đơn {info.RequestCode}";
+            body += $"<p>Con thay thế đang được mang từ lab <b>{Encode(replacement.SourceRoomCode ?? string.Empty)}</b> về " +
+                    $"<b>{Encode(info.RoomCode)}</b>. Hệ thống sẽ gửi mail khi hàng tới để bạn đến nhận.</p>";
+        }
+        body += $"<p>Hạn trả vẫn là <b>{ToVietnamDate(info.DueDate)}</b>.</p>";
+
+        await SendAsync(info, subject, body);
+
+        if (replacement.ReceivedAt != null || replacement.SourceRoomId == null)
+            return;
+
+        var staff = await LoadStaffInfoAsync(borrowRequestId, ct);
+        if (staff == null)
+            return;
+
+        var line = new StaffLine(replacement.ComponentCode, replacement.ComponentName, replacement.Unit, 1,
+            replacement.SourceRoomId, replacement.SourceRoomCode, null);
+        var staffBody =
+            $"<p>Đơn mượn <b>{Encode(staff.RequestCode)}</b> của {RequesterText(staff)} cần đổi 1 con bị hỏng.</p>" +
+            $"<p>Lab <b>{Encode(replacement.SourceRoomCode ?? string.Empty)}</b> cần mang linh kiện sau sang " +
+            $"<b>{Encode(staff.RoomCode)} - {Encode(staff.RoomName)}</b>:</p>" +
+            LinesTable(new[] { line }) +
+            "<p>Nhân viên lab nhận đồ sẽ bấm \"Đã nhận\" khi hàng tới.</p>";
+
+        await SendToStaffAsync(staff, replacement.SourceRoomId.Value, null,
+            $"SmartLab - Chuyển món thay thế cho đơn {staff.RequestCode} sang {staff.RoomCode}", staffBody);
+    }
+
+    public async Task ReplacementArrivedAsync(Guid borrowRequestId, Guid replacementLineId, CancellationToken ct = default)
+    {
+        var info = await LoadAsync(borrowRequestId, ct);
+        if (info == null)
+            return;
+
+        var line = (await LoadLinesAsync(borrowRequestId, ct)).FirstOrDefault(l => l.BorrowItemId == replacementLineId);
+        if (line == null)
+            return;
+
+        var body =
+            Greeting(info) +
+            $"<p>Con <b>{Encode(line.ComponentName)}</b> thay thế cho đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)} " +
+            $"đã về tới <b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b>.</p>" +
+            "<p>Mời bạn đến nhận, nhớ mang theo <b>thẻ sinh viên</b>: nhân viên sẽ chụp ảnh linh kiện kèm thẻ khi giao.</p>" +
+            $"<p>Hạn trả vẫn là <b>{ToVietnamDate(info.DueDate)}</b>.</p>";
+
+        await SendAsync(info, $"SmartLab - Món thay thế của đơn {info.RequestCode} đã sẵn sàng", body);
+    }
+
+    public async Task ReplacementIssuedAsync(Guid borrowRequestId, Guid replacementLineId, CancellationToken ct = default)
+    {
+        var info = await LoadAsync(borrowRequestId, ct);
+        if (info == null)
+            return;
+
+        var line = (await LoadLinesAsync(borrowRequestId, ct)).FirstOrDefault(l => l.BorrowItemId == replacementLineId);
+        if (line == null)
+            return;
+
+        var body =
+            Greeting(info) +
+            $"<p>Bạn đã nhận con thay thế của đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)} tại " +
+            $"<b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b>{IssuedAtText(line.IssuedAt)}:</p>" +
+            ItemsTable(new[] { line }, true) +
+            $"<p>Hạn trả vẫn là <b>{ToVietnamDate(info.DueDate)}</b>, trả tại {Encode(info.RoomCode)}. " +
+            "Mail này là biên nhận, bạn hãy giữ lại.</p>";
+
+        await SendAsync(info, $"SmartLab - Biên nhận món thay thế đơn {info.RequestCode}", body);
+    }
+
+    public async Task ReplacementCancelledAsync(
+        Guid borrowRequestId, string componentName, Guid? notCarriedFromRoomId, string reason, Guid cancelledBy,
+        CancellationToken ct = default)
+    {
+        var info = await LoadAsync(borrowRequestId, ct);
+        if (info == null)
+            return;
+
+        var body =
+            Greeting(info) +
+            $"<p>Con <b>{Encode(componentName)}</b> thay thế cho đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)} " +
+            "đã bị nhân viên lab hủy, bạn sẽ không nhận được con thay thế này.</p>" +
+            $"<p>Lý do: {Encode(reason)}</p>";
+
+        await SendAsync(info, $"SmartLab - Món thay thế của đơn {info.RequestCode} đã bị hủy", body);
+
+        if (notCarriedFromRoomId == null)
+            return;
+
+        var staff = await LoadStaffInfoAsync(borrowRequestId, ct);
+        if (staff == null)
+            return;
+
+        var staffBody =
+            $"<p>Món thay thế <b>{Encode(componentName)}</b> của đơn mượn <b>{Encode(staff.RequestCode)}</b> " +
+            $"({RequesterText(staff)}) đã bị hủy.</p>" +
+            $"<p>Lý do: {Encode(reason)}</p>" +
+            $"<p>Lab của bạn <b>không cần</b> mang linh kiện này sang {Encode(staff.RoomCode)} nữa.</p>";
+
+        await SendToStaffAsync(staff, notCarriedFromRoomId.Value, cancelledBy,
+            $"SmartLab - Món thay thế của đơn {staff.RequestCode} đã hủy, không cần chuyển hàng", staffBody);
+    }
+
+    private sealed record ReplacementLine(
+        string ComponentCode, string ComponentName, string Unit, Guid? SourceRoomId, string? SourceRoomCode, DateTime? ReceivedAt);
+
+    private Task<ReplacementLine?> LoadReplacementAsync(Guid borrowItemId, CancellationToken ct)
+        => _uow.Repository<BorrowItem>().QueryNoTracking()
+            .Where(i => i.BorrowItemId == borrowItemId)
+            .Select(i => new ReplacementLine(
+                i.Component.ComponentCode, i.Component.ComponentName, i.Component.Unit,
+                i.SourceRoomId, i.SourceRoom != null ? i.SourceRoom.RoomCode : null, i.ReceivedAt))
+            .FirstOrDefaultAsync(ct);
 
     public async Task DueSoonAsync(Guid borrowRequestId, CancellationToken ct = default)
     {
@@ -376,6 +531,82 @@ public class BorrowNotifier : IBorrowNotifier
             return string.Empty;
 
         return $" {prefix} <b>{ToVietnamDate(borrowDate.Value)}</b>";
+    }
+
+    public async Task ExtensionRequestedAsync(Guid extensionId, CancellationToken ct = default)
+    {
+        var info = await _uow.Repository<BorrowExtension>().QueryNoTracking()
+            .Where(e => e.ExtensionId == extensionId
+                        && e.BorrowRequest.Class != null && e.BorrowRequest.Class.Instructor != null)
+            .Select(e => new
+            {
+                e.BorrowRequest.RequestCode,
+                RequesterName = e.BorrowRequest.Requester.FullName,
+                ClassCode = e.BorrowRequest.Class!.ClassCode,
+                ProjectTitle = e.BorrowRequest.Project != null ? e.BorrowRequest.Project.Title : null,
+                LecturerEmail = e.BorrowRequest.Class.Instructor!.User.Email,
+                LecturerName = e.BorrowRequest.Class.Instructor.User.FullName,
+                LecturerActive = e.BorrowRequest.Class.Instructor.User.IsActive,
+                e.OldDueDate,
+                e.NewDueDate,
+                e.Reason,
+            })
+            .FirstOrDefaultAsync(ct);
+        if (info == null || !info.LecturerActive)
+            return;
+
+        var projectText = string.Empty;
+        if (info.ProjectTitle != null)
+            projectText = $"<p>Project: <i>{Encode(info.ProjectTitle)}</i></p>";
+
+        var body =
+            $"<p>Xin chào <b>{Encode(info.LecturerName)}</b>,</p>" +
+            $"<p>Sinh viên <b>{Encode(info.RequesterName)}</b> lớp <b>{Encode(info.ClassCode)}</b> xin gia hạn đơn mượn " +
+            $"<b>{Encode(info.RequestCode)}</b> từ <b>{ToVietnamDate(info.OldDueDate)}</b> đến <b>{ToVietnamDate(info.NewDueDate)}</b>.</p>" +
+            projectText +
+            $"<p>Lý do: {Encode(info.Reason)}</p>" +
+            "<p>Thầy/cô vào SmartLab, mục <b>Yêu cầu gia hạn</b> để duyệt hoặc từ chối.</p>";
+
+        await SendToAsync(info.LecturerEmail, info.RequestCode, $"SmartLab - Đơn {info.RequestCode} xin gia hạn", body);
+    }
+
+    public async Task ExtensionReviewedAsync(Guid extensionId, CancellationToken ct = default)
+    {
+        var extension = await _uow.Repository<BorrowExtension>().QueryNoTracking()
+            .Where(e => e.ExtensionId == extensionId)
+            .Select(e => new { e.BorrowRequestId, e.Status, e.OldDueDate, e.NewDueDate, e.ReviewComment })
+            .FirstOrDefaultAsync(ct);
+        if (extension == null)
+            return;
+
+        var info = await LoadAsync(extension.BorrowRequestId, ct);
+        if (info == null)
+            return;
+
+        string subject;
+        string body;
+        if (extension.Status == BorrowExtensionStatuses.Approved)
+        {
+            subject = $"SmartLab - Đơn {info.RequestCode} đã được gia hạn";
+            body =
+                Greeting(info) +
+                $"<p>Yêu cầu gia hạn đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)} đã được duyệt.</p>" +
+                $"<p>Hạn trả mới: <b>{ToVietnamDate(extension.NewDueDate)}</b> (hạn cũ {ToVietnamDate(extension.OldDueDate)}).</p>";
+            if (!string.IsNullOrWhiteSpace(extension.ReviewComment))
+                body += $"<p>Ghi chú của giảng viên: {Encode(extension.ReviewComment)}</p>";
+        }
+        else
+        {
+            subject = $"SmartLab - Yêu cầu gia hạn đơn {info.RequestCode} bị từ chối";
+            body =
+                Greeting(info) +
+                $"<p>Yêu cầu gia hạn đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)} đã bị từ chối.</p>";
+            if (!string.IsNullOrWhiteSpace(extension.ReviewComment))
+                body += $"<p>Lý do: {Encode(extension.ReviewComment)}</p>";
+            body += $"<p>Hạn trả vẫn là <b>{ToVietnamDate(info.DueDate)}</b>, hãy mang trả tại {Encode(info.RoomCode)} đúng hạn.</p>";
+        }
+
+        await SendAsync(info, subject, body);
     }
 
     private sealed record BorrowLine(

@@ -95,6 +95,7 @@ public static class DependencyInjection
         services.AddScoped<IBorrowNotifier, BorrowNotifier>();
         services.AddScoped<IBorrowRequestService, BorrowRequestService>();
         services.AddScoped<IBorrowReminderService, BorrowReminderService>();
+        services.AddScoped<IBorrowExtensionService, BorrowExtensionService>();
         services.AddHostedService<BorrowReminderWorker>();
 
         services.AddHostedService<AdminSeeder>();

@@ -306,7 +306,7 @@ public class ProjectService : IProjectService
         var now = DateTime.UtcNow;
         var borrowDate = ToVietnamDateUtc(request.BorrowDate!.Value);
         var dueDate = ToVietnamDateUtc(request.DueDate!.Value);
-        if (borrowDate < ToVietnamDateUtc(now.Add(VietnamUtcOffset)))
+        if (borrowDate < ToVietnamDateUtc(now))
             throw new BadRequestException("Ngày mượn không được trước hôm nay");
 
         var maxBorrowDays = await SystemSettingValues.GetPositiveIntAsync(
@@ -577,9 +577,18 @@ public class ProjectService : IProjectService
         return $"{prefix}{maxNumber + 1:D3}";
     }
 
-    /// <summary>Start of the given Vietnam calendar date, in UTC.</summary>
+    /// <summary>
+    /// Start of the Vietnam calendar day, in UTC. A plain date ("2026-10-28") is that day. A value with "Z" or an offset
+    /// (and DateTime.UtcNow) is first turned into Vietnam time, so the server time zone never shifts the day.
+    /// </summary>
     private static DateTime ToVietnamDateUtc(DateTime vietnamDate)
-        => DateTime.SpecifyKind(vietnamDate.Date - VietnamUtcOffset, DateTimeKind.Utc);
+    {
+        var date = vietnamDate.Date;
+        if (vietnamDate.Kind != DateTimeKind.Unspecified)
+            date = (vietnamDate.ToUniversalTime() + VietnamUtcOffset).Date;
+
+        return DateTime.SpecifyKind(date - VietnamUtcOffset, DateTimeKind.Utc);
+    }
 
     private static ProjectComponent ToProjectComponent(ProjectComponentRequest line) => new()
     {

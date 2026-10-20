@@ -14,4 +14,7 @@ public class BorrowRequestDetailResponse : BorrowRequestResponse
     public List<HandoverPhotoResponse> Photos { get; set; } = new();
 
     public List<BorrowApprovalResponse> Approvals { get; set; } = new();
+
+    /// <summary>Due date extensions asked for this request, oldest first.</summary>
+    public List<BorrowExtensionResponse> Extensions { get; set; } = new();
 }

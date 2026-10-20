@@ -135,6 +135,14 @@ public class ComponentItemService : IComponentItemService
                         && i.CabinetId == request.FromCabinetId
                         && i.Status == request.FromStatus);
 
+        var statusChanges = toStatus != request.FromStatus;
+        var skippedText = "";
+        if (statusChanges)
+        {
+            candidates = candidates.Where(i => !i.IssueReports.Any(r => r.Status == IssueReportStatuses.Open));
+            skippedText = " (không tính con đang có báo cáo sự cố chờ xử lý)";
+        }
+
         List<Guid> itemIds;
         if (request.ItemIds != null)
         {
@@ -146,7 +154,7 @@ public class ComponentItemService : IComponentItemService
                 .ToListAsync(ct);
             if (itemIds.Count < requestedIds.Count)
                 throw new BadRequestException(
-                    $"Có {requestedIds.Count - itemIds.Count} con không thuộc linh kiện này, không nằm ở tủ nguồn hoặc không ở trạng thái {request.FromStatus}");
+                    $"Có {requestedIds.Count - itemIds.Count} con không thuộc linh kiện này, không nằm ở tủ nguồn, không ở trạng thái {request.FromStatus} hoặc đang có báo cáo sự cố chờ xử lý");
         }
         else
         {
@@ -156,7 +164,7 @@ public class ComponentItemService : IComponentItemService
                 .Take(request.Quantity)
                 .ToListAsync(ct);
             if (itemIds.Count < request.Quantity)
-                throw new BadRequestException($"Tủ chỉ còn {itemIds.Count} con ở trạng thái {request.FromStatus}");
+                throw new BadRequestException($"Tủ chỉ còn {itemIds.Count} con ở trạng thái {request.FromStatus}{skippedText}");
         }
 
         var now = DateTime.UtcNow;
@@ -168,10 +176,14 @@ public class ComponentItemService : IComponentItemService
             await RoomStock.EnsureNotReservedAsync(_uow,
                 new[] { new StockRemoval(request.ComponentId, request.FromCabinetId, itemIds.Count) }, ct);
 
-        var moved = await _uow.Repository<ComponentItem>().Query()
+        var movable = _uow.Repository<ComponentItem>().Query()
             .Where(i => itemIds.Contains(i.ItemId)
                         && i.CabinetId == request.FromCabinetId
-                        && i.Status == request.FromStatus)
+                        && i.Status == request.FromStatus);
+        if (statusChanges)
+            movable = movable.Where(i => !i.IssueReports.Any(r => r.Status == IssueReportStatuses.Open));
+
+        var moved = await movable
             .ExecuteUpdateAsync(s => s
                 .SetProperty(i => i.CabinetId, toCabinetId)
                 .SetProperty(i => i.Status, toStatus)
@@ -245,6 +257,9 @@ public class ComponentItemService : IComponentItemService
             throw new BadRequestException("Linh kiện đang được mượn, phải trả về trước khi loại khỏi kho");
         if (item.Status == ComponentItemStatuses.Lost || item.Status == ComponentItemStatuses.Retired)
             throw new ConflictException($"Linh kiện đã ở trạng thái {item.Status}");
+        if (await _uow.Repository<IssueReport>().QueryNoTracking()
+                .AnyAsync(r => r.ComponentItemId == itemId && r.Status == IssueReportStatuses.Open, ct))
+            throw new ConflictException("Linh kiện đang có báo cáo sự cố chờ xử lý, hãy xử lý báo cáo trước");
 
         if (request.ReceiptId.HasValue)
             await StockReceiptService.EnsureReceiptHasComponentAsync(_uow, request.ReceiptId.Value, item.ComponentId, ct);
@@ -258,7 +273,9 @@ public class ComponentItemService : IComponentItemService
                 new[] { new StockRemoval(item.ComponentId, item.CabinetId, 1) }, ct);
 
         var updated = await _uow.Repository<ComponentItem>().Query()
-            .Where(i => i.ItemId == itemId && i.Status == item.Status)
+            .Where(i => i.ItemId == itemId
+                        && i.Status == item.Status
+                        && !i.IssueReports.Any(r => r.Status == IssueReportStatuses.Open))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(i => i.Status, request.Status)
                 .SetProperty(i => i.UpdatedAt, now), ct);

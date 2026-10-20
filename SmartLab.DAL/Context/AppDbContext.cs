@@ -199,6 +199,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Reason)
                 .HasMaxLength(500)
                 .HasColumnName("reason");
+            entity.Property(e => e.ReviewComment)
+                .HasMaxLength(500)
+                .HasColumnName("review_comment");
             entity.Property(e => e.ReviewedAt).HasColumnName("reviewed_at");
             entity.Property(e => e.ReviewedBy).HasColumnName("reviewed_by");
             entity.Property(e => e.Status)

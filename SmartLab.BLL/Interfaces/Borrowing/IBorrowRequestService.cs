@@ -28,6 +28,15 @@ public interface IBorrowRequestService
     Task<BorrowRequestDetailResponse> ReturnAsync(
         Guid borrowRequestId, ReturnBorrowRequest request, CancellationToken ct = default);
 
+    Task<ReplaceDamagedResponse> ReplaceDamagedAsync(
+        Guid borrowRequestId, ReplaceDamagedRequest request, CancellationToken ct = default);
+
+    Task<BorrowRequestDetailResponse> IssueReplacementAsync(
+        Guid borrowRequestId, IssueReplacementRequest request, CancellationToken ct = default);
+
+    Task<BorrowRequestDetailResponse> CancelReplacementAsync(
+        Guid borrowRequestId, CancelReplacementRequest request, CancellationToken ct = default);
+
     Task<BorrowRequestDetailResponse> CancelAsync(
         Guid borrowRequestId, CancelBorrowRequest request, CancellationToken ct = default);
 }

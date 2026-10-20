@@ -23,6 +23,8 @@ public partial class BorrowExtension
 
     public DateTime? ReviewedAt { get; set; }
 
+    public string? ReviewComment { get; set; }
+
     public virtual BorrowRequest BorrowRequest { get; set; } = null!;
 
     public virtual User? ReviewedByNavigation { get; set; }
