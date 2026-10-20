@@ -11,10 +11,6 @@ public partial class ComponentItem
 
     public Guid CabinetId { get; set; }
 
-    public Guid? PurchaseOrderItemId { get; set; }
-
-    public string? Barcode { get; set; }
-
     public string? SerialNumber { get; set; }
 
     public string Status { get; set; } = null!;
@@ -25,13 +21,27 @@ public partial class ComponentItem
 
     public DateTime UpdatedAt { get; set; }
 
+    public decimal? PurchasePrice { get; set; }
+
+    public string? HardwareVersion { get; set; }
+
+    public DateTime? WarrantyExpiresAt { get; set; }
+
+    public string? Note { get; set; }
+
+    public Guid? ReceiptItemId { get; set; }
+
+    public string ItemCode { get; set; } = null!;
+
     public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
 
     public virtual StorageCabinet Cabinet { get; set; } = null!;
 
     public virtual Component Component { get; set; } = null!;
 
+    public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
+
     public virtual ICollection<IssueReport> IssueReports { get; set; } = new List<IssueReport>();
 
-    public virtual PurchaseOrderItem? PurchaseOrderItem { get; set; }
+    public virtual StockReceiptItem? ReceiptItem { get; set; }
 }

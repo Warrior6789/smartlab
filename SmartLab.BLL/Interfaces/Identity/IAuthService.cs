@@ -15,4 +15,16 @@ public interface IAuthService
 
     /// <summary>Updates full name, phone number and avatar of the currently authenticated user.</summary>
     Task<CurrentUserDto> UpdateProfileAsync(UpdateProfileRequest request, CancellationToken ct = default);
+
+    /// <summary>Marks the email as verified when the code sent at registration is correct.</summary>
+    Task VerifyEmailAsync(VerifyEmailRequest request, CancellationToken ct = default);
+
+    /// <summary>Sends a new verification code. Does nothing for unknown or already verified emails.</summary>
+    Task ResendVerificationAsync(ResendVerificationRequest request, CancellationToken ct = default);
+
+    /// <summary>Emails a password reset code. Does nothing for unknown emails, so accounts can't be probed.</summary>
+    Task ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct = default);
+
+    /// <summary>Sets a new password when the reset code is correct.</summary>
+    Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct = default);
 }

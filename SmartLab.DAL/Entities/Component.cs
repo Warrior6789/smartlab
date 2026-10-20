@@ -25,15 +25,17 @@ public partial class Component
 
     public DateTime UpdatedAt { get; set; }
 
-    public decimal UnitPrice { get; set; }
+    public string TrackingType { get; set; } = null!;
+
+    public string? DatasheetStorageKey { get; set; }
+
+    public int? MinStock { get; set; }
+
+    public string Unit { get; set; } = null!;
 
     public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
 
     public virtual ComponentCategory Category { get; set; } = null!;
-
-    public virtual ICollection<CompatibleComponent> CompatibleComponentCompatibleComponentNavigations { get; set; } = new List<CompatibleComponent>();
-
-    public virtual ICollection<CompatibleComponent> CompatibleComponentComponents { get; set; } = new List<CompatibleComponent>();
 
     public virtual ICollection<ComponentImage> ComponentImages { get; set; } = new List<ComponentImage>();
 
@@ -43,7 +45,11 @@ public partial class Component
 
     public virtual ICollection<ComponentTutorial> ComponentTutorials { get; set; } = new List<ComponentTutorial>();
 
+    public virtual ICollection<ConsumableStock> ConsumableStocks { get; set; } = new List<ConsumableStock>();
+
+    public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
+
     public virtual ICollection<ProjectComponent> ProjectComponents { get; set; } = new List<ProjectComponent>();
 
-    public virtual ICollection<PurchaseOrderItem> PurchaseOrderItems { get; set; } = new List<PurchaseOrderItem>();
+    public virtual ICollection<StockReceiptItem> StockReceiptItems { get; set; } = new List<StockReceiptItem>();
 }

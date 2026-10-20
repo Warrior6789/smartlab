@@ -27,13 +27,19 @@ public partial class User
 
     public DateTime UpdatedAt { get; set; }
 
+    public bool EmailVerified { get; set; }
+
     public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
+
+    public virtual ICollection<BorrowApproval> BorrowApprovals { get; set; } = new List<BorrowApproval>();
 
     public virtual ICollection<BorrowExtension> BorrowExtensions { get; set; } = new List<BorrowExtension>();
 
-    public virtual ICollection<BorrowRequest> BorrowRequestApprovers { get; set; } = new List<BorrowRequest>();
+    public virtual ICollection<BorrowHandoverPhoto> BorrowHandoverPhotos { get; set; } = new List<BorrowHandoverPhoto>();
 
-    public virtual ICollection<BorrowRequest> BorrowRequestRequesters { get; set; } = new List<BorrowRequest>();
+    public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
+
+    public virtual ICollection<BorrowRequest> BorrowRequests { get; set; } = new List<BorrowRequest>();
 
     public virtual ICollection<ComponentImage> ComponentImages { get; set; } = new List<ComponentImage>();
 
@@ -43,17 +49,27 @@ public partial class User
 
     public virtual ICollection<InventoryAudit> InventoryAudits { get; set; } = new List<InventoryAudit>();
 
+    public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
+
     public virtual ICollection<IssueReport> IssueReportReportedByNavigations { get; set; } = new List<IssueReport>();
 
     public virtual ICollection<IssueReport> IssueReportResolvedByNavigations { get; set; } = new List<IssueReport>();
 
-    public virtual ICollection<Project> Projects { get; set; } = new List<Project>();
+    public virtual ICollection<LabRoomStaff> LabRoomStaffs { get; set; } = new List<LabRoomStaff>();
 
-    public virtual ICollection<PurchaseOrder> PurchaseOrderApprovedByNavigations { get; set; } = new List<PurchaseOrder>();
+    public virtual ICollection<Project> ProjectOwners { get; set; } = new List<Project>();
 
-    public virtual ICollection<PurchaseOrder> PurchaseOrderCreatedByNavigations { get; set; } = new List<PurchaseOrder>();
+    public virtual ICollection<Project> ProjectReviewedByNavigations { get; set; } = new List<Project>();
+
+    public virtual ICollection<StockReceipt> StockReceiptCancelledByNavigations { get; set; } = new List<StockReceipt>();
+
+    public virtual ICollection<StockReceipt> StockReceiptCreatedByNavigations { get; set; } = new List<StockReceipt>();
+
+    public virtual ICollection<StockReceipt> StockReceiptUpdatedByNavigations { get; set; } = new List<StockReceipt>();
 
     public virtual StudentProfile? StudentProfile { get; set; }
 
     public virtual ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
+
+    public virtual ICollection<VerificationCode> VerificationCodes { get; set; } = new List<VerificationCode>();
 }

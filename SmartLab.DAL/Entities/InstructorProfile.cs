@@ -11,8 +11,6 @@ public partial class InstructorProfile
 
     public string InstructorCode { get; set; } = null!;
 
-    public string? Department { get; set; }
-
     public string? AcademicTitle { get; set; }
 
     public virtual ICollection<Class> Classes { get; set; } = new List<Class>();

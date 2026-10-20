@@ -21,8 +21,6 @@ public partial class IssueReport
 
     public string Status { get; set; } = null!;
 
-    public decimal? CompensationAmount { get; set; }
-
     public Guid? ResolvedBy { get; set; }
 
     public DateTime CreatedAt { get; set; }

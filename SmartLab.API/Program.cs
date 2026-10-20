@@ -10,10 +10,13 @@ builder.Services.AddBusinessLogic(builder.Configuration);
 builder.Services.AddSmartLabAuth(builder.Configuration);
 builder.Services.AddSmartLabControllers();
 builder.Services.AddSmartLabSwagger();
+builder.Services.AddSmartLabRateLimiting();
+builder.Services.AddSmartLabCors(builder.Configuration);
 
 var app = builder.Build();
 
 app.UseMiddleware<ExceptionMiddleware>();
+app.UseSmartLabStatusCodePages();
 
 if (app.Environment.IsDevelopment())
 {
@@ -21,8 +24,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseCors(CorsExtensions.FrontendPolicy);
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapControllers();
 app.MapSmartLabHealthChecks();

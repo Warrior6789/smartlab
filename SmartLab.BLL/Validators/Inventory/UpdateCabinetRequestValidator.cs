@@ -1,0 +1,25 @@
+using FluentValidation;
+using SmartLab.BLL.Constants;
+using SmartLab.BLL.DTOs.Inventory;
+
+namespace SmartLab.BLL.Validators.Inventory;
+
+public class UpdateCabinetRequestValidator : AbstractValidator<UpdateCabinetRequest>
+{
+    public UpdateCabinetRequestValidator()
+    {
+        RuleFor(x => x.CabinetName)
+            .NotEmpty().WithMessage("Tên tủ là bắt buộc")
+            .MaximumLength(100).WithMessage("Tên tủ tối đa 100 ký tự");
+
+        RuleFor(x => x.RoomId)
+            .NotEmpty().WithMessage("Phòng lab là bắt buộc");
+
+        RuleFor(x => x.Location)
+            .MaximumLength(255).WithMessage("Vị trí tối đa 255 ký tự");
+
+        RuleFor(x => x.Status)
+            .Must(s => s == CabinetStatuses.Active || s == CabinetStatuses.Inactive)
+            .WithMessage($"Trạng thái phải là {CabinetStatuses.Active} hoặc {CabinetStatuses.Inactive}");
+    }
+}

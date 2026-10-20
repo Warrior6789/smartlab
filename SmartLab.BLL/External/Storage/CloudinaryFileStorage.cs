@@ -1,6 +1,8 @@
+using System.Net;
 using CloudinaryDotNet;
 using CloudinaryDotNet.Actions;
 using Microsoft.Extensions.Options;
+using SmartLab.BLL.Common.Exceptions;
 
 namespace SmartLab.BLL.External.Storage;
 
@@ -19,7 +21,16 @@ public class CloudinaryFileStorage : IFileStorage
         _cloudinary = new Lazy<Cloudinary>(CreateClient);
     }
 
-    public async Task<StoredFile> UploadImageAsync(Stream content, string fileName, string folder, CancellationToken ct = default)
+    public Task<StoredFile> UploadImageAsync(Stream content, string fileName, string folder, CancellationToken ct = default)
+        => UploadAsync(content, fileName, folder, ct);
+
+    public Task<StoredFile> UploadPdfAsync(Stream content, string fileName, string folder, CancellationToken ct = default)
+        => UploadAsync(content, fileName, folder, ct);
+
+    public string GetPdfPreviewUrl(string key)
+        => $"https://res.cloudinary.com/{_options.CloudName}/image/upload/pg_1,w_600/{key}.jpg";
+
+    private async Task<StoredFile> UploadAsync(Stream content, string fileName, string folder, CancellationToken ct)
     {
         var uploadParams = new ImageUploadParams
         {
@@ -31,6 +42,8 @@ public class CloudinaryFileStorage : IFileStorage
         };
 
         var result = await _cloudinary.Value.UploadAsync(uploadParams, ct);
+        if (result.Error != null && result.StatusCode == HttpStatusCode.BadRequest)
+            throw new BadRequestException("File bị hỏng hoặc không đúng định dạng");
         if (result.Error != null)
             throw new InvalidOperationException($"Cloudinary upload failed: {result.Error.Message}");
 
@@ -43,7 +56,7 @@ public class CloudinaryFileStorage : IFileStorage
 
     public async Task DeleteAsync(string key, CancellationToken ct = default)
     {
-        var result = await _cloudinary.Value.DestroyAsync(new DeletionParams(key) { ResourceType = ResourceType.Image });
+        var result = await _cloudinary.Value.DestroyAsync(new DeletionParams(key) { ResourceType = ResourceType.Image, Invalidate = true });
         if (result.Error != null)
             throw new InvalidOperationException($"Cloudinary delete failed: {result.Error.Message}");
     }

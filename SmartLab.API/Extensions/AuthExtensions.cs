@@ -6,16 +6,20 @@ using Microsoft.IdentityModel.Tokens;
 using SmartLab.BLL.Common;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.External.Jwt;
+using SmartLab.BLL.Interfaces.Identity;
 
 namespace SmartLab.API.Extensions;
 
 public static class AuthExtensions
 {
+    private const string AccountLockedMessage = "Tài khoản đã bị khóa";
+
     /// <summary>
     /// JWT Bearer (HS256) + authorization:
     /// - every endpoint requires login (FallbackPolicy) unless marked [AllowAnonymous];
     /// - [Authorize(Policy = PermissionCodes.X)] requires claim "permission" = X;
-    /// - 401/403 are returned as ApiResponse JSON.
+    /// - 401/403 are returned as ApiResponse JSON;
+    /// - a locked account is rejected (401) on every request, not only at login (checked with a short cache).
     /// </summary>
     public static IServiceCollection AddSmartLabAuth(this IServiceCollection services, IConfiguration configuration)
     {
@@ -26,12 +30,22 @@ public static class AuthExtensions
                 options.MapInboundClaims = false;
                 options.Events = new JwtBearerEvents
                 {
+                    OnTokenValidated = async context =>
+                    {
+                        var subject = context.Principal?.FindFirst(AppClaimTypes.Subject)?.Value;
+                        var checker = context.HttpContext.RequestServices.GetRequiredService<IActiveUserChecker>();
+                        if (!Guid.TryParse(subject, out var userId)
+                            || !await checker.IsActiveAsync(userId, context.HttpContext.RequestAborted))
+                            context.Fail(AccountLockedMessage);
+                    },
                     OnChallenge = async context =>
                     {
                         context.HandleResponse();
-                        var message = context.AuthenticateFailure is SecurityTokenExpiredException
-                            ? "Token đã hết hạn"
-                            : "Chưa đăng nhập hoặc token không hợp lệ";
+                        var message = "Chưa đăng nhập hoặc token không hợp lệ";
+                        if (context.AuthenticateFailure is SecurityTokenExpiredException)
+                            message = "Token đã hết hạn";
+                        else if (context.AuthenticateFailure?.Message == AccountLockedMessage)
+                            message = AccountLockedMessage;
                         await WriteJsonAsync(context.Response, StatusCodes.Status401Unauthorized, message);
                     },
                     OnForbidden = context =>

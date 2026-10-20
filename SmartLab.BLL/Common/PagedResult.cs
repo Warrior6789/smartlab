@@ -14,8 +14,8 @@ public class PagedResult<T>
 
     public static async Task<PagedResult<T>> CreateAsync(IQueryable<T> query, PageParams paging, CancellationToken ct = default)
     {
-        var pageNumber = Math.Max(1, paging.Page);
         var pageSize = Math.Clamp(paging.Size, 1, 100);
+        var pageNumber = Math.Clamp(paging.Page, 1, int.MaxValue / pageSize);
 
         var total = await query.CountAsync(ct);
         var items = await query.Skip((pageNumber - 1) * pageSize).Take(pageSize).ToListAsync(ct);
