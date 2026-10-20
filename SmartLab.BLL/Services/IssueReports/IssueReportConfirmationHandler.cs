@@ -76,7 +76,8 @@ internal static class IssueReportConfirmationHandler
             ComponentId = report.ComponentItem.ComponentId,
             CabinetId = report.ComponentItem.CabinetId,
             ItemId = report.ComponentItem.ItemId,
-            QuantityChange = -1,
+            // Borrowing already deducted an issued item through its Borrow transaction.
+            QuantityChange = report.BorrowItemId.HasValue ? 0 : -1,
             Reason = reason,
             CreatedBy = actorId,
             CreatedAt = now,

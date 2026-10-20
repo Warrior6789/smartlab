@@ -152,6 +152,22 @@ public class IssueReportBorrowingIntegrationService : IIssueReportBorrowingInteg
         };
     }
 
+    public async Task<int> RejectOpenReportsOnGoodReturnAsync(
+        Guid borrowItemId,
+        CancellationToken ct = default)
+    {
+        var actorId = GetAuthorizedActorId();
+        var now = DateTime.UtcNow;
+
+        return await _uow.Repository<IssueReport>().Query()
+            .Where(report => report.BorrowItemId == borrowItemId &&
+                             report.Status == IssueReportStatuses.Open)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(report => report.Status, IssueReportStatuses.Rejected)
+                .SetProperty(report => report.ResolvedBy, actorId)
+                .SetProperty(report => report.ResolvedAt, now), ct);
+    }
+
     private Guid GetAuthorizedActorId()
     {
         var actorId = _currentUser.UserId ?? throw new UnauthorizedException();
