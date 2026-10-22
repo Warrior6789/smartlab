@@ -10,7 +10,7 @@ public class MoveComponentItemsRequestValidator : AbstractValidator<MoveComponen
 
     private static readonly string[] MovableStatuses =
     {
-        ComponentItemStatuses.Available, ComponentItemStatuses.Lost, ComponentItemStatuses.Retired,
+        ComponentItemStatuses.Available, ComponentItemStatuses.Lost,
     };
 
     public MoveComponentItemsRequestValidator()
@@ -51,8 +51,8 @@ public class MoveComponentItemsRequestValidator : AbstractValidator<MoveComponen
 
         RuleFor(x => x.ToStatus)
             .NotEmpty()
-            .WithMessage($"Đưa con đã mất/thanh lý trở lại kho phải chọn trạng thái mới: {ComponentItemStatuses.Available}")
-            .When(x => x.FromStatus == ComponentItemStatuses.Lost || x.FromStatus == ComponentItemStatuses.Retired);
+            .WithMessage($"Đưa con đã mất trở lại kho phải chọn trạng thái mới: {ComponentItemStatuses.Available}")
+            .When(x => x.FromStatus == ComponentItemStatuses.Lost);
 
         RuleFor(x => x)
             .Must(x => (x.ToCabinetId.HasValue && x.ToCabinetId != x.FromCabinetId)
