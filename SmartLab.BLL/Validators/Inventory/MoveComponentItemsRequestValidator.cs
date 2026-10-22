@@ -10,13 +10,7 @@ public class MoveComponentItemsRequestValidator : AbstractValidator<MoveComponen
 
     private static readonly string[] MovableStatuses =
     {
-        ComponentItemStatuses.Available, ComponentItemStatuses.Broken, ComponentItemStatuses.Maintenance,
-        ComponentItemStatuses.Lost, ComponentItemStatuses.Retired,
-    };
-
-    private static readonly string[] InStockStatuses =
-    {
-        ComponentItemStatuses.Available, ComponentItemStatuses.Broken, ComponentItemStatuses.Maintenance,
+        ComponentItemStatuses.Available, ComponentItemStatuses.Lost, ComponentItemStatuses.Retired,
     };
 
     public MoveComponentItemsRequestValidator()
@@ -51,13 +45,13 @@ public class MoveComponentItemsRequestValidator : AbstractValidator<MoveComponen
             .MaximumLength(200).WithMessage("Lý do tối đa 200 ký tự");
 
         RuleFor(x => x.ToStatus)
-            .Must(s => InStockStatuses.Contains(s))
-            .WithMessage($"Trạng thái mới phải là một trong: {string.Join(", ", InStockStatuses)}. Báo mất hoặc thanh lý dùng API retire")
+            .Equal(ComponentItemStatuses.Available)
+            .WithMessage($"Trạng thái mới chỉ được là {ComponentItemStatuses.Available}. Báo mất hoặc thanh lý dùng API retire")
             .When(x => x.ToStatus != null);
 
         RuleFor(x => x.ToStatus)
             .NotEmpty()
-            .WithMessage($"Đưa con đã mất/thanh lý trở lại kho phải chọn trạng thái mới: {string.Join(", ", InStockStatuses)}")
+            .WithMessage($"Đưa con đã mất/thanh lý trở lại kho phải chọn trạng thái mới: {ComponentItemStatuses.Available}")
             .When(x => x.FromStatus == ComponentItemStatuses.Lost || x.FromStatus == ComponentItemStatuses.Retired);
 
         RuleFor(x => x)

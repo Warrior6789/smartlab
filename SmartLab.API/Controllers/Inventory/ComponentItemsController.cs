@@ -58,9 +58,8 @@ public class ComponentItemsController : ControllerBase
     }
 
     /// <summary>
-    /// Chuyển tủ và/hoặc đổi trạng thái (Available/Broken/Maintenance). Gửi itemIds để chọn đúng con (vd 1 serial), hoặc quantity để hệ thống tự chọn con cũ nhất. Có thể kèm lý do và phiếu nhập đang sửa. Báo mất hoặc thanh lý dùng API retire.
-    /// Hàng đang được giữ chỗ cho đơn đã duyệt: không chuyển sang Maintenance hay sang lab khác được (409); báo Broken vẫn được,
-    /// khi đó <c>reservationShortages</c> liệt kê linh kiện thiếu và các mã đơn bị ảnh hưởng.
+    /// Chuyển tủ cho con Available, hoặc đưa con Lost/Retired trở lại kho (toStatus = Available). Gửi itemIds để chọn đúng con (vd 1 serial), hoặc quantity để hệ thống tự chọn con cũ nhất. Có thể kèm lý do và phiếu nhập đang sửa. Báo mất hoặc thanh lý dùng API retire.
+    /// Hàng đang được giữ chỗ cho đơn đã duyệt: không chuyển sang lab khác được (409).
     /// </summary>
     [HttpPost("move")]
     [Authorize(Policy = PermissionCodes.ComponentManage)]
