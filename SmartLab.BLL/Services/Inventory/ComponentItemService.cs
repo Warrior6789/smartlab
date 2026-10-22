@@ -201,8 +201,7 @@ public class ComponentItemService : IComponentItemService
             else
                 reason = $"{reason}: {request.Reason.Trim()}";
         }
-        var backInStock = request.FromStatus == ComponentItemStatuses.Lost
-                          || request.FromStatus == ComponentItemStatuses.Retired;
+        var backInStock = request.FromStatus == ComponentItemStatuses.Lost;
 
         var transactions = _uow.Repository<InventoryTransaction>();
         foreach (var itemId in itemIds)

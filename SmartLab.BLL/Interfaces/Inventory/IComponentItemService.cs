@@ -18,9 +18,9 @@ public interface IComponentItemService
     Task<ComponentItemResponse> UpdateItemAsync(Guid itemId, UpdateComponentItemRequest request, CancellationToken ct = default);
 
     /// <summary>
-    /// Picks the requested quantity of matching units (oldest first) and moves them to the target cabinet, or brings Lost /
-    /// Retired units back as Available. Borrowed units are never touched and the target cabinet must be Active. Taking
-    /// units out of stock uses RetireItemAsync. Available units reserved by Approved requests cannot go to another lab (409).
+    /// Picks the requested quantity of matching units (oldest first) and moves them to the target cabinet, or brings Lost units
+    /// that were found back as Available. Borrowed and Retired units are never touched (a Retired unit used again gets a
+    /// new record through a stock receipt) and the target cabinet must be Active. Taking units out of stock uses RetireItemAsync. Available units reserved by Approved requests cannot go to another lab (409).
     /// </summary>
     Task<MoveComponentItemsResponse> MoveItemsAsync(MoveComponentItemsRequest request, CancellationToken ct = default);
 
