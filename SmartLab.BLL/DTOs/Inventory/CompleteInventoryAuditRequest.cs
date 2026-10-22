@@ -7,7 +7,7 @@ public class CompleteInventoryAuditRequest
 {
     public List<AuditConsumableCountRequest> Consumables { get; set; } = new();
 
-    /// <summary>Units of the cabinet (Available, Broken or Maintenance) not found during the count; they become Lost.</summary>
+    /// <summary>Available units of the cabinet not found during the count; they become Lost.</summary>
     public List<Guid> MissingItemIds { get; set; } = new();
 
     public string? Note { get; set; }

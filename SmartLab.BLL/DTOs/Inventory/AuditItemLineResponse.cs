@@ -1,6 +1,6 @@
 namespace SmartLab.BLL.DTOs.Inventory;
 
-/// <summary>One unit that should be physically in the audited cabinet (Available, Broken or Maintenance).</summary>
+/// <summary>One unit that should be physically in the audited cabinet (Available).</summary>
 public class AuditItemLineResponse
 {
     public Guid ItemId { get; set; }

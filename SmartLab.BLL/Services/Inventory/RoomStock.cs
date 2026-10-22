@@ -305,9 +305,8 @@ internal static class RoomStock
     }
 
     /// <summary>
-    /// Stock removed from a lab by a staff decision (cancel a receipt, move to another lab, send to Maintenance,
-    /// retire) may only come from the part not reserved by borrow requests; otherwise 409. Must run inside the caller's
-    /// transaction, before the removal. Facts (counted stock, Broken, Lost) are never blocked: callers report them
+    /// Stock removed from a lab by a staff decision (cancel a receipt, move to another lab, retire) may only come from the part not reserved by borrow requests; otherwise 409. Must run inside the caller's
+    /// transaction, before the removal. Facts (counted stock, Lost) are never blocked: callers report them
     /// with <see cref="GetShortagesAsync"/> instead.
     /// </summary>
     public static async Task EnsureNotReservedAsync(IUnitOfWork uow, IReadOnlyList<StockRemoval> removals, CancellationToken ct)

@@ -13,11 +13,6 @@ namespace SmartLab.BLL.Services.Inventory;
 
 public class InventoryAuditService : IInventoryAuditService
 {
-    private static readonly string[] InCabinetStatuses =
-    {
-        ComponentItemStatuses.Available, ComponentItemStatuses.Broken, ComponentItemStatuses.Maintenance,
-    };
-
     private readonly IUnitOfWork _uow;
     private readonly ICurrentUserService _currentUser;
 
@@ -100,7 +95,7 @@ public class InventoryAuditService : IInventoryAuditService
                 .ToListAsync(ct);
 
             audit.Items = await _uow.Repository<ComponentItem>().QueryNoTracking()
-                .Where(i => i.CabinetId == audit.CabinetId && InCabinetStatuses.Contains(i.Status))
+                .Where(i => i.CabinetId == audit.CabinetId && i.Status == ComponentItemStatuses.Available)
                 .OrderBy(i => i.Component.ComponentCode).ThenBy(i => i.ItemCode)
                 .Select(i => new AuditItemLineResponse
                 {
@@ -217,17 +212,17 @@ public class InventoryAuditService : IInventoryAuditService
             var items = await _uow.Repository<ComponentItem>().QueryNoTracking()
                 .Where(i => missingIds.Contains(i.ItemId)
                             && i.CabinetId == audit.CabinetId
-                            && InCabinetStatuses.Contains(i.Status))
-                .Select(i => new { i.ItemId, i.ComponentId, i.Status })
+                            && i.Status == ComponentItemStatuses.Available)
+                .Select(i => new { i.ItemId, i.ComponentId })
                 .ToListAsync(ct);
             if (items.Count < missingIds.Count)
                 throw new BadRequestException(
-                    $"Có {missingIds.Count - items.Count} con không nằm trong tủ này hoặc không ở trạng thái {string.Join("/", InCabinetStatuses)}");
+                    $"Có {missingIds.Count - items.Count} con không nằm trong tủ này hoặc không ở trạng thái {ComponentItemStatuses.Available}");
 
             var lost = await _uow.Repository<ComponentItem>().Query()
                 .Where(i => missingIds.Contains(i.ItemId)
                             && i.CabinetId == audit.CabinetId
-                            && InCabinetStatuses.Contains(i.Status))
+                            && i.Status == ComponentItemStatuses.Available)
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(i => i.Status, ComponentItemStatuses.Lost)
                     .SetProperty(i => i.UpdatedAt, now), ct);
@@ -243,7 +238,7 @@ public class InventoryAuditService : IInventoryAuditService
                     CabinetId = audit.CabinetId,
                     ItemId = item.ItemId,
                     QuantityChange = -1,
-                    Reason = $"{ComponentItemStatuses.Lost}: kiểm kê không tìm thấy (trước đó {item.Status})",
+                    Reason = $"{ComponentItemStatuses.Lost}: kiểm kê không tìm thấy",
                     AuditId = auditId,
                     CreatedBy = userId,
                     CreatedAt = now,

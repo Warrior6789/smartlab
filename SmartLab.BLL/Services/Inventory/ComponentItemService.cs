@@ -172,7 +172,7 @@ public class ComponentItemService : IComponentItemService
 
         var fromAvailable = request.FromStatus == ComponentItemStatuses.Available;
         var sameRoom = await RoomStock.SameRoomAsync(_uow, request.FromCabinetId, toCabinetId, ct);
-        if (fromAvailable && (!sameRoom || toStatus == ComponentItemStatuses.Maintenance))
+        if (fromAvailable && !sameRoom)
             await RoomStock.EnsureNotReservedAsync(_uow,
                 new[] { new StockRemoval(request.ComponentId, request.FromCabinetId, itemIds.Count) }, ct);
 
@@ -225,21 +225,13 @@ public class ComponentItemService : IComponentItemService
 
         await tx.CommitAsync(ct);
 
-        var response = new MoveComponentItemsResponse
+        return new MoveComponentItemsResponse
         {
             Items = await ToResponses(_uow.Repository<ComponentItem>().QueryNoTracking()
                     .Where(i => itemIds.Contains(i.ItemId))
                     .OrderBy(i => i.ImportedAt).ThenBy(i => i.ItemId))
                 .ToListAsync(ct),
         };
-
-        if (fromAvailable && toStatus == ComponentItemStatuses.Broken)
-        {
-            var roomId = await RoomStock.GetRoomIdAsync(_uow, request.FromCabinetId, ct);
-            response.ReservationShortages = await RoomStock.GetShortagesAsync(_uow, roomId, new[] { request.ComponentId }, ct);
-        }
-
-        return response;
     }
 
     public async Task<RetireComponentItemResponse> RetireItemAsync(
