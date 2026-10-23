@@ -88,6 +88,7 @@ public static class DependencyInjection
         services.AddScoped<IInventoryTransactionService, InventoryTransactionService>();
         services.AddScoped<IInventoryAuditService, InventoryAuditService>();
 
+        services.AddScoped<IProjectNotifier, ProjectNotifier>();
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<IComponentSuggestionService, ComponentSuggestionService>();
         services.AddScoped<IProjectReviewService, ProjectReviewService>();

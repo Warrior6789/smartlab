@@ -140,7 +140,7 @@ public class ProjectsController : ControllerBase
         return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Sửa project thành công"));
     }
 
-    /// <summary>Nhóm trưởng cập nhật link GitHub, slide, video demo (được sửa ở mọi trạng thái).</summary>
+    /// <summary>Nhóm trưởng cập nhật link GitHub, slide, video demo (không sửa được khi bài nộp đang chờ hoặc đã được xác nhận).</summary>
     [HttpPut("{id:guid}/links")]
     [Authorize(Policy = PermissionCodes.ProjectCreate)]
     [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
@@ -184,5 +184,61 @@ public class ProjectsController : ControllerBase
     {
         var project = await _projectService.WithdrawProjectAsync(id, ct);
         return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã rút lại project"));
+    }
+
+    /// <summary>
+    /// Nhóm trưởng nộp bài cuối: project phải Approved và đủ link GitHub, slide, video demo.
+    /// Bài nộp chờ giảng viên của lớp xác nhận; trong lúc chờ hoặc đã xác nhận thì không sửa link được.
+    /// </summary>
+    [HttpPost("{id:guid}/final-submission")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SubmitFinal(Guid id, CancellationToken ct)
+    {
+        var project = await _projectService.SubmitFinalAsync(id, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Nộp bài thành công, chờ giảng viên xác nhận"));
+    }
+
+    /// <summary>
+    /// Bài nộp cuối đang chờ mình xác nhận (các lớp mình dạy). Admin thấy tất cả.
+    /// Tìm theo tên project, tên nhóm. Nộp sớm nhất lên trước.
+    /// </summary>
+    [HttpGet("final-submissions")]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<PendingFinalSubmissionResponse>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetPendingFinalSubmissions(
+        [FromQuery] FinalSubmissionQueryParams query, [FromQuery] PageParams paging, CancellationToken ct)
+    {
+        var result = await _projectService.GetPendingFinalSubmissionsAsync(query, paging, ct);
+        return Ok(ApiResponse<PagedResult<PendingFinalSubmissionResponse>>.Ok(result));
+    }
+
+    /// <summary>Giảng viên của lớp (Admin làm thay được) xác nhận bài nộp cuối, nhận xét không bắt buộc.</summary>
+    [HttpPost("{id:guid}/final-submission/approve")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ApproveFinal(Guid id, [FromBody] ApproveFinalSubmissionRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.ApproveFinalAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã xác nhận bài nộp"));
+    }
+
+    /// <summary>Giảng viên trả bài (bắt buộc ghi nhận xét): nhóm sửa link rồi nộp lại.</summary>
+    [HttpPost("{id:guid}/final-submission/reject")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RejectFinal(Guid id, [FromBody] RejectFinalSubmissionRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.RejectFinalAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã trả bài nộp"));
     }
 }

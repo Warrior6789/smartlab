@@ -20,8 +20,21 @@ public interface IProjectService
     /// <summary>Team leader replaces title, description, components and self-supplied items while the project is Draft or Rejected.</summary>
     Task<ProjectDetailResponse> UpdateProjectAsync(Guid projectId, UpdateProjectRequest request, CancellationToken ct = default);
 
-    /// <summary>Team leader sets the GitHub / slide / demo video links in any status.</summary>
+    /// <summary>Team leader sets the GitHub / slide / demo video links, except while the final submission is Pending or Accepted.</summary>
     Task<ProjectDetailResponse> UpdateProjectLinksAsync(Guid projectId, UpdateProjectLinksRequest request, CancellationToken ct = default);
+
+    /// <summary>Team leader submits the final work (Approved project, all three links set); it waits for the class lecturer.</summary>
+    Task<ProjectDetailResponse> SubmitFinalAsync(Guid projectId, CancellationToken ct = default);
+
+    /// <summary>Pending final submissions of the classes the caller teaches (Admin: all), oldest submission first.</summary>
+    Task<PagedResult<PendingFinalSubmissionResponse>> GetPendingFinalSubmissionsAsync(
+        FinalSubmissionQueryParams query, PageParams paging, CancellationToken ct = default);
+
+    /// <summary>The class lecturer (or Admin) accepts a Pending final submission; the links stay locked.</summary>
+    Task<ProjectDetailResponse> ApproveFinalAsync(Guid projectId, ApproveFinalSubmissionRequest request, CancellationToken ct = default);
+
+    /// <summary>The class lecturer (or Admin) returns a Pending final submission with a comment; the team can fix and submit again.</summary>
+    Task<ProjectDetailResponse> RejectFinalAsync(Guid projectId, RejectFinalSubmissionRequest request, CancellationToken ct = default);
 
     /// <summary>
     /// Team leader sends a Draft or Rejected project for review: the project becomes Submitted and a Pending borrow request

@@ -29,6 +29,11 @@ public class ProjectResponse
     /// <summary>Comment of the latest decision (the reject reason when Rejected); cleared when the project is sent again.</summary>
     public string? ReviewComment { get; set; }
 
+    /// <summary>Final submission: null (not submitted), Pending, Accepted or Returned.</summary>
+    public string? FinalStatus { get; set; }
+
+    public DateTime? FinalSubmittedAt { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }

@@ -31,12 +31,15 @@ public class ProjectService : IProjectService
     private readonly IUnitOfWork _uow;
     private readonly ICurrentUserService _currentUser;
     private readonly IBorrowNotifier _notifier;
+    private readonly IProjectNotifier _projectNotifier;
 
-    public ProjectService(IUnitOfWork uow, ICurrentUserService currentUser, IBorrowNotifier notifier)
+    public ProjectService(
+        IUnitOfWork uow, ICurrentUserService currentUser, IBorrowNotifier notifier, IProjectNotifier projectNotifier)
     {
         _uow = uow;
         _currentUser = currentUser;
         _notifier = notifier;
+        _projectNotifier = projectNotifier;
     }
 
     public Task<PagedResult<ProjectResponse>> GetProjectsAsync(
@@ -75,6 +78,8 @@ public class ProjectService : IProjectService
                 SubmittedAt = p.SubmittedAt,
                 ReviewedAt = p.ReviewedAt,
                 ReviewComment = p.ReviewComment,
+                FinalStatus = p.FinalStatus,
+                FinalSubmittedAt = p.FinalSubmittedAt,
                 CreatedAt = p.CreatedAt,
                 UpdatedAt = p.UpdatedAt,
             });
@@ -112,7 +117,13 @@ public class ProjectService : IProjectService
                        ReviewedBy = p.ReviewedBy,
                        ReviewedByName = p.ReviewedByNavigation != null ? p.ReviewedByNavigation.FullName : null,
                        ReviewComment = p.ReviewComment,
-                       Components = p.ProjectComponents
+                       FinalStatus = p.FinalStatus,
+                       FinalSubmittedAt = p.FinalSubmittedAt,
+                       FinalReviewedBy = p.FinalReviewedBy,
+                       FinalReviewedByName = p.FinalReviewedByNavigation != null ? p.FinalReviewedByNavigation.FullName : null,
+                       FinalReviewedAt = p.FinalReviewedAt,
+                       FinalComment = p.FinalComment,
+                       Components =p.ProjectComponents
                            .OrderBy(pc => pc.Component.ComponentCode)
                            .Select(pc => new ProjectComponentResponse
                            {
@@ -285,6 +296,8 @@ public class ProjectService : IProjectService
         var project = await _uow.Repository<Project>().Query()
                           .FirstOrDefaultAsync(p => p.ProjectId == projectId, ct)
                       ?? throw new NotFoundException("Không tìm thấy project");
+        if (project.FinalStatus != null && FinalSubmissionStatuses.Locked.Contains(project.FinalStatus))
+            throw new ConflictException("Bài nộp đang chờ hoặc đã được xác nhận, không sửa link được");
 
         project.GithubUrl = CleanText(request.GithubUrl);
         project.SlideUrl = CleanText(request.SlideUrl);
@@ -403,6 +416,81 @@ public class ProjectService : IProjectService
         return await GetProjectByIdAsync(projectId, ct);
     }
 
+    public async Task<ProjectDetailResponse> SubmitFinalAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var project = await GetProjectForLeaderAsync(projectId, ct);
+        if (project.Status != ProjectStatuses.Approved)
+            throw new ConflictException("Chỉ nộp bài được khi project đã được duyệt");
+        if (project.GithubUrl == null || project.SlideUrl == null || project.DemoVideoUrl == null)
+            throw new BadRequestException("Cần nhập đủ link GitHub, slide và video demo trước khi nộp");
+        if (project.FinalStatus != null && project.FinalStatus != FinalSubmissionStatuses.Returned)
+            throw new ConflictException("Bài nộp đang chờ hoặc đã được xác nhận");
+
+        var now = DateTime.UtcNow;
+        var updated = await _uow.Repository<Project>().Query()
+            .Where(p => p.ProjectId == projectId
+                        && p.Status == ProjectStatuses.Approved
+                        && p.GithubUrl != null && p.SlideUrl != null && p.DemoVideoUrl != null
+                        && (p.FinalStatus == null || p.FinalStatus == FinalSubmissionStatuses.Returned))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.FinalStatus, FinalSubmissionStatuses.Pending)
+                .SetProperty(p => p.FinalSubmittedAt, now)
+                .SetProperty(p => p.FinalReviewedBy, (Guid?)null)
+                .SetProperty(p => p.FinalReviewedAt, (DateTime?)null)
+                .SetProperty(p => p.FinalComment, (string?)null)
+                .SetProperty(p => p.UpdatedAt, now), ct);
+        if (updated == 0)
+            throw new ConflictException(StatusChangedMessage);
+
+        await _projectNotifier.FinalSubmittedAsync(projectId, ct);
+
+        return await GetProjectByIdAsync(projectId, ct);
+    }
+
+    public Task<PagedResult<PendingFinalSubmissionResponse>> GetPendingFinalSubmissionsAsync(
+        FinalSubmissionQueryParams query, PageParams paging, CancellationToken ct = default)
+    {
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+
+        var projects = _uow.Repository<Project>().QueryNoTracking()
+            .Where(p => p.FinalStatus == FinalSubmissionStatuses.Pending);
+
+        if (!_currentUser.IsInRole(RoleNames.Admin))
+            projects = projects.Where(p => p.Class != null && p.Class.Instructor != null && p.Class.Instructor.UserId == userId);
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var keyword = query.Search.Trim().ToLower();
+            projects = projects.Where(p => p.Title.ToLower().Contains(keyword)
+                                        || (p.Team != null && p.Team.TeamName.ToLower().Contains(keyword)));
+        }
+
+        var result = projects
+            .OrderBy(p => p.FinalSubmittedAt).ThenBy(p => p.ProjectId)
+            .Select(p => new PendingFinalSubmissionResponse
+            {
+                ProjectId = p.ProjectId,
+                Title = p.Title,
+                TeamName = p.Team != null ? p.Team.TeamName : null,
+                ClassCode = p.Class != null ? p.Class.ClassCode : null,
+                LeaderName = p.Team != null ? p.Team.Leader.User.FullName : null,
+                GithubUrl = p.GithubUrl,
+                SlideUrl = p.SlideUrl,
+                DemoVideoUrl = p.DemoVideoUrl,
+                FinalSubmittedAt = p.FinalSubmittedAt,
+            });
+
+        return PagedResult<PendingFinalSubmissionResponse>.CreateAsync(result, paging, ct);
+    }
+
+    public Task<ProjectDetailResponse> ApproveFinalAsync(
+        Guid projectId, ApproveFinalSubmissionRequest request, CancellationToken ct = default)
+        => ReviewFinalAsync(projectId, FinalSubmissionStatuses.Accepted, CleanText(request.Comment), ct);
+
+    public Task<ProjectDetailResponse> RejectFinalAsync(
+        Guid projectId, RejectFinalSubmissionRequest request, CancellationToken ct = default)
+        => ReviewFinalAsync(projectId, FinalSubmissionStatuses.Returned, CleanText(request.Comment), ct);
+
     public async Task<ProjectDetailResponse> WithdrawProjectAsync(Guid projectId, CancellationToken ct = default)
     {
         var project = await GetProjectForLeaderAsync(projectId, ct);
@@ -449,6 +537,49 @@ public class ProjectService : IProjectService
                                                                 && tm.Status == TeamMemberStatuses.Accepted)))
             || (p.Class != null && p.Class.Instructor != null && p.Class.Instructor.UserId == userId)
             || p.BorrowRequests.Any(r => r.BorrowApprovals.Any(a => a.ApproverId == userId)));
+    }
+
+    /// <summary>
+    /// The lecturer of the project's class (or an Admin standing in) decides a Pending final submission. The UPDATE only
+    /// matches while it is still Pending, so when two reviewers race only the first one wins.
+    /// </summary>
+    private async Task<ProjectDetailResponse> ReviewFinalAsync(
+        Guid projectId, string newStatus, string? comment, CancellationToken ct)
+    {
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+
+        var project = await _uow.Repository<Project>().QueryNoTracking()
+                          .Where(p => p.ProjectId == projectId)
+                          .Select(p => new
+                          {
+                              p.FinalStatus,
+                              LecturerUserId = p.Class != null && p.Class.Instructor != null
+                                  ? (Guid?)p.Class.Instructor.UserId
+                                  : null,
+                          })
+                          .FirstOrDefaultAsync(ct)
+                      ?? throw new NotFoundException("Không tìm thấy project");
+
+        if (project.LecturerUserId != userId && !_currentUser.IsInRole(RoleNames.Admin))
+            throw new ForbiddenException("Chỉ giảng viên của lớp được xác nhận bài nộp này");
+        if (project.FinalStatus != FinalSubmissionStatuses.Pending)
+            throw new ConflictException("Bài nộp đã được xử lý hoặc chưa được nộp");
+
+        var now = DateTime.UtcNow;
+        var updated = await _uow.Repository<Project>().Query()
+            .Where(p => p.ProjectId == projectId && p.FinalStatus == FinalSubmissionStatuses.Pending)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.FinalStatus, newStatus)
+                .SetProperty(p => p.FinalReviewedBy, userId)
+                .SetProperty(p => p.FinalReviewedAt, now)
+                .SetProperty(p => p.FinalComment, comment)
+                .SetProperty(p => p.UpdatedAt, now), ct);
+        if (updated == 0)
+            throw new ConflictException("Bài nộp đã được xử lý");
+
+        await _projectNotifier.FinalReviewedAsync(projectId, ct);
+
+        return await GetProjectByIdAsync(projectId, ct);
     }
 
     private async Task<Guid> GetCurrentStudentIdAsync(Guid userId, CancellationToken ct)
