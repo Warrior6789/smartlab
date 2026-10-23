@@ -1036,6 +1036,15 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(500)
                 .HasColumnName("demo_video_url");
             entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.FinalComment)
+                .HasMaxLength(500)
+                .HasColumnName("final_comment");
+            entity.Property(e => e.FinalReviewedAt).HasColumnName("final_reviewed_at");
+            entity.Property(e => e.FinalReviewedBy).HasColumnName("final_reviewed_by");
+            entity.Property(e => e.FinalStatus)
+                .HasMaxLength(20)
+                .HasColumnName("final_status");
+            entity.Property(e => e.FinalSubmittedAt).HasColumnName("final_submitted_at");
             entity.Property(e => e.GithubUrl)
                 .HasMaxLength(500)
                 .HasColumnName("github_url");
@@ -1065,6 +1074,10 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.ClassId)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("projects_class_id_fkey");
+
+            entity.HasOne(d => d.FinalReviewedByNavigation).WithMany(p => p.ProjectFinalReviewedByNavigations)
+                .HasForeignKey(d => d.FinalReviewedBy)
+                .HasConstraintName("projects_final_reviewed_by_fkey");
 
             entity.HasOne(d => d.Owner).WithMany(p => p.ProjectOwners)
                 .HasForeignKey(d => d.OwnerId)

@@ -37,9 +37,21 @@ public partial class Project
 
     public string? ReviewComment { get; set; }
 
+    public string? FinalStatus { get; set; }
+
+    public DateTime? FinalSubmittedAt { get; set; }
+
+    public Guid? FinalReviewedBy { get; set; }
+
+    public DateTime? FinalReviewedAt { get; set; }
+
+    public string? FinalComment { get; set; }
+
     public virtual ICollection<BorrowRequest> BorrowRequests { get; set; } = new List<BorrowRequest>();
 
     public virtual Class? Class { get; set; }
+
+    public virtual User? FinalReviewedByNavigation { get; set; }
 
     public virtual User Owner { get; set; } = null!;
 
