@@ -86,7 +86,6 @@ public class AdminSeeder : IHostedService
             PasswordHash = hasher.Hash(password),
             FullName = fullName,
             IsActive = true,
-            EmailVerified = true,
             CreatedAt = now,
             UpdatedAt = now,
         };

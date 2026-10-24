@@ -16,6 +16,7 @@ public static class UserMappings
         AvatarUrl = user.AvatarUrl,
         IsActive = user.IsActive,
         LastLoginAt = user.LastLoginAt,
+        MustChangePassword = user.MustChangePassword,
         StudentCode = user.StudentProfile?.StudentCode,
         Roles = GetRoleNames(user),
         Permissions = GetPermissionCodes(user),

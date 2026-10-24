@@ -1,8 +1,6 @@
 using System.Net;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-using Npgsql;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Identity;
@@ -30,83 +28,16 @@ public class AuthService : IAuthService
     private readonly IJwtService _jwtService;
     private readonly ICurrentUserService _currentUser;
     private readonly IEmailSender _email;
-    private readonly ILogger<AuthService> _logger;
 
     public AuthService(
         IUnitOfWork uow, IPasswordHasher passwordHasher, IJwtService jwtService, ICurrentUserService currentUser,
-        IEmailSender email, ILogger<AuthService> logger)
+        IEmailSender email)
     {
         _uow = uow;
         _passwordHasher = passwordHasher;
         _jwtService = jwtService;
         _currentUser = currentUser;
         _email = email;
-        _logger = logger;
-    }
-
-    public async Task<CurrentUserDto> RegisterStudentAsync(RegisterRequest request, CancellationToken ct = default)
-    {
-        var username = request.Username.Trim();
-        var email = request.Email.Trim().ToLowerInvariant();
-        var studentCode = request.StudentCode.Trim().ToUpperInvariant();
-
-        var users = _uow.Repository<User>();
-        var errors = new Dictionary<string, string[]>();
-        if (await users.QueryNoTracking().AnyAsync(u => u.Username.ToLower() == username.ToLower(), ct))
-            errors["username"] = new[] { "Username đã được sử dụng" };
-        if (await users.QueryNoTracking().AnyAsync(u => u.Email.ToLower() == email, ct))
-            errors["email"] = new[] { "Email đã được sử dụng" };
-        if (await _uow.Repository<StudentProfile>().QueryNoTracking().AnyAsync(s => s.StudentCode == studentCode, ct))
-            errors["studentCode"] = new[] { "Mã sinh viên đã tồn tại" };
-        if (errors.Count > 0)
-            throw new ConflictException("Thông tin đăng ký bị trùng", errors);
-
-        var studentRole = await _uow.Repository<Role>().QueryNoTracking()
-                              .FirstOrDefaultAsync(r => r.RoleName == RoleNames.Student, ct)
-                          ?? throw new InvalidOperationException($"Role '{RoleNames.Student}' chưa được seed trong database");
-
-        var now = DateTime.UtcNow;
-        var user = new User
-        {
-            Username = username,
-            Email = email,
-            PasswordHash = _passwordHasher.Hash(request.Password),
-            FullName = request.FullName.Trim(),
-            PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim(),
-            IsActive = true,
-            CreatedAt = now,
-            UpdatedAt = now,
-            StudentProfile = new StudentProfile
-            {
-                StudentCode = studentCode,
-                Major = string.IsNullOrWhiteSpace(request.Major) ? null : request.Major.Trim(),
-                Cohort = string.IsNullOrWhiteSpace(request.Cohort) ? null : request.Cohort.Trim(),
-            },
-        };
-        user.UserRoles.Add(new UserRole { RoleId = studentRole.RoleId, AssignedAt = now });
-        var code = AddVerificationCode(user, VerificationPurposes.EmailVerification, now);
-
-        try
-        {
-            await users.AddAsync(user, ct);
-            await _uow.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
-        {
-            throw new ConflictException("Username, email hoặc mã sinh viên đã được sử dụng");
-        }
-
-        try
-        {
-            await SendCodeEmailAsync(user, VerificationPurposes.EmailVerification, code, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Gửi email xác thực thất bại cho {Email}", user.Email);
-        }
-
-        var created = await LoadUserWithAccessAsync(user.UserId, ct);
-        return UserMappings.ToCurrentUserDto(created!);
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
@@ -124,9 +55,6 @@ public class AuthService : IAuthService
 
         if (!user.IsActive)
             throw new ForbiddenException("Tài khoản đã bị khóa");
-
-        if (!user.EmailVerified)
-            throw new ForbiddenException("Email chưa được xác thực. Vui lòng nhập mã đã gửi tới email của bạn");
 
         var now = DateTime.UtcNow;
         user.LastLoginAt = now;
@@ -168,30 +96,22 @@ public class AuthService : IAuthService
         return UserMappings.ToCurrentUserDto(user);
     }
 
-    public async Task VerifyEmailAsync(VerifyEmailRequest request, CancellationToken ct = default)
+    public async Task ChangePasswordAsync(ChangePasswordRequest request, CancellationToken ct = default)
     {
-        var email = request.Email.Trim().ToLowerInvariant();
-        var user = await _uow.Repository<User>().Query().FirstOrDefaultAsync(u => u.Email.ToLower() == email, ct)
-                   ?? throw new BadRequestException(InvalidCodeMessage);
-        if (user.EmailVerified)
-            throw new BadRequestException("Email đã được xác thực");
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
 
-        var now = DateTime.UtcNow;
-        await ConsumeCodeAsync(user.UserId, VerificationPurposes.EmailVerification, request.Code, now, ct);
+        var user = await _uow.Repository<User>().Query().FirstOrDefaultAsync(u => u.UserId == userId, ct)
+                   ?? throw new UnauthorizedException("Tài khoản không còn tồn tại");
+        if (!user.IsActive)
+            throw new ForbiddenException("Tài khoản đã bị khóa");
 
-        user.EmailVerified = true;
-        user.UpdatedAt = now;
+        if (!_passwordHasher.Verify(request.CurrentPassword, user.PasswordHash))
+            throw new BadRequestException("Mật khẩu hiện tại không đúng");
+
+        user.PasswordHash = _passwordHasher.Hash(request.NewPassword);
+        user.MustChangePassword = false;
+        user.UpdatedAt = DateTime.UtcNow;
         await _uow.SaveChangesAsync(ct);
-    }
-
-    public async Task ResendVerificationAsync(ResendVerificationRequest request, CancellationToken ct = default)
-    {
-        var email = request.Email.Trim().ToLowerInvariant();
-        var user = await _uow.Repository<User>().QueryNoTracking().FirstOrDefaultAsync(u => u.Email.ToLower() == email, ct);
-        if (user is null || user.EmailVerified || !user.IsActive)
-            return;
-
-        await IssueCodeAsync(user, VerificationPurposes.EmailVerification, ct);
     }
 
     public async Task ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct = default)
@@ -215,7 +135,7 @@ public class AuthService : IAuthService
         await ConsumeCodeAsync(user.UserId, VerificationPurposes.PasswordReset, request.Code, now, ct);
 
         user.PasswordHash = _passwordHasher.Hash(request.NewPassword);
-        user.EmailVerified = true;
+        user.MustChangePassword = false;
         user.UpdatedAt = now;
         await _uow.SaveChangesAsync(ct);
     }
@@ -250,21 +170,7 @@ public class AuthService : IAuthService
         }, ct);
         await _uow.SaveChangesAsync(ct);
 
-        await SendCodeEmailAsync(user, purpose, code, ct);
-    }
-
-    /// <summary>Adds a new code through the user's navigation, so it is saved together with the user.</summary>
-    private string AddVerificationCode(User user, string purpose, DateTime now)
-    {
-        var code = GenerateCode();
-        user.VerificationCodes.Add(new VerificationCode
-        {
-            Purpose = purpose,
-            CodeHash = _passwordHasher.Hash(code),
-            ExpiresAt = now + CodeLifetime,
-            CreatedAt = now,
-        });
-        return code;
+        await SendCodeEmailAsync(user, code, ct);
     }
 
     /// <summary>
@@ -296,28 +202,15 @@ public class AuthService : IAuthService
 
     private static string GenerateCode() => RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
 
-    private Task SendCodeEmailAsync(User user, string purpose, string code, CancellationToken ct)
+    private Task SendCodeEmailAsync(User user, string code, CancellationToken ct)
     {
-        string subject;
-        string action;
-        if (purpose == VerificationPurposes.PasswordReset)
-        {
-            subject = "SmartLab - Mã đặt lại mật khẩu";
-            action = "đặt lại mật khẩu";
-        }
-        else
-        {
-            subject = "SmartLab - Mã xác thực email";
-            action = "xác thực email";
-        }
-
         var body =
             $"<p>Xin chào <b>{WebUtility.HtmlEncode(user.FullName)}</b>,</p>" +
-            $"<p>Mã {action} của bạn là:</p>" +
+            $"<p>Mã đặt lại mật khẩu của bạn là:</p>" +
             $"<p style=\"font-size:24px;font-weight:bold;letter-spacing:4px\">{code}</p>" +
             $"<p>Mã có hiệu lực trong {(int)CodeLifetime.TotalMinutes} phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>";
 
-        return _email.SendAsync(user.Email, subject, body, ct);
+        return _email.SendAsync(user.Email, "SmartLab - Mã đặt lại mật khẩu", body, ct);
     }
 
     private IQueryable<User> QueryUserWithAccess(bool tracking)
