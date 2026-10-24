@@ -18,41 +18,6 @@ public class AuthController : ControllerBase
         _authService = authService;
     }
 
-    /// <summary>Đăng ký tài khoản sinh viên.</summary>
-    [AllowAnonymous]
-    [HttpPost("register")]
-    [ProducesResponseType(typeof(ApiResponse<CurrentUserDto>), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> Register([FromBody] RegisterRequest request, CancellationToken ct)
-    {
-        var user = await _authService.RegisterStudentAsync(request, ct);
-        return StatusCode(StatusCodes.Status201Created,
-            ApiResponse<CurrentUserDto>.Ok(user, "Đăng ký thành công. Vui lòng kiểm tra email để lấy mã xác thực, nếu chưa nhận được hãy bấm Gửi lại mã"));
-    }
-
-    /// <summary>Xác thực email bằng mã 6 số đã gửi khi đăng ký.</summary>
-    [AllowAnonymous]
-    [HttpPost("verify-email")]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailRequest request, CancellationToken ct)
-    {
-        await _authService.VerifyEmailAsync(request, ct);
-        return Ok(ApiResponse.Ok("Xác thực email thành công"));
-    }
-
-    /// <summary>Gửi lại mã xác thực email.</summary>
-    [AllowAnonymous]
-    [HttpPost("resend-verification")]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> ResendVerification([FromBody] ResendVerificationRequest request, CancellationToken ct)
-    {
-        await _authService.ResendVerificationAsync(request, ct);
-        return Ok(ApiResponse.Ok("Nếu email cần xác thực, mã mới đã được gửi"));
-    }
-
     /// <summary>Gửi mã đặt lại mật khẩu tới email.</summary>
     [AllowAnonymous]
     [HttpPost("forgot-password")]
@@ -107,5 +72,20 @@ public class AuthController : ControllerBase
     {
         var user = await _authService.UpdateProfileAsync(request, ct);
         return Ok(ApiResponse<CurrentUserDto>.Ok(user, "Cập nhật thông tin thành công"));
+    }
+
+    /// <summary>
+    /// Đổi mật khẩu của người dùng hiện tại. Tài khoản do admin tạo hoặc import có mustChangePassword = true,
+    /// đổi xong thì về false.
+    /// </summary>
+    [HttpPut("me/password")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken ct)
+    {
+        await _authService.ChangePasswordAsync(request, ct);
+        return Ok(ApiResponse.Ok("Đổi mật khẩu thành công"));
     }
 }
