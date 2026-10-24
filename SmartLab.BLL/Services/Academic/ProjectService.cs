@@ -153,6 +153,7 @@ public class ProjectService : IProjectService
                                BorrowRequestId = r.BorrowRequestId,
                                RequestCode = r.RequestCode,
                                Status = r.Status,
+                               Purpose = r.Purpose,
                                RoomId = r.RoomId,
                                RoomCode = r.Room.RoomCode,
                                RoomName = r.Room.RoomName,
@@ -416,6 +417,138 @@ public class ProjectService : IProjectService
         return await GetProjectByIdAsync(projectId, ct);
     }
 
+    public async Task<ProjectDetailResponse> SubmitSupplementaryBorrowAsync(
+        Guid projectId, SupplementaryBorrowRequest request, CancellationToken ct = default)
+    {
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+        var project = await GetProjectForLeaderAsync(projectId, ct);
+        if (project.Status != ProjectStatuses.Approved)
+            throw new ConflictException("Chỉ mượn thêm được khi project đã được duyệt");
+        if (project.FinalStatus != null && FinalSubmissionStatuses.Locked.Contains(project.FinalStatus))
+            throw new ConflictException("Đã nộp bài cuối, không mượn thêm được");
+
+        var now = DateTime.UtcNow;
+        var borrowDate = ToVietnamDateUtc(request.BorrowDate!.Value);
+        var dueDate = ToVietnamDateUtc(request.DueDate!.Value);
+        if (borrowDate < ToVietnamDateUtc(now))
+            throw new BadRequestException("Ngày mượn không được trước hôm nay");
+
+        var maxBorrowDays = await SystemSettingValues.GetPositiveIntAsync(
+            _uow, SystemSettingKeys.BorrowMaxDays, "số ngày mượn tối đa", ct);
+        if (dueDate > borrowDate.AddDays(maxBorrowDays))
+            throw new BadRequestException($"Thời gian mượn tối đa {maxBorrowDays} ngày");
+
+        await EnsureComponentsUsableAsync(request.Components, ct);
+        var lines = await LoadRequestLinesAsync(request.Components, ct);
+
+        var pickupRoomId = await PickupRoom.GetActiveIdAsync(_uow, ct);
+
+        var lecturerId = await _uow.Repository<Class>().QueryNoTracking()
+            .Where(c => c.ClassId == project.ClassId && c.Instructor != null)
+            .Select(c => (Guid?)c.Instructor!.UserId)
+            .FirstOrDefaultAsync(ct);
+        if (lecturerId == null)
+            throw new BadRequestException("Lớp chưa có giảng viên phụ trách nên chưa gửi duyệt được");
+
+        var purpose = $"Mượn bổ sung cho project: {project.Title}. Lý do: {request.Reason.Trim()}";
+
+        BorrowRequest? borrowRequest = null;
+        var attempt = 1;
+        while (true)
+        {
+            await using var tx = await _uow.BeginTransactionAsync(ct);
+
+            var locked = await _uow.Repository<Project>().Query()
+                .Where(p => p.ProjectId == projectId
+                            && p.Status == ProjectStatuses.Approved
+                            && (p.FinalStatus == null || !FinalSubmissionStatuses.Locked.Contains(p.FinalStatus)))
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.UpdatedAt, now), ct);
+            if (locked == 0)
+                throw new ConflictException(StatusChangedMessage);
+
+            if (borrowRequest == null)
+            {
+                var hasPending = await _uow.Repository<BorrowRequest>().QueryNoTracking()
+                    .AnyAsync(r => r.ProjectId == projectId && r.Status == BorrowRequestStatuses.Pending, ct);
+                if (hasPending)
+                    throw new ConflictException("Nhóm đang có đơn mượn thêm chờ duyệt");
+
+                await EnsureStockAsync(lines, ct);
+
+                borrowRequest = new BorrowRequest
+                {
+                    RequestCode = await GenerateRequestCodeAsync(now, ct),
+                    RequesterId = userId,
+                    ClassId = project.ClassId,
+                    ProjectId = projectId,
+                    Purpose = purpose,
+                    Status = BorrowRequestStatuses.Pending,
+                    RequestDate = now,
+                    BorrowDate = borrowDate,
+                    DueDate = dueDate,
+                    RoomId = pickupRoomId,
+                };
+                foreach (var line in lines)
+                {
+                    borrowRequest.BorrowItems.Add(new BorrowItem
+                    {
+                        ComponentId = line.ComponentId,
+                        Quantity = line.Quantity,
+                        Status = BorrowItemStatuses.Pending,
+                    });
+                }
+                borrowRequest.BorrowApprovals.Add(new BorrowApproval
+                {
+                    StepNo = 1,
+                    ApproverRole = ApproverRoles.Lecturer,
+                    ApproverId = lecturerId.Value,
+                    Status = BorrowApprovalStatuses.Pending,
+                    CreatedAt = now,
+                });
+
+                await _uow.Repository<BorrowRequest>().AddAsync(borrowRequest, ct);
+            }
+
+            try
+            {
+                await _uow.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                break;
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException
+                                               {
+                                                   SqlState: PostgresErrorCodes.UniqueViolation,
+                                                   ConstraintName: RequestCodeUniqueConstraint,
+                                               } && attempt < MaxCodeAttempts)
+            {
+                await tx.RollbackAsync(ct);
+                attempt++;
+                borrowRequest.RequestCode = await GenerateRequestCodeAsync(now, ct);
+            }
+        }
+
+        await _notifier.SubmittedAsync(borrowRequest.BorrowRequestId, ct);
+
+        return await GetProjectByIdAsync(projectId, ct);
+    }
+
+    public async Task<ProjectDetailResponse> WithdrawSupplementaryBorrowAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var project = await GetProjectForLeaderAsync(projectId, ct);
+        if (project.Status != ProjectStatuses.Approved)
+            throw new ConflictException("Project không có đơn mượn thêm đang chờ duyệt");
+
+        var cancelled = await _uow.Repository<BorrowRequest>().Query()
+            .Where(r => r.ProjectId == projectId
+                        && r.Status == BorrowRequestStatuses.Pending
+                        && r.Project!.Status == ProjectStatuses.Approved)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, BorrowRequestStatuses.Cancelled), ct);
+        if (cancelled == 0)
+            throw new ConflictException("Không có đơn mượn thêm đang chờ duyệt hoặc giảng viên vừa xử lý xong");
+
+        return await GetProjectByIdAsync(projectId, ct);
+    }
+
     public async Task<ProjectDetailResponse> SubmitFinalAsync(Guid projectId, CancellationToken ct = default)
     {
         var project = await GetProjectForLeaderAsync(projectId, ct);
@@ -666,6 +799,22 @@ public class ProjectService : IProjectService
             throw new BadRequestException($"Linh kiện đã ngừng sử dụng: {string.Join(", ", inactive)}");
 
         return lines;
+    }
+
+    /// <summary>The lines of a supplementary request, with component names for the stock message.</summary>
+    private async Task<List<SubmitLine>> LoadRequestLinesAsync(List<ProjectComponentRequest> requested, CancellationToken ct)
+    {
+        var ids = requested.Select(l => l.ComponentId).ToList();
+        var components = await _uow.Repository<Component>().QueryNoTracking()
+            .Where(c => ids.Contains(c.ComponentId))
+            .Select(c => new { c.ComponentId, c.ComponentCode, c.ComponentName, c.IsActive })
+            .ToDictionaryAsync(c => c.ComponentId, ct);
+
+        return requested
+            .Select(l => new SubmitLine(l.ComponentId, components[l.ComponentId].ComponentName,
+                components[l.ComponentId].IsActive, l.Quantity))
+            .OrderBy(l => components[l.ComponentId].ComponentCode)
+            .ToList();
     }
 
     /// <summary>

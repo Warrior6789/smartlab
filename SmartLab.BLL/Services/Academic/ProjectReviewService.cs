@@ -71,6 +71,8 @@ public class ProjectReviewService : IProjectReviewService
                 SubmittedAt = a.BorrowRequest.Project.SubmittedAt,
                 BorrowRequestId = a.BorrowRequestId,
                 RequestCode = a.BorrowRequest.RequestCode,
+                IsSupplementary = a.BorrowRequest.Project.Status == ProjectStatuses.Approved,
+                Purpose = a.BorrowRequest.Purpose,
                 StepNo = a.StepNo,
                 ApproverRole = a.ApproverRole,
                 ApproverId = a.ApproverId,
@@ -112,7 +114,8 @@ public class ProjectReviewService : IProjectReviewService
                     .SetProperty(r => r.Status, status)
                     .SetProperty(r => r.ApprovedAt, now), ct);
 
-            await ReviewProjectAsync(projectId, ProjectStatuses.Approved, userId, comment, now, ct);
+            if (!step.IsSupplementary)
+                await ReviewProjectAsync(projectId, ProjectStatuses.Approved, userId, comment, now, ct);
         }
 
         await tx.CommitAsync(ct);
@@ -148,7 +151,8 @@ public class ProjectReviewService : IProjectReviewService
                 .SetProperty(r => r.Status, BorrowRequestStatuses.Rejected)
                 .SetProperty(r => r.RejectReason, reason), ct);
 
-        await ReviewProjectAsync(projectId, ProjectStatuses.Rejected, userId, reason, now, ct);
+        if (!step.IsSupplementary)
+            await ReviewProjectAsync(projectId, ProjectStatuses.Rejected, userId, reason, now, ct);
 
         await tx.CommitAsync(ct);
 
@@ -157,7 +161,10 @@ public class ProjectReviewService : IProjectReviewService
         return await _projectService.GetProjectByIdAsync(projectId, ct);
     }
 
-    private sealed record CurrentStep(Guid ApprovalId, Guid BorrowRequestId, Guid RoomId, bool IsLast);
+    /// <param name="IsSupplementary">
+    /// The project is already Approved and this request borrows more: the decision touches only the borrow request.
+    /// </param>
+    private sealed record CurrentStep(Guid ApprovalId, Guid BorrowRequestId, Guid RoomId, bool IsLast, bool IsSupplementary);
 
     /// <summary>
     /// Approving reserves stock, so the checks of submitting run again (things may have changed since): the pickup lab is
@@ -298,7 +305,14 @@ public class ProjectReviewService : IProjectReviewService
                         && a.BorrowRequest.Status == BorrowRequestStatuses.Pending
                         && a.Status == BorrowApprovalStatuses.Pending)
             .OrderBy(a => a.StepNo)
-            .Select(a => new { a.ApprovalId, a.ApproverId, a.BorrowRequestId, a.BorrowRequest.RoomId })
+            .Select(a => new
+            {
+                a.ApprovalId,
+                a.ApproverId,
+                a.BorrowRequestId,
+                a.BorrowRequest.RoomId,
+                IsSupplementary = a.BorrowRequest.Project!.Status == ProjectStatuses.Approved,
+            })
             .ToListAsync(ct);
         if (pendingSteps.Count == 0)
             throw new ConflictException(AlreadyDecidedMessage);
@@ -307,7 +321,8 @@ public class ProjectReviewService : IProjectReviewService
         if (current.ApproverId != userId && !_currentUser.IsInRole(RoleNames.Admin))
             throw new ForbiddenException("Project này chưa đến lượt bạn duyệt hoặc bạn không phải người duyệt");
 
-        return new CurrentStep(current.ApprovalId, current.BorrowRequestId, current.RoomId, pendingSteps.Count == 1);
+        return new CurrentStep(
+            current.ApprovalId, current.BorrowRequestId, current.RoomId, pendingSteps.Count == 1, current.IsSupplementary);
     }
 
     /// <summary>Records the decision; ApproverId becomes the user who decided (an Admin standing in replaces the assignee).</summary>
