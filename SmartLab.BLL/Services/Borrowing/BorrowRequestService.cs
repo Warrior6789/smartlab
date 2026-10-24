@@ -962,7 +962,9 @@ public class BorrowRequestService : IBorrowRequestService
     /// Cancels an Approved or Ready request (nothing handed over yet): the borrower, staff of the pickup lab or an Admin.
     /// Staff must give a reason (e.g. a source lab found components broken or lost after approval); it is saved in
     /// RejectReason and emailed to the borrower. The reservation ends; components already carried to the pickup lab stay
-    /// there. The project goes back to Draft so the team can change it and submit again.
+    /// there. When no other approved request of the project is left, the project goes back to Draft (and a supplementary
+    /// request still waiting is cancelled) so the team can change it and submit again; cancelling a supplementary request
+    /// while the first one stands keeps the project Approved.
     /// </summary>
     public async Task<BorrowRequestDetailResponse> CancelAsync(
         Guid borrowRequestId, CancelBorrowRequest request, CancellationToken ct = default)
@@ -996,12 +998,28 @@ public class BorrowRequestService : IBorrowRequestService
 
         if (info.ProjectId.HasValue)
         {
-            await _uow.Repository<Project>().Query()
-                .Where(p => p.ProjectId == info.ProjectId.Value && p.Status == ProjectStatuses.Approved)
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(p => p.Status, ProjectStatuses.Draft)
-                    .SetProperty(p => p.SubmittedAt, (DateTime?)null)
-                    .SetProperty(p => p.UpdatedAt, now), ct);
+            var otherApproved = await _uow.Repository<BorrowRequest>().QueryNoTracking()
+                .AnyAsync(r => r.ProjectId == info.ProjectId.Value
+                               && r.BorrowRequestId != borrowRequestId
+                               && r.ApprovedAt != null
+                               && r.Status != BorrowRequestStatuses.Cancelled, ct);
+
+            if (!otherApproved)
+            {
+                var reverted = await _uow.Repository<Project>().Query()
+                    .Where(p => p.ProjectId == info.ProjectId.Value && p.Status == ProjectStatuses.Approved)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(p => p.Status, ProjectStatuses.Draft)
+                        .SetProperty(p => p.SubmittedAt, (DateTime?)null)
+                        .SetProperty(p => p.UpdatedAt, now), ct);
+
+                if (reverted > 0)
+                {
+                    await _uow.Repository<BorrowRequest>().Query()
+                        .Where(r => r.ProjectId == info.ProjectId.Value && r.Status == BorrowRequestStatuses.Pending)
+                        .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, BorrowRequestStatuses.Cancelled), ct);
+                }
+            }
         }
 
         await tx.CommitAsync(ct);

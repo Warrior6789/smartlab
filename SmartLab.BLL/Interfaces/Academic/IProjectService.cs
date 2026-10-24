@@ -23,6 +23,16 @@ public interface IProjectService
     /// <summary>Team leader sets the GitHub / slide / demo video links, except while the final submission is Pending or Accepted.</summary>
     Task<ProjectDetailResponse> UpdateProjectLinksAsync(Guid projectId, UpdateProjectLinksRequest request, CancellationToken ct = default);
 
+    /// <summary>
+    /// Team leader of an Approved project asks to borrow more components (with a reason). Creates a Pending borrow request
+    /// for the class lecturer, decided through the same approve / reject as the project; the project stays Approved.
+    /// One pending request at a time; not allowed after the final submission.
+    /// </summary>
+    Task<ProjectDetailResponse> SubmitSupplementaryBorrowAsync(Guid projectId, SupplementaryBorrowRequest request, CancellationToken ct = default);
+
+    /// <summary>Team leader withdraws the supplementary borrow request still waiting for the lecturer.</summary>
+    Task<ProjectDetailResponse> WithdrawSupplementaryBorrowAsync(Guid projectId, CancellationToken ct = default);
+
     /// <summary>Team leader submits the final work (Approved project, all three links set); it waits for the class lecturer.</summary>
     Task<ProjectDetailResponse> SubmitFinalAsync(Guid projectId, CancellationToken ct = default);
 

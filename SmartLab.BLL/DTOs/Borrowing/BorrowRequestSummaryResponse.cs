@@ -8,6 +8,9 @@ public class BorrowRequestSummaryResponse
 
     public string Status { get; set; } = string.Empty;
 
+    /// <summary>What the request is for; a supplementary request also carries the team's reason.</summary>
+    public string Purpose { get; set; } = string.Empty;
+
     public Guid RoomId { get; set; }
 
     public string RoomCode { get; set; } = string.Empty;

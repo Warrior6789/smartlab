@@ -43,6 +43,7 @@ public class ProjectsController : ControllerBase
     /// Giảng viên của lớp duyệt (Admin duyệt thay được), kể cả đơn có HIGH_VALUE.
     /// Duyệt xong thì project thành Approved; hệ thống chia mỗi dòng lấy từ lab nào (ưu tiên lab nhận đồ).
     /// Đơn mượn thành Approved (chờ mang hàng từ lab khác về), hoặc Ready nếu mọi thứ đã có sẵn ở lab nhận đồ.
+    /// Với đơn mượn thêm (isSupplementary = true trong danh sách chờ duyệt) chỉ đơn mượn được duyệt, project giữ nguyên.
     /// </summary>
     [HttpPost("{id:guid}/approve")]
     [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
@@ -56,7 +57,10 @@ public class ProjectsController : ControllerBase
         return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Duyệt project thành công"));
     }
 
-    /// <summary>Từ chối (bắt buộc ghi lý do): project và đơn mượn thành Rejected, nhóm sửa rồi gửi duyệt lại.</summary>
+    /// <summary>
+    /// Từ chối (bắt buộc ghi lý do): project và đơn mượn thành Rejected, nhóm sửa rồi gửi duyệt lại.
+    /// Với đơn mượn thêm chỉ đơn mượn bị từ chối, project vẫn Approved.
+    /// </summary>
     [HttpPost("{id:guid}/reject")]
     [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
@@ -184,6 +188,38 @@ public class ProjectsController : ControllerBase
     {
         var project = await _projectService.WithdrawProjectAsync(id, ct);
         return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã rút lại project"));
+    }
+
+    /// <summary>
+    /// Nhóm trưởng xin mượn thêm linh kiện cho project đã Approved (bắt buộc ghi lý do): tạo đơn mượn bổ sung Pending
+    /// chờ giảng viên của lớp duyệt bằng POST /api/projects/{id}/approve hoặc /reject; project vẫn giữ Approved.
+    /// Mỗi lúc chỉ 1 đơn bổ sung chờ duyệt; đã nộp bài cuối thì không mượn thêm được. Sau khi duyệt, đơn chạy như đơn mượn thường.
+    /// </summary>
+    [HttpPost("{id:guid}/supplementary-borrow")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SubmitSupplementaryBorrow(
+        Guid id, [FromBody] SupplementaryBorrowRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.SubmitSupplementaryBorrowAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã gửi đơn mượn thêm, chờ giảng viên duyệt"));
+    }
+
+    /// <summary>Nhóm trưởng rút lại đơn mượn thêm đang chờ giảng viên duyệt.</summary>
+    [HttpPost("{id:guid}/supplementary-borrow/withdraw")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> WithdrawSupplementaryBorrow(Guid id, CancellationToken ct)
+    {
+        var project = await _projectService.WithdrawSupplementaryBorrowAsync(id, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã rút lại đơn mượn thêm"));
     }
 
     /// <summary>

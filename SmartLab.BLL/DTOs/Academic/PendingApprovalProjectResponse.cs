@@ -19,6 +19,12 @@ public class PendingApprovalProjectResponse
 
     public string RequestCode { get; set; } = string.Empty;
 
+    /// <summary>True when the project is already Approved and the team asks to borrow more; approving keeps the project as is.</summary>
+    public bool IsSupplementary { get; set; }
+
+    /// <summary>What the request is for; a supplementary request also carries the team's reason.</summary>
+    public string Purpose { get; set; } = string.Empty;
+
     public short StepNo { get; set; }
 
     public string ApproverRole { get; set; } = string.Empty;
