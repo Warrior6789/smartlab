@@ -199,6 +199,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Reason)
                 .HasMaxLength(500)
                 .HasColumnName("reason");
+            entity.Property(e => e.ReviewComment)
+                .HasMaxLength(500)
+                .HasColumnName("review_comment");
             entity.Property(e => e.ReviewedAt).HasColumnName("reviewed_at");
             entity.Property(e => e.ReviewedBy).HasColumnName("reviewed_by");
             entity.Property(e => e.Status)
@@ -1033,6 +1036,15 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(500)
                 .HasColumnName("demo_video_url");
             entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.FinalComment)
+                .HasMaxLength(500)
+                .HasColumnName("final_comment");
+            entity.Property(e => e.FinalReviewedAt).HasColumnName("final_reviewed_at");
+            entity.Property(e => e.FinalReviewedBy).HasColumnName("final_reviewed_by");
+            entity.Property(e => e.FinalStatus)
+                .HasMaxLength(20)
+                .HasColumnName("final_status");
+            entity.Property(e => e.FinalSubmittedAt).HasColumnName("final_submitted_at");
             entity.Property(e => e.GithubUrl)
                 .HasMaxLength(500)
                 .HasColumnName("github_url");
@@ -1062,6 +1074,10 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.ClassId)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("projects_class_id_fkey");
+
+            entity.HasOne(d => d.FinalReviewedByNavigation).WithMany(p => p.ProjectFinalReviewedByNavigations)
+                .HasForeignKey(d => d.FinalReviewedBy)
+                .HasConstraintName("projects_final_reviewed_by_fkey");
 
             entity.HasOne(d => d.Owner).WithMany(p => p.ProjectOwners)
                 .HasForeignKey(d => d.OwnerId)
@@ -1468,9 +1484,6 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Email)
                 .HasColumnType("citext")
                 .HasColumnName("email");
-            entity.Property(e => e.EmailVerified)
-                .HasDefaultValue(false)
-                .HasColumnName("email_verified");
             entity.Property(e => e.FullName)
                 .HasMaxLength(100)
                 .HasColumnName("full_name");
@@ -1478,6 +1491,9 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValue(true)
                 .HasColumnName("is_active");
             entity.Property(e => e.LastLoginAt).HasColumnName("last_login_at");
+            entity.Property(e => e.MustChangePassword)
+                .HasDefaultValue(false)
+                .HasColumnName("must_change_password");
             entity.Property(e => e.PasswordHash)
                 .HasMaxLength(255)
                 .HasColumnName("password_hash");
