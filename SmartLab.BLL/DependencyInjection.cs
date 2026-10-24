@@ -88,6 +88,11 @@ public static class DependencyInjection
         services.AddScoped<IInventoryTransactionService, InventoryTransactionService>();
         services.AddScoped<IInventoryAuditService, InventoryAuditService>();
 
+        services.AddScoped<ISemesterService, SemesterService>();
+        services.AddScoped<ICourseService, CourseService>();
+        services.AddScoped<IClassService, ClassService>();
+        services.AddScoped<IClassRosterService, ClassRosterService>();
+
         services.AddScoped<IProjectNotifier, ProjectNotifier>();
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<IComponentSuggestionService, ComponentSuggestionService>();
