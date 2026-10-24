@@ -1491,9 +1491,6 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValue(true)
                 .HasColumnName("is_active");
             entity.Property(e => e.LastLoginAt).HasColumnName("last_login_at");
-            entity.Property(e => e.MustChangePassword)
-                .HasDefaultValue(false)
-                .HasColumnName("must_change_password");
             entity.Property(e => e.PasswordHash)
                 .HasMaxLength(255)
                 .HasColumnName("password_hash");
