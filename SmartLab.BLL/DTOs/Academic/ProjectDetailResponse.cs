@@ -16,6 +16,15 @@ public class ProjectDetailResponse : ProjectResponse
 
     public string? ReviewedByName { get; set; }
 
+    public Guid? FinalReviewedBy { get; set; }
+
+    public string? FinalReviewedByName { get; set; }
+
+    public DateTime? FinalReviewedAt { get; set; }
+
+    /// <summary>Lecturer's comment on the final submission (required when Returned); cleared when the team submits again.</summary>
+    public string? FinalComment { get; set; }
+
     public List<ProjectComponentResponse> Components { get; set; } = new();
 
     /// <summary>Items the team buys itself, not borrowed from the lab.</summary>
