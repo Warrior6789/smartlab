@@ -13,12 +13,12 @@ public interface IAuthService
     /// <summary>Updates full name, phone number and avatar of the currently authenticated user.</summary>
     Task<CurrentUserDto> UpdateProfileAsync(UpdateProfileRequest request, CancellationToken ct = default);
 
-    /// <summary>Changes the password of the currently authenticated user and clears MustChangePassword.</summary>
+    /// <summary>Changes the password of the currently authenticated user after checking the current one.</summary>
     Task ChangePasswordAsync(ChangePasswordRequest request, CancellationToken ct = default);
 
     /// <summary>Emails a password reset code. Does nothing for unknown emails, so accounts can't be probed.</summary>
     Task ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct = default);
 
-    /// <summary>Sets a new password when the reset code is correct and clears MustChangePassword.</summary>
+    /// <summary>Sets a new password when the reset code is correct.</summary>
     Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct = default);
 }

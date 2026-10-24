@@ -74,10 +74,7 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse<CurrentUserDto>.Ok(user, "Cập nhật thông tin thành công"));
     }
 
-    /// <summary>
-    /// Đổi mật khẩu của người dùng hiện tại. Tài khoản do admin tạo hoặc import có mustChangePassword = true,
-    /// đổi xong thì về false.
-    /// </summary>
+    /// <summary>Đổi mật khẩu của người dùng hiện tại (phải nhập đúng mật khẩu hiện tại).</summary>
     [HttpPut("me/password")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
