@@ -55,7 +55,6 @@ public class UserService : IUserService
             FullName = request.FullName.Trim(),
             PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim(),
             IsActive = true,
-            MustChangePassword = true,
             CreatedAt = now,
             UpdatedAt = now,
         };
