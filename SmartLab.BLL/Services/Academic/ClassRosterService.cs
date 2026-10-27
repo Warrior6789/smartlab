@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using ClosedXML.Excel;
 using System.Text.RegularExpressions;
 
@@ -54,69 +54,158 @@ public class ClassRosterService : IClassRosterService
         var newAccounts = new List<(User User, string Password)>();
 
         using var stream = request.File.OpenReadStream();
-        using var workbook = new XLWorkbook(stream);
-        var sheet = workbook.Worksheet(1);
-        var rows = sheet.RowsUsed().Skip(1).ToList(); // bỏ header
-
-        result.TotalRows = rows.Count;
-
-        foreach (var row in rows)
+        XLWorkbook workbook;
+        try
         {
-            var rowNo = row.RowNumber();
+            workbook = new XLWorkbook(stream);
+        }
+        catch (Exception)
+        {
+            throw new BadRequestException("File Excel không hợp lệ hoặc bị hỏng.");
+        }
 
-            // 3. Đọc dữ liệu từng row
-            var studentCode = row.Cell(1).GetString().Trim().ToUpperInvariant();
-            var fullName    = row.Cell(2).GetString().Trim();
-            var email       = row.Cell(3).GetString().Trim().ToLowerInvariant();
-            var major       = row.Cell(4).GetString().Trim();
-            var cohort      = row.Cell(5).GetString().Trim();
-
-            if (string.IsNullOrWhiteSpace(studentCode) || string.IsNullOrWhiteSpace(email))
+        using (workbook)
+        {
+            IXLWorksheet sheet;
+            try
             {
-                result.SkippedRows++;
-                result.Errors.Add($"Dòng {rowNo}: Thiếu mã SV hoặc email.");
-                continue;
+                sheet = workbook.Worksheet(1);
+            }
+            catch (Exception)
+            {
+                throw new BadRequestException("File Excel không có sheet dữ liệu hợp lệ.");
             }
 
-            if (!Regex.IsMatch(email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+            var rows = sheet.RowsUsed().Skip(1).ToList(); // bỏ header
+
+            result.TotalRows = rows.Count;
+
+            foreach (var row in rows)
             {
-                result.SkippedRows++;
-                result.Errors.Add($"Dòng {rowNo}: Email '{email}' sai định dạng.");
-                continue;
-            }
+                var rowNo = row.RowNumber();
 
-            // Lỗi 2a: kiểm tra trùng trong chính file
-            if (!seenCodes.Add(studentCode) || !seenEmails.Add(email))
-            {
-                result.SkippedRows++;
-                result.Errors.Add($"Dòng {rowNo}: MSSV hoặc email bị lặp trong file.");
-                continue;
-            }
+                // 3. Đọc dữ liệu từng row
+                var studentCode = row.Cell(1).GetString().Trim().ToUpperInvariant();
+                var fullName    = row.Cell(2).GetString().Trim();
+                var email       = row.Cell(3).GetString().Trim().ToLowerInvariant();
+                var major       = row.Cell(4).GetString().Trim();
+                var cohort      = row.Cell(5).GetString().Trim();
 
-            // 4. Tìm hoặc tạo User
-            var user = await _uow.Repository<User>().Query()
-                .Include(u => u.StudentProfile)
-                .Include(u => u.UserRoles)
-                .FirstOrDefaultAsync(u => u.Email == email, ct);
-
-            if (user == null)
-            {
-                var username = studentCode.ToLowerInvariant();
-
-                // Lỗi 2b: kiểm tra MSSV/username đã thuộc tài khoản email khác
-                var codeTaken = await _uow.Repository<StudentProfile>().QueryNoTracking()
-                    .AnyAsync(s => s.StudentCode == studentCode, ct);
-                var usernameTaken = await _uow.Repository<User>().QueryNoTracking()
-                    .AnyAsync(u => u.Username == username, ct);
-
-                if (codeTaken || usernameTaken)
+                if (string.IsNullOrWhiteSpace(studentCode) || string.IsNullOrWhiteSpace(email))
                 {
                     result.SkippedRows++;
-                    result.Errors.Add($"Dòng {rowNo}: MSSV {studentCode} đã thuộc tài khoản có email khác.");
+                    result.Errors.Add($"Dòng {rowNo}: Thiếu mã SV hoặc email.");
                     continue;
                 }
 
-                // Lỗi 4: kiểm tra sĩ số trước khi tạo mới
+                if (!Regex.IsMatch(email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+                {
+                    result.SkippedRows++;
+                    result.Errors.Add($"Dòng {rowNo}: Email '{email}' sai định dạng.");
+                    continue;
+                }
+
+                // Lỗi 2a: kiểm tra trùng trong chính file
+                if (!seenCodes.Add(studentCode) || !seenEmails.Add(email))
+                {
+                    result.SkippedRows++;
+                    result.Errors.Add($"Dòng {rowNo}: MSSV hoặc email bị lặp trong file.");
+                    continue;
+                }
+
+                // 4. Tìm hoặc tạo User
+                var user = await _uow.Repository<User>().Query()
+                    .Include(u => u.StudentProfile)
+                    .Include(u => u.UserRoles)
+                    .FirstOrDefaultAsync(u => u.Email == email, ct);
+
+                if (user == null)
+                {
+                    var username = studentCode.ToLowerInvariant();
+
+                    // Lỗi 2b: kiểm tra MSSV/username đã thuộc tài khoản email khác
+                    var codeTaken = await _uow.Repository<StudentProfile>().QueryNoTracking()
+                        .AnyAsync(s => s.StudentCode == studentCode, ct);
+                    var usernameTaken = await _uow.Repository<User>().QueryNoTracking()
+                        .AnyAsync(u => u.Username == username, ct);
+
+                    if (codeTaken || usernameTaken)
+                    {
+                        result.SkippedRows++;
+                        result.Errors.Add($"Dòng {rowNo}: MSSV {studentCode} đã thuộc tài khoản có email khác.");
+                        continue;
+                    }
+
+                    // Lỗi 4: kiểm tra sĩ số trước khi tạo mới
+                    if (studying >= classEntity.MaxStudents)
+                    {
+                        result.SkippedRows++;
+                        result.Errors.Add($"Dòng {rowNo}: lớp đã đủ {classEntity.MaxStudents} sinh viên.");
+                        continue;
+                    }
+
+                    var now = DateTime.UtcNow;
+                    // Lỗi 1: mật khẩu ngẫu nhiên
+                    var password = PasswordGenerator.Generate();
+                    user = new User
+                    {
+                        Username = username,
+                        Email = email,
+                        FullName = fullName,
+                        PasswordHash = _passwordHasher.Hash(password),
+                        IsActive = true,
+                        CreatedAt = now,
+                        UpdatedAt = now,
+                        StudentProfile = new StudentProfile
+                        {
+                            StudentCode = studentCode,
+                            Major  = string.IsNullOrWhiteSpace(major)  ? null : major,
+                            Cohort = string.IsNullOrWhiteSpace(cohort) ? null : cohort,
+                        }
+                    };
+                    user.UserRoles.Add(new UserRole { RoleId = studentRole.RoleId, AssignedAt = now });
+                    user.StudentProfile.ClassStudents.Add(new ClassStudent
+                    {
+                        ClassId    = classId,
+                        EnrolledAt = now,
+                        Status     = ClassStudentStatuses.Studying,
+                    });
+
+                    await _uow.Repository<User>().AddAsync(user, ct);
+                    newAccounts.Add((user, password));
+                    result.CreatedUsers++;
+                    result.EnrolledStudents++;
+                    studying++;
+                    continue;
+                }
+
+                // Lỗi 3: user đã tồn tại nhưng không phải SV
+                if (user.StudentProfile == null)
+                {
+                    result.SkippedRows++;
+                    result.Errors.Add($"Dòng {rowNo}: email {email} đã thuộc tài khoản không phải sinh viên.");
+                    continue;
+                }
+
+                // Kiểm tra: Email đã có nhưng mã SV khác
+                if (!string.Equals(user.StudentProfile.StudentCode, studentCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    result.SkippedRows++;
+                    result.Errors.Add($"Dòng {rowNo}: Email {email} đã thuộc sinh viên có MSSV khác ({user.StudentProfile.StudentCode}).");
+                    continue;
+                }
+
+                // Kiểm tra đã ghi danh chưa
+                var alreadyEnrolled = classEntity.ClassStudents
+                    .Any(cs => cs.StudentId == user.StudentProfile.StudentProfileId);
+                if (alreadyEnrolled)
+                {
+                    result.SkippedRows++;
+                    result.Errors.Add($"Dòng {rowNo}: sinh viên đã có trong lớp.");
+                    continue;
+                }
+
+                // Lỗi 4: kiểm tra sĩ số trước khi ghi danh SV đã có tài khoản
                 if (studying >= classEntity.MaxStudents)
                 {
                     result.SkippedRows++;
@@ -124,76 +213,17 @@ public class ClassRosterService : IClassRosterService
                     continue;
                 }
 
-                var now = DateTime.UtcNow;
-                // Lỗi 1: mật khẩu ngẫu nhiên
-                var password = PasswordGenerator.Generate();
-                user = new User
-                {
-                    Username = username,
-                    Email = email,
-                    FullName = fullName,
-                    PasswordHash = _passwordHasher.Hash(password),
-                    IsActive = true,
-                    CreatedAt = now,
-                    UpdatedAt = now,
-                    StudentProfile = new StudentProfile
-                    {
-                        StudentCode = studentCode,
-                        Major  = string.IsNullOrWhiteSpace(major)  ? null : major,
-                        Cohort = string.IsNullOrWhiteSpace(cohort) ? null : cohort,
-                    }
-                };
-                user.UserRoles.Add(new UserRole { RoleId = studentRole.RoleId, AssignedAt = now });
-                user.StudentProfile.ClassStudents.Add(new ClassStudent
+                // Ghi danh SV đã có tài khoản
+                await _uow.Repository<ClassStudent>().AddAsync(new ClassStudent
                 {
                     ClassId    = classId,
-                    EnrolledAt = now,
+                    StudentId  = user.StudentProfile.StudentProfileId,
+                    EnrolledAt = DateTime.UtcNow,
                     Status     = ClassStudentStatuses.Studying,
-                });
-
-                await _uow.Repository<User>().AddAsync(user, ct);
-                newAccounts.Add((user, password));
-                result.CreatedUsers++;
+                }, ct);
                 result.EnrolledStudents++;
                 studying++;
-                continue;
             }
-
-            // Lỗi 3: user đã tồn tại nhưng không phải SV
-            if (user.StudentProfile == null)
-            {
-                result.SkippedRows++;
-                result.Errors.Add($"Dòng {rowNo}: email {email} đã thuộc tài khoản không phải sinh viên.");
-                continue;
-            }
-
-            // Kiểm tra đã ghi danh chưa
-            var alreadyEnrolled = classEntity.ClassStudents
-                .Any(cs => cs.StudentId == user.StudentProfile.StudentProfileId);
-            if (alreadyEnrolled)
-            {
-                result.SkippedRows++;
-                continue;
-            }
-
-            // Lỗi 4: kiểm tra sĩ số trước khi ghi danh SV đã có tài khoản
-            if (studying >= classEntity.MaxStudents)
-            {
-                result.SkippedRows++;
-                result.Errors.Add($"Dòng {rowNo}: lớp đã đủ {classEntity.MaxStudents} sinh viên.");
-                continue;
-            }
-
-            // Ghi danh SV đã có tài khoản
-            await _uow.Repository<ClassStudent>().AddAsync(new ClassStudent
-            {
-                ClassId    = classId,
-                StudentId  = user.StudentProfile.StudentProfileId,
-                EnrolledAt = DateTime.UtcNow,
-                Status     = ClassStudentStatuses.Studying,
-            }, ct);
-            result.EnrolledStudents++;
-            studying++;
         }
 
         // Lỗi 2: lưu một lần duy nhất sau vòng lặp
