@@ -1,5 +1,7 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using SmartLab.BLL.Common.Exceptions;
+using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.ClassSetupDTO;
 using SmartLab.BLL.Interfaces.Academic;
 using SmartLab.BLL.Mappings.Academic;
@@ -40,6 +42,15 @@ public class ClassService : IClassService
         if (!semesterExists)
             throw new NotFoundException("Kỳ học", request.SemesterId);
 
+        // Lỗi 7: kiểm tra InstructorId tồn tại (giống UpdateAsync)
+        if (request.InstructorId.HasValue)
+        {
+            var instructorExists = await _uow.Repository<InstructorProfile>().QueryNoTracking()
+                .AnyAsync(i => i.InstructorProfileId == request.InstructorId.Value, ct);
+            if (!instructorExists)
+                throw new NotFoundException("Giảng viên", request.InstructorId.Value);
+        }
+
         // Check trùng ClassCode trong cùng semester
         var duplicate = await _uow.Repository<Class>().QueryNoTracking()
             .AnyAsync(c => c.SemesterId == request.SemesterId
@@ -58,7 +69,16 @@ public class ClassService : IClassService
         };
 
         await _uow.Repository<Class>().AddAsync(entity, ct);
-        await _uow.SaveChangesAsync(ct);
+        // Lỗi 8: bắt race condition unique violation
+        try
+        {
+            await _uow.SaveChangesAsync(ct);
+        }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
+            when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            throw new ConflictException($"Mã lớp '{request.ClassCode}' đã tồn tại trong kỳ học này.");
+        }
 
         // Reload với include để mapping đầy đủ
         var created = await QueryWithIncludes()
@@ -89,6 +109,13 @@ public class ClassService : IClassService
         var entity = await QueryWithIncludes(tracking: true)
             .FirstOrDefaultAsync(c => c.ClassId == id, ct)
             ?? throw new NotFoundException("Lớp học", id);
+
+        // Lỗi 9a: kiểm tra CourseId mới tồn tại
+        var courseExists = await _uow.Repository<Course>().QueryNoTracking()
+            .AnyAsync(c => c.CourseId == request.CourseId, ct);
+        if (!courseExists)
+            throw new NotFoundException("Môn học", request.CourseId);
+
         if (request.InstructorId.HasValue)
         {
             var instructorExists = await _uow.Repository<InstructorProfile>().QueryNoTracking()
@@ -97,7 +124,13 @@ public class ClassService : IClassService
                 throw new NotFoundException("Giảng viên", request.InstructorId.Value);
         }
 
+        // Lỗi 9b: không được hạ MaxStudents xuống dưới số SV đang học
+        var studying = entity.ClassStudents.Count(cs => cs.Status == ClassStudentStatuses.Studying);
+        if (request.MaxStudents < studying)
+            throw new BadRequestException($"Lớp đang có {studying} sinh viên đang học, sĩ số tối đa không được nhỏ hơn.");
+
         entity.ClassCode = request.ClassCode.Trim();
+        entity.CourseId = request.CourseId;          // Lỗi 9a: bổ sung dòng bị thiếu
         entity.MaxStudents = request.MaxStudents;
         entity.InstructorId = request.InstructorId;
 
@@ -118,4 +151,4 @@ public class ClassService : IClassService
         _uow.Repository<Class>().Remove(entity);
         await _uow.SaveChangesAsync(ct);
     }
-}
+}
