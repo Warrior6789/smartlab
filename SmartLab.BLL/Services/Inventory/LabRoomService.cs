@@ -73,6 +73,92 @@ public class LabRoomService : ILabRoomService
         return await ToResponses(rooms.QueryNoTracking().Where(r => r.RoomId == roomId)).FirstAsync(ct);
     }
 
+    public async Task<IReadOnlyList<LabRoomStaffResponse>> GetStaffAsync(Guid roomId, CancellationToken ct = default)
+    {
+        var exists = await _uow.Repository<LabRoom>().QueryNoTracking().AnyAsync(r => r.RoomId == roomId, ct);
+        if (!exists)
+            throw new NotFoundException("Không tìm thấy phòng lab");
+
+        return await LoadStaffAsync(roomId, ct);
+    }
+
+    public async Task<IReadOnlyList<LabRoomStaffResponse>> AssignStaffAsync(
+        Guid roomId, AssignLabRoomStaffRequest request, CancellationToken ct = default)
+    {
+        var roomStatus = await _uow.Repository<LabRoom>().QueryNoTracking()
+                             .Where(r => r.RoomId == roomId)
+                             .Select(r => r.Status)
+                             .FirstOrDefaultAsync(ct)
+                         ?? throw new NotFoundException("Không tìm thấy phòng lab");
+        if (roomStatus != LabRoomStatuses.Active)
+            throw new BadRequestException("Phòng lab đã ngừng sử dụng, không phân công nhân viên được");
+
+        var user = await _uow.Repository<User>().QueryNoTracking()
+                       .Where(u => u.UserId == request.UserId)
+                       .Select(u => new
+                       {
+                           u.IsActive,
+                           IsLabStaff = u.UserRoles.Any(ur => ur.Role.RoleName == RoleNames.LabStaff),
+                       })
+                       .FirstOrDefaultAsync(ct)
+                   ?? throw new NotFoundException("Không tìm thấy người dùng");
+        if (!user.IsActive)
+            throw new BadRequestException("Tài khoản đã bị khóa, không phân công được");
+        if (!user.IsLabStaff)
+            throw new BadRequestException("Chỉ phân công được tài khoản có role LabStaff");
+
+        var assignments = _uow.Repository<LabRoomStaff>();
+        var assigned = await assignments.QueryNoTracking()
+            .AnyAsync(s => s.RoomId == roomId && s.UserId == request.UserId, ct);
+        if (assigned)
+            throw new ConflictException("Nhân viên đã được phân công ở phòng này");
+
+        try
+        {
+            await assignments.AddAsync(new LabRoomStaff
+            {
+                RoomId = roomId,
+                UserId = request.UserId,
+                AssignedAt = DateTime.UtcNow,
+            }, ct);
+            await _uow.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            throw new ConflictException("Nhân viên đã được phân công ở phòng này");
+        }
+
+        return await LoadStaffAsync(roomId, ct);
+    }
+
+    public async Task<IReadOnlyList<LabRoomStaffResponse>> RemoveStaffAsync(Guid roomId, Guid userId, CancellationToken ct = default)
+    {
+        var removed = await _uow.Repository<LabRoomStaff>().Query()
+            .Where(s => s.RoomId == roomId && s.UserId == userId)
+            .ExecuteDeleteAsync(ct);
+        if (removed == 0)
+            throw new NotFoundException("Nhân viên không được phân công ở phòng này");
+
+        return await LoadStaffAsync(roomId, ct);
+    }
+
+    private async Task<IReadOnlyList<LabRoomStaffResponse>> LoadStaffAsync(Guid roomId, CancellationToken ct)
+    {
+        return await _uow.Repository<LabRoomStaff>().QueryNoTracking()
+            .Where(s => s.RoomId == roomId)
+            .OrderBy(s => EF.Functions.Collate(s.User.FullName, DbCollations.Vietnamese))
+            .Select(s => new LabRoomStaffResponse
+            {
+                UserId = s.UserId,
+                Username = s.User.Username,
+                FullName = s.User.FullName,
+                Email = s.User.Email,
+                IsActive = s.User.IsActive,
+                AssignedAt = s.AssignedAt,
+            })
+            .ToListAsync(ct);
+    }
+
     /// <summary>Next code: LAB-01, LAB-02, ... (highest existing number + 1).</summary>
     private async Task<string> GenerateRoomCodeAsync(CancellationToken ct)
     {
@@ -99,6 +185,7 @@ public class LabRoomService : ILabRoomService
             RoomName = r.RoomName,
             Status = r.Status,
             CabinetCount = r.StorageCabinets.Count,
+            StaffCount = r.LabRoomStaffs.Count,
             CreatedAt = r.CreatedAt,
             UpdatedAt = r.UpdatedAt,
         });

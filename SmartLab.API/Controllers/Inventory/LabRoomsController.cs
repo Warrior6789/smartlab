@@ -56,4 +56,42 @@ public class LabRoomsController : ControllerBase
         var room = await _labRoomService.UpdateLabRoomAsync(id, request, ct);
         return Ok(ApiResponse<LabRoomResponse>.Ok(room, "Cập nhật phòng lab thành công"));
     }
+
+    /// <summary>Danh sách nhân viên lab được phân công ở phòng.</summary>
+    [HttpGet("{id:guid}/staff")]
+    [Authorize(Policy = PermissionCodes.UserManage)]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<LabRoomStaffResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetStaff(Guid id, CancellationToken ct)
+    {
+        var staff = await _labRoomService.GetStaffAsync(id, ct);
+        return Ok(ApiResponse<IReadOnlyList<LabRoomStaffResponse>>.Ok(staff));
+    }
+
+    /// <summary>Phân công một tài khoản LabStaff vào phòng.</summary>
+    [HttpPost("{id:guid}/staff")]
+    [Authorize(Policy = PermissionCodes.UserManage)]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<LabRoomStaffResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> AssignStaff(Guid id, [FromBody] AssignLabRoomStaffRequest request, CancellationToken ct)
+    {
+        var staff = await _labRoomService.AssignStaffAsync(id, request, ct);
+        return Ok(ApiResponse<IReadOnlyList<LabRoomStaffResponse>>.Ok(staff, "Phân công nhân viên thành công"));
+    }
+
+    /// <summary>Gỡ phân công nhân viên khỏi phòng.</summary>
+    [HttpDelete("{id:guid}/staff/{userId:guid}")]
+    [Authorize(Policy = PermissionCodes.UserManage)]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<LabRoomStaffResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveStaff(Guid id, Guid userId, CancellationToken ct)
+    {
+        var staff = await _labRoomService.RemoveStaffAsync(id, userId, ct);
+        return Ok(ApiResponse<IReadOnlyList<LabRoomStaffResponse>>.Ok(staff, "Gỡ phân công nhân viên thành công"));
+    }
 }
