@@ -28,16 +28,18 @@ public class AuthService : IAuthService
     private readonly IJwtService _jwtService;
     private readonly ICurrentUserService _currentUser;
     private readonly IEmailSender _email;
+    private readonly IActiveUserChecker _sessionChecker;
 
     public AuthService(
         IUnitOfWork uow, IPasswordHasher passwordHasher, IJwtService jwtService, ICurrentUserService currentUser,
-        IEmailSender email)
+        IEmailSender email, IActiveUserChecker sessionChecker)
     {
         _uow = uow;
         _passwordHasher = passwordHasher;
         _jwtService = jwtService;
         _currentUser = currentUser;
         _email = email;
+        _sessionChecker = sessionChecker;
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
@@ -96,11 +98,11 @@ public class AuthService : IAuthService
         return UserMappings.ToCurrentUserDto(user);
     }
 
-    public async Task ChangePasswordAsync(ChangePasswordRequest request, CancellationToken ct = default)
+    public async Task<AuthResponse> ChangePasswordAsync(ChangePasswordRequest request, CancellationToken ct = default)
     {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
 
-        var user = await _uow.Repository<User>().Query().FirstOrDefaultAsync(u => u.UserId == userId, ct)
+        var user = await QueryUserWithAccess(tracking: true).FirstOrDefaultAsync(u => u.UserId == userId, ct)
                    ?? throw new UnauthorizedException("Tài khoản không còn tồn tại");
         if (!user.IsActive)
             throw new ForbiddenException("Tài khoản đã bị khóa");
@@ -109,8 +111,27 @@ public class AuthService : IAuthService
             throw new BadRequestException("Mật khẩu hiện tại không đúng");
 
         user.PasswordHash = _passwordHasher.Hash(request.NewPassword);
+        user.TokenVersion++;
         user.UpdatedAt = DateTime.UtcNow;
         await _uow.SaveChangesAsync(ct);
+        _sessionChecker.Forget(userId);
+
+        var dto = UserMappings.ToCurrentUserDto(user);
+        var token = _jwtService.GenerateAccessToken(user, dto.Roles, dto.Permissions);
+
+        return new AuthResponse { AccessToken = token, User = dto };
+    }
+
+    public async Task LogoutAsync(CancellationToken ct = default)
+    {
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+
+        await _uow.Repository<User>().Query()
+            .Where(u => u.UserId == userId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(u => u.TokenVersion, u => u.TokenVersion + 1)
+                .SetProperty(u => u.UpdatedAt, DateTime.UtcNow), ct);
+        _sessionChecker.Forget(userId);
     }
 
     public async Task ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct = default)
@@ -134,8 +155,10 @@ public class AuthService : IAuthService
         await ConsumeCodeAsync(user.UserId, VerificationPurposes.PasswordReset, request.Code, now, ct);
 
         user.PasswordHash = _passwordHasher.Hash(request.NewPassword);
+        user.TokenVersion++;
         user.UpdatedAt = now;
         await _uow.SaveChangesAsync(ct);
+        _sessionChecker.Forget(user.UserId);
     }
 
     /// <summary>
