@@ -15,6 +15,7 @@ using SmartLab.BLL.Interfaces.Borrowing;
 using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.BLL.Interfaces.Inventory;
 using SmartLab.BLL.Interfaces.IssueReports;
+using SmartLab.BLL.Interfaces.Settings;
 using SmartLab.BLL.Interfaces.Teamwork;
 using SmartLab.BLL.Seeding;
 using SmartLab.BLL.Services.Academic;
@@ -22,6 +23,7 @@ using SmartLab.BLL.Services.Borrowing;
 using SmartLab.BLL.Services.Identity;
 using SmartLab.BLL.Services.Inventory;
 using SmartLab.BLL.Services.IssueReports;
+using SmartLab.BLL.Services.Settings;
 using SmartLab.BLL.Services.Teamwork;
 
 namespace SmartLab.BLL;
@@ -104,6 +106,8 @@ public static class DependencyInjection
         services.AddScoped<IBorrowReminderService, BorrowReminderService>();
         services.AddScoped<IBorrowExtensionService, BorrowExtensionService>();
         services.AddHostedService<BorrowReminderWorker>();
+
+        services.AddScoped<ISystemSettingService, SystemSettingService>();
 
         services.AddHostedService<AdminSeeder>();
 
