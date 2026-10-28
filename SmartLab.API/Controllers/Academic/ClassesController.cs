@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 using SmartLab.BLL.Common;
@@ -68,9 +68,9 @@ public class ClassesController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<ImportRosterResult>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> ImportRoster(Guid id, IFormFile file, CancellationToken ct)
+    public async Task<IActionResult> ImportRoster(Guid id, [FromForm] ImportRosterRequest request, CancellationToken ct)
     {
-        var result = await _rosterService.ImportStudentsAsync(id, file, ct);
+        var result = await _rosterService.ImportStudentsAsync(id, request, ct);
         return Ok(ApiResponse<ImportRosterResult>.Ok(result, "Import hoàn tất"));
     }
     /// <summary>Phân công giảng viên vào lớp.</summary>

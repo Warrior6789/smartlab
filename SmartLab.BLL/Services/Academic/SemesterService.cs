@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.DTOs.ClassSetupDTO;
 using SmartLab.BLL.Interfaces.Academic;
@@ -16,14 +17,17 @@ public class SemesterService : ISemesterService
 
     public async Task<SemesterResponse> CreateAsync(CreateSemesterRequest request, CancellationToken ct = default)
     {
+        // Lỗi 6: chuẩn hóa một lần, dùng cho cả check và lưu
+        var code = request.SemesterCode.Trim();
+
         var exists = await _uow.Repository<Semester>().QueryNoTracking()
-            .AnyAsync(s => s.SemesterCode == request.SemesterCode, ct);
+            .AnyAsync(s => s.SemesterCode == code, ct);
         if (exists)
-            throw new ConflictException($"Mã kỳ học '{request.SemesterCode}' đã tồn tại.");
+            throw new ConflictException($"Mã kỳ học '{code}' đã tồn tại.");
 
         var semester = new Semester
         {
-            SemesterCode = request.SemesterCode.Trim(),
+            SemesterCode = code,
             Term = request.Term.Trim(),
             Year = request.Year,
             StartDate = request.StartDate,
@@ -32,7 +36,16 @@ public class SemesterService : ISemesterService
         };
 
         await _uow.Repository<Semester>().AddAsync(semester, ct);
-        await _uow.SaveChangesAsync(ct);
+        // Lỗi 8: bắt race condition unique violation
+        try
+        {
+            await _uow.SaveChangesAsync(ct);
+        }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
+            when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            throw new ConflictException($"Mã kỳ học '{code}' đã tồn tại.");
+        }
         return ClassSetupMappings.ToResponse(semester);
     }
 
