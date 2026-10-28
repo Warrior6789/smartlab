@@ -17,4 +17,10 @@ public interface IFileStorage
 
     /// <summary>Deletes a file by the <see cref="StoredFile.Key"/> returned from upload. Missing files are ignored.</summary>
     Task DeleteAsync(string key, CancellationToken ct = default);
+
+    /// <summary>Uploads a ZIP under <paramref name="folder"/> with a unique name; the URL downloads the file.</summary>
+    Task<StoredFile> UploadZipAsync(Stream content, string fileName, string folder, CancellationToken ct = default);
+
+    /// <summary>Deletes a ZIP by the <see cref="StoredFile.Key"/> returned from <see cref="UploadZipAsync"/>. Missing files are ignored.</summary>
+    Task DeleteZipAsync(string key, CancellationToken ct = default);
 }

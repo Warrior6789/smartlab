@@ -19,5 +19,9 @@ public class PendingFinalSubmissionResponse
 
     public string? DemoVideoUrl { get; set; }
 
+    public string? ReportUrl { get; set; }
+
+    public string? SourceCodeUrl { get; set; }
+
     public DateTime? FinalSubmittedAt { get; set; }
 }
