@@ -8,4 +8,7 @@ public static class AppClaimTypes
     public const string Email = "email";
     public const string Role = "role";
     public const string Permission = "permission";
+
+    /// <summary>users.token_version when the token was issued; a token with an older version is rejected.</summary>
+    public const string TokenVersion = "token_version";
 }

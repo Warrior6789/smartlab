@@ -67,4 +67,31 @@ public class UsersController : ControllerBase
         var user = await _userService.AssignRolesAsync(id, request, ct);
         return Ok(ApiResponse<UserDetailResponse>.Ok(user, "Cập nhật role thành công"));
     }
+
+    /// <summary>Sửa họ tên, email, số điện thoại của người dùng (username không đổi).</summary>
+    [HttpPut("{id:guid}")]
+    [ProducesResponseType(typeof(ApiResponse<UserDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateUser(Guid id, [FromBody] UpdateUserRequest request, CancellationToken ct)
+    {
+        var user = await _userService.UpdateUserAsync(id, request, ct);
+        return Ok(ApiResponse<UserDetailResponse>.Ok(user, "Cập nhật người dùng thành công"));
+    }
+
+    /// <summary>
+    /// Đặt lại mật khẩu ngẫu nhiên cho người dùng (không áp dụng cho Admin): gửi qua email và trả trong response
+    /// để Admin đưa trực tiếp. Mọi phiên đăng nhập cũ của người dùng hết hiệu lực.
+    /// </summary>
+    [HttpPost("{id:guid}/reset-password")]
+    [ProducesResponseType(typeof(ApiResponse<ResetUserPasswordResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ResetPassword(Guid id, CancellationToken ct)
+    {
+        var result = await _userService.ResetPasswordAsync(id, ct);
+        return Ok(ApiResponse<ResetUserPasswordResponse>.Ok(result, "Đặt lại mật khẩu thành công"));
+    }
 }

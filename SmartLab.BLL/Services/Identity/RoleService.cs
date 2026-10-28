@@ -67,7 +67,7 @@ public class RoleService : IRoleService
                          ?? throw new NotFoundException($"Không tìm thấy permission '{code}'");
 
         role.Permissions.Add(permission);
-        await _uow.SaveChangesAsync(ct);
+        await SavePermissionChangeAsync(roleId, ct);
 
         return RoleMappings.ToDetailResponse(role);
     }
@@ -82,9 +82,27 @@ public class RoleService : IRoleService
                          ?? throw new NotFoundException($"Role '{role.RoleName}' không có permission '{code}'");
 
         role.Permissions.Remove(permission);
-        await _uow.SaveChangesAsync(ct);
+        await SavePermissionChangeAsync(roleId, ct);
 
         return RoleMappings.ToDetailResponse(role);
+    }
+
+    /// <summary>
+    /// Saves the permission change and revokes the tokens of every user with the role, so the new permissions apply at
+    /// their next login (within about a minute, the session check cache).
+    /// </summary>
+    private async Task SavePermissionChangeAsync(Guid roleId, CancellationToken ct)
+    {
+        await using var tx = await _uow.BeginTransactionAsync(ct);
+
+        await _uow.SaveChangesAsync(ct);
+        await _uow.Repository<User>().Query()
+            .Where(u => u.UserRoles.Any(ur => ur.RoleId == roleId))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(u => u.TokenVersion, u => u.TokenVersion + 1)
+                .SetProperty(u => u.UpdatedAt, DateTime.UtcNow), ct);
+
+        await tx.CommitAsync(ct);
     }
 
     private async Task<Role> LoadEditableRoleAsync(Guid roleId, CancellationToken ct)

@@ -74,15 +74,28 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse<CurrentUserDto>.Ok(user, "Cập nhật thông tin thành công"));
     }
 
-    /// <summary>Đổi mật khẩu của người dùng hiện tại (phải nhập đúng mật khẩu hiện tại).</summary>
+    /// <summary>
+    /// Đổi mật khẩu của người dùng hiện tại (phải nhập đúng mật khẩu hiện tại). Mọi token cũ, kể cả trên thiết bị khác,
+    /// hết hiệu lực; trả về token mới để thiết bị này vẫn đăng nhập.
+    /// </summary>
     [HttpPut("me/password")]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<AuthResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken ct)
     {
-        await _authService.ChangePasswordAsync(request, ct);
-        return Ok(ApiResponse.Ok("Đổi mật khẩu thành công"));
+        var result = await _authService.ChangePasswordAsync(request, ct);
+        return Ok(ApiResponse<AuthResponse>.Ok(result, "Đổi mật khẩu thành công"));
+    }
+
+    /// <summary>Đăng xuất: mọi token đã cấp cho tài khoản (trên mọi thiết bị) hết hiệu lực.</summary>
+    [HttpPost("logout")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Logout(CancellationToken ct)
+    {
+        await _authService.LogoutAsync(ct);
+        return Ok(ApiResponse.Ok("Đăng xuất thành công"));
     }
 }

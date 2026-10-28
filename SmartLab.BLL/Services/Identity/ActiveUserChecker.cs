@@ -19,16 +19,29 @@ public class ActiveUserChecker : IActiveUserChecker
         _cache = cache;
     }
 
-    public async Task<bool> IsActiveAsync(Guid userId, CancellationToken ct = default)
+    public async Task<SessionStatus> CheckAsync(Guid userId, int tokenVersion, CancellationToken ct = default)
     {
-        var key = "user-active:" + userId;
-        if (_cache.TryGetValue(key, out bool cached))
-            return cached;
+        var key = CacheKey(userId);
+        if (!_cache.TryGetValue(key, out AccountState? state))
+        {
+            state = await _uow.Repository<User>().QueryNoTracking()
+                .Where(u => u.UserId == userId)
+                .Select(u => new AccountState(u.IsActive, u.TokenVersion))
+                .FirstOrDefaultAsync(ct);
+            _cache.Set(key, state, CacheDuration);
+        }
 
-        var active = await _uow.Repository<User>().QueryNoTracking()
-            .AnyAsync(u => u.UserId == userId && u.IsActive, ct);
+        if (state == null || !state.IsActive)
+            return SessionStatus.Locked;
+        if (tokenVersion != state.TokenVersion)
+            return SessionStatus.Revoked;
 
-        _cache.Set(key, active, CacheDuration);
-        return active;
+        return SessionStatus.Valid;
     }
+
+    public void Forget(Guid userId) => _cache.Remove(CacheKey(userId));
+
+    private static string CacheKey(Guid userId) => "user-session:" + userId;
+
+    private sealed record AccountState(bool IsActive, int TokenVersion);
 }

@@ -13,13 +13,16 @@ namespace SmartLab.API.Extensions;
 public static class AuthExtensions
 {
     private const string AccountLockedMessage = "Tài khoản đã bị khóa";
+    private const string SessionRevokedMessage = "Phiên đăng nhập đã hết hiệu lực, vui lòng đăng nhập lại";
 
     /// <summary>
     /// JWT Bearer (HS256) + authorization:
     /// - every endpoint requires login (FallbackPolicy) unless marked [AllowAnonymous];
     /// - [Authorize(Policy = PermissionCodes.X)] requires claim "permission" = X;
     /// - 401/403 are returned as ApiResponse JSON;
-    /// - a locked account is rejected (401) on every request, not only at login (checked with a short cache).
+    /// - a locked account is rejected (401) on every request, not only at login (checked with a short cache);
+    /// - a token whose token_version is older than the account's (after logout, password or role change) is rejected (401).
+    ///   Tokens issued before the claim existed count as version 0.
     /// </summary>
     public static IServiceCollection AddSmartLabAuth(this IServiceCollection services, IConfiguration configuration)
     {
@@ -33,10 +36,26 @@ public static class AuthExtensions
                     OnTokenValidated = async context =>
                     {
                         var subject = context.Principal?.FindFirst(AppClaimTypes.Subject)?.Value;
-                        var checker = context.HttpContext.RequestServices.GetRequiredService<IActiveUserChecker>();
-                        if (!Guid.TryParse(subject, out var userId)
-                            || !await checker.IsActiveAsync(userId, context.HttpContext.RequestAborted))
+                        if (!Guid.TryParse(subject, out var userId))
+                        {
                             context.Fail(AccountLockedMessage);
+                            return;
+                        }
+
+                        var tokenVersion = 0;
+                        var versionClaim = context.Principal?.FindFirst(AppClaimTypes.TokenVersion)?.Value;
+                        if (versionClaim != null && !int.TryParse(versionClaim, out tokenVersion))
+                        {
+                            context.Fail(SessionRevokedMessage);
+                            return;
+                        }
+
+                        var checker = context.HttpContext.RequestServices.GetRequiredService<IActiveUserChecker>();
+                        var status = await checker.CheckAsync(userId, tokenVersion, context.HttpContext.RequestAborted);
+                        if (status == SessionStatus.Locked)
+                            context.Fail(AccountLockedMessage);
+                        else if (status == SessionStatus.Revoked)
+                            context.Fail(SessionRevokedMessage);
                     },
                     OnChallenge = async context =>
                     {
@@ -46,6 +65,8 @@ public static class AuthExtensions
                             message = "Token đã hết hạn";
                         else if (context.AuthenticateFailure?.Message == AccountLockedMessage)
                             message = AccountLockedMessage;
+                        else if (context.AuthenticateFailure?.Message == SessionRevokedMessage)
+                            message = SessionRevokedMessage;
                         await WriteJsonAsync(context.Response, StatusCodes.Status401Unauthorized, message);
                     },
                     OnForbidden = context =>
