@@ -1049,6 +1049,12 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(500)
                 .HasColumnName("github_url");
             entity.Property(e => e.OwnerId).HasColumnName("owner_id");
+            entity.Property(e => e.ReportStorageKey)
+                .HasMaxLength(255)
+                .HasColumnName("report_storage_key");
+            entity.Property(e => e.ReportUrl)
+                .HasMaxLength(500)
+                .HasColumnName("report_url");
             entity.Property(e => e.ReviewComment)
                 .HasMaxLength(500)
                 .HasColumnName("review_comment");
@@ -1057,6 +1063,12 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.SlideUrl)
                 .HasMaxLength(500)
                 .HasColumnName("slide_url");
+            entity.Property(e => e.SourceCodeStorageKey)
+                .HasMaxLength(255)
+                .HasColumnName("source_code_storage_key");
+            entity.Property(e => e.SourceCodeUrl)
+                .HasMaxLength(500)
+                .HasColumnName("source_code_url");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Draft'::character varying")

@@ -157,6 +157,62 @@ public class ProjectsController : ControllerBase
         return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Cập nhật link thành công"));
     }
 
+    /// <summary>Nhóm trưởng tải file báo cáo PDF (tối đa 10 MB, bắt buộc trước khi nộp bài cuối). Thay file cũ nếu có.</summary>
+    [HttpPut("{id:guid}/report")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UploadReport(Guid id, [FromForm] UploadProjectReportRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.UploadReportAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Tải báo cáo thành công"));
+    }
+
+    /// <summary>Nhóm trưởng xóa file báo cáo.</summary>
+    [HttpDelete("{id:guid}/report")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteReport(Guid id, CancellationToken ct)
+    {
+        var project = await _projectService.DeleteReportAsync(id, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã xóa file báo cáo"));
+    }
+
+    /// <summary>Nhóm trưởng tải mã nguồn dạng ZIP (tối đa 10 MB, không bắt buộc). Thay file cũ nếu có.</summary>
+    [HttpPut("{id:guid}/source-code")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UploadSourceCode(Guid id, [FromForm] UploadProjectSourceCodeRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.UploadSourceCodeAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Tải mã nguồn thành công"));
+    }
+
+    /// <summary>Nhóm trưởng xóa file mã nguồn.</summary>
+    [HttpDelete("{id:guid}/source-code")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteSourceCode(Guid id, CancellationToken ct)
+    {
+        var project = await _projectService.DeleteSourceCodeAsync(id, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã xóa file mã nguồn"));
+    }
+
     /// <summary>
     /// Gửi duyệt: project thành Submitted và tạo luôn đơn mượn (Pending) từ danh sách linh kiện, nhận đồ ở lab nhận đồ chung.
     /// Kiểm tra tồn trên tất cả lab (đã trừ các đơn đã duyệt chưa giao).
@@ -223,7 +279,7 @@ public class ProjectsController : ControllerBase
     }
 
     /// <summary>
-    /// Nhóm trưởng nộp bài cuối: project phải Approved và đủ link GitHub, slide, video demo.
+    /// Nhóm trưởng nộp bài cuối: project phải Approved, đủ link GitHub, slide, video demo và đã tải file báo cáo PDF.
     /// Bài nộp chờ giảng viên của lớp xác nhận; trong lúc chờ hoặc đã xác nhận thì không sửa link được.
     /// </summary>
     [HttpPost("{id:guid}/final-submission")]

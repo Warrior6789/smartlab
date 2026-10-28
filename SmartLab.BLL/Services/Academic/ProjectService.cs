@@ -5,7 +5,9 @@ using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Academic;
 using SmartLab.BLL.DTOs.Borrowing;
+using Microsoft.Extensions.Logging;
 using SmartLab.BLL.External.CurrentUser;
+using SmartLab.BLL.External.Storage;
 using SmartLab.BLL.Interfaces.Academic;
 using SmartLab.BLL.Interfaces.Borrowing;
 using SmartLab.BLL.Services.Borrowing;
@@ -24,6 +26,8 @@ public class ProjectService : IProjectService
 
     /// <summary>Each round at least one of the racing requests is saved, so this covers that many simultaneous submits.</summary>
     private const int MaxCodeAttempts = 10;
+    private const string ReportStorageFolder = "project-reports";
+    private const string SourceCodeStorageFolder = "project-source-code";
 
     /// <summary>Vietnam has no DST, so a fixed UTC+7 offset is exact.</summary>
     private static readonly TimeSpan VietnamUtcOffset = TimeSpan.FromHours(7);
@@ -32,14 +36,19 @@ public class ProjectService : IProjectService
     private readonly ICurrentUserService _currentUser;
     private readonly IBorrowNotifier _notifier;
     private readonly IProjectNotifier _projectNotifier;
+    private readonly IFileStorage _fileStorage;
+    private readonly ILogger<ProjectService> _logger;
 
     public ProjectService(
-        IUnitOfWork uow, ICurrentUserService currentUser, IBorrowNotifier notifier, IProjectNotifier projectNotifier)
+        IUnitOfWork uow, ICurrentUserService currentUser, IBorrowNotifier notifier, IProjectNotifier projectNotifier,
+        IFileStorage fileStorage, ILogger<ProjectService> logger)
     {
         _uow = uow;
         _currentUser = currentUser;
         _notifier = notifier;
         _projectNotifier = projectNotifier;
+        _fileStorage = fileStorage;
+        _logger = logger;
     }
 
     public Task<PagedResult<ProjectResponse>> GetProjectsAsync(
@@ -114,6 +123,8 @@ public class ProjectService : IProjectService
                        GithubUrl = p.GithubUrl,
                        SlideUrl = p.SlideUrl,
                        DemoVideoUrl = p.DemoVideoUrl,
+                       ReportUrl = p.ReportUrl,
+                       SourceCodeUrl = p.SourceCodeUrl,
                        ReviewedBy = p.ReviewedBy,
                        ReviewedByName = p.ReviewedByNavigation != null ? p.ReviewedByNavigation.FullName : null,
                        ReviewComment = p.ReviewComment,
@@ -307,6 +318,136 @@ public class ProjectService : IProjectService
         await _uow.SaveChangesAsync(ct);
 
         return await GetProjectByIdAsync(projectId, ct);
+    }
+
+    public async Task<ProjectDetailResponse> UploadReportAsync(
+        Guid projectId, UploadProjectReportRequest request, CancellationToken ct = default)
+    {
+        var project = await GetProjectForFinalFilesAsync(projectId, ct);
+
+        StoredFile stored;
+        await using (var content = request.File.OpenReadStream())
+        {
+            stored = await _fileStorage.UploadPdfAsync(content, request.File.FileName, ReportStorageFolder, ct);
+        }
+
+        var oldKey = project.ReportStorageKey;
+        project.ReportUrl = stored.Url;
+        project.ReportStorageKey = stored.Key;
+        project.UpdatedAt = DateTime.UtcNow;
+
+        try
+        {
+            await _uow.SaveChangesAsync(ct);
+        }
+        catch
+        {
+            await TryDeleteStoredFileAsync(stored.Key, isZip: false);
+            throw;
+        }
+
+        if (oldKey != null)
+            await TryDeleteStoredFileAsync(oldKey, isZip: false);
+
+        return await GetProjectByIdAsync(projectId, ct);
+    }
+
+    public async Task<ProjectDetailResponse> DeleteReportAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var project = await GetProjectForFinalFilesAsync(projectId, ct);
+        if (project.ReportUrl == null)
+            throw new NotFoundException("Project chưa có file báo cáo");
+
+        var oldKey = project.ReportStorageKey;
+        project.ReportUrl = null;
+        project.ReportStorageKey = null;
+        project.UpdatedAt = DateTime.UtcNow;
+        await _uow.SaveChangesAsync(ct);
+
+        if (oldKey != null)
+            await TryDeleteStoredFileAsync(oldKey, isZip: false);
+
+        return await GetProjectByIdAsync(projectId, ct);
+    }
+
+    public async Task<ProjectDetailResponse> UploadSourceCodeAsync(
+        Guid projectId, UploadProjectSourceCodeRequest request, CancellationToken ct = default)
+    {
+        var project = await GetProjectForFinalFilesAsync(projectId, ct);
+
+        StoredFile stored;
+        await using (var content = request.File.OpenReadStream())
+        {
+            stored = await _fileStorage.UploadZipAsync(content, request.File.FileName, SourceCodeStorageFolder, ct);
+        }
+
+        var oldKey = project.SourceCodeStorageKey;
+        project.SourceCodeUrl = stored.Url;
+        project.SourceCodeStorageKey = stored.Key;
+        project.UpdatedAt = DateTime.UtcNow;
+
+        try
+        {
+            await _uow.SaveChangesAsync(ct);
+        }
+        catch
+        {
+            await TryDeleteStoredFileAsync(stored.Key, isZip: true);
+            throw;
+        }
+
+        if (oldKey != null)
+            await TryDeleteStoredFileAsync(oldKey, isZip: true);
+
+        return await GetProjectByIdAsync(projectId, ct);
+    }
+
+    public async Task<ProjectDetailResponse> DeleteSourceCodeAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var project = await GetProjectForFinalFilesAsync(projectId, ct);
+        if (project.SourceCodeUrl == null)
+            throw new NotFoundException("Project chưa có file mã nguồn");
+
+        var oldKey = project.SourceCodeStorageKey;
+        project.SourceCodeUrl = null;
+        project.SourceCodeStorageKey = null;
+        project.UpdatedAt = DateTime.UtcNow;
+        await _uow.SaveChangesAsync(ct);
+
+        if (oldKey != null)
+            await TryDeleteStoredFileAsync(oldKey, isZip: true);
+
+        return await GetProjectByIdAsync(projectId, ct);
+    }
+
+    /// <summary>The tracked project for the team leader, while its final submission is not Pending or Accepted.</summary>
+    private async Task<Project> GetProjectForFinalFilesAsync(Guid projectId, CancellationToken ct)
+    {
+        await GetProjectForLeaderAsync(projectId, ct);
+
+        var project = await _uow.Repository<Project>().Query()
+                          .FirstOrDefaultAsync(p => p.ProjectId == projectId, ct)
+                      ?? throw new NotFoundException("Không tìm thấy project");
+        if (project.FinalStatus != null && FinalSubmissionStatuses.Locked.Contains(project.FinalStatus))
+            throw new ConflictException("Bài nộp đang chờ hoặc đã được xác nhận, không sửa file được");
+
+        return project;
+    }
+
+    /// <summary>Best-effort delete of a stored file; a failure is only logged so the request still succeeds.</summary>
+    private async Task TryDeleteStoredFileAsync(string key, bool isZip)
+    {
+        try
+        {
+            if (isZip)
+                await _fileStorage.DeleteZipAsync(key);
+            else
+                await _fileStorage.DeleteAsync(key);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not delete stored file {StorageKey}", key);
+        }
     }
 
     public async Task<ProjectDetailResponse> SubmitProjectAsync(
@@ -556,6 +697,8 @@ public class ProjectService : IProjectService
             throw new ConflictException("Chỉ nộp bài được khi project đã được duyệt");
         if (project.GithubUrl == null || project.SlideUrl == null || project.DemoVideoUrl == null)
             throw new BadRequestException("Cần nhập đủ link GitHub, slide và video demo trước khi nộp");
+        if (project.ReportUrl == null)
+            throw new BadRequestException("Cần tải file báo cáo PDF trước khi nộp");
         if (project.FinalStatus != null && project.FinalStatus != FinalSubmissionStatuses.Returned)
             throw new ConflictException("Bài nộp đang chờ hoặc đã được xác nhận");
 
@@ -564,6 +707,7 @@ public class ProjectService : IProjectService
             .Where(p => p.ProjectId == projectId
                         && p.Status == ProjectStatuses.Approved
                         && p.GithubUrl != null && p.SlideUrl != null && p.DemoVideoUrl != null
+                        && p.ReportUrl != null
                         && (p.FinalStatus == null || p.FinalStatus == FinalSubmissionStatuses.Returned))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(p => p.FinalStatus, FinalSubmissionStatuses.Pending)
@@ -610,6 +754,8 @@ public class ProjectService : IProjectService
                 GithubUrl = p.GithubUrl,
                 SlideUrl = p.SlideUrl,
                 DemoVideoUrl = p.DemoVideoUrl,
+                ReportUrl = p.ReportUrl,
+                SourceCodeUrl = p.SourceCodeUrl,
                 FinalSubmittedAt = p.FinalSubmittedAt,
             });
 

@@ -23,6 +23,18 @@ public interface IProjectService
     /// <summary>Team leader sets the GitHub / slide / demo video links, except while the final submission is Pending or Accepted.</summary>
     Task<ProjectDetailResponse> UpdateProjectLinksAsync(Guid projectId, UpdateProjectLinksRequest request, CancellationToken ct = default);
 
+    /// <summary>Team leader uploads the final report PDF (replaces the old one), except while the final submission is Pending or Accepted.</summary>
+    Task<ProjectDetailResponse> UploadReportAsync(Guid projectId, UploadProjectReportRequest request, CancellationToken ct = default);
+
+    /// <summary>Team leader removes the final report PDF, except while the final submission is Pending or Accepted.</summary>
+    Task<ProjectDetailResponse> DeleteReportAsync(Guid projectId, CancellationToken ct = default);
+
+    /// <summary>Team leader uploads the source code ZIP (replaces the old one), except while the final submission is Pending or Accepted.</summary>
+    Task<ProjectDetailResponse> UploadSourceCodeAsync(Guid projectId, UploadProjectSourceCodeRequest request, CancellationToken ct = default);
+
+    /// <summary>Team leader removes the source code ZIP, except while the final submission is Pending or Accepted.</summary>
+    Task<ProjectDetailResponse> DeleteSourceCodeAsync(Guid projectId, CancellationToken ct = default);
+
     /// <summary>
     /// Team leader of an Approved project asks to borrow more components (with a reason). Creates a Pending borrow request
     /// for the class lecturer, decided through the same approve / reject as the project; the project stays Approved.
@@ -33,7 +45,7 @@ public interface IProjectService
     /// <summary>Team leader withdraws the supplementary borrow request still waiting for the lecturer.</summary>
     Task<ProjectDetailResponse> WithdrawSupplementaryBorrowAsync(Guid projectId, CancellationToken ct = default);
 
-    /// <summary>Team leader submits the final work (Approved project, all three links set); it waits for the class lecturer.</summary>
+    /// <summary>Team leader submits the final work (Approved project, all three links set, report PDF uploaded); it waits for the class lecturer.</summary>
     Task<ProjectDetailResponse> SubmitFinalAsync(Guid projectId, CancellationToken ct = default);
 
     /// <summary>Pending final submissions of the classes the caller teaches (Admin: all), oldest submission first.</summary>
