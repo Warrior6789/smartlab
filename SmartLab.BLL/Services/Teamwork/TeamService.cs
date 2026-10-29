@@ -15,16 +15,15 @@ public class TeamService : ITeamService
 {
     private const string StudyingStatus = "Studying";
 
-    private static readonly string[] ActiveMembershipStatuses =
-        { TeamMemberStatuses.Pending, TeamMemberStatuses.Accepted };
-
     private readonly IUnitOfWork _uow;
     private readonly ICurrentUserService _currentUser;
+    private readonly ITeamNotifier _notifier;
 
-    public TeamService(IUnitOfWork uow, ICurrentUserService currentUser)
+    public TeamService(IUnitOfWork uow, ICurrentUserService currentUser, ITeamNotifier notifier)
     {
         _uow = uow;
         _currentUser = currentUser;
+        _notifier = notifier;
     }
 
     public async Task<TeamResponse> CreateTeamAsync(
@@ -33,46 +32,54 @@ public class TeamService : ITeamService
         var student = await GetCurrentStudentAsync(ct);
         await EnsureActiveEnrollmentAsync(classId, student.StudentProfileId, ct);
 
-        if (await HasActiveTeamAssociationAsync(classId, student.StudentProfileId, null, ct))
-            throw new ConflictException("Bạn đã là thành viên, đang có lời mời hoặc đang là trưởng nhóm khác trong lớp này");
+        return await TeamMutationLock.RunForStudentAsync(_uow, classId, student.StudentProfileId, null,
+            async (studentLocked, token) =>
+            {
+                await GetCurrentStudentAsync(token);
+                await EnsureActiveEnrollmentAsync(classId, student.StudentProfileId, token);
+                EnsureStudentAssociationLocked(studentLocked);
 
-        var teamName = request.TeamName.Trim();
-        var normalizedName = teamName.ToLower();
-        if (await _uow.Repository<Team>().QueryNoTracking()
-                .AnyAsync(t => t.ClassId == classId && t.TeamName.ToLower() == normalizedName, ct))
-            throw new ConflictException("Tên nhóm đã tồn tại trong lớp này");
+                if (await HasActiveTeamAssociationAsync(classId, student.StudentProfileId, null, token))
+                    throw new ConflictException("Bạn đã là thành viên, đang có lời mời hoặc đang là trưởng nhóm khác trong lớp này");
 
-        var now = DateTime.UtcNow;
-        var team = new Team
-        {
-            TeamId = Guid.NewGuid(),
-            ClassId = classId,
-            LeaderId = student.StudentProfileId,
-            TeamName = teamName,
-            CreatedAt = now,
-            UpdatedAt = now,
-        };
-        team.TeamMembers.Add(new TeamMember
-        {
-            TeamId = team.TeamId,
-            StudentId = student.StudentProfileId,
-            Status = TeamMemberStatuses.Accepted,
-            InvitedAt = now,
-            RespondedAt = now,
-        });
+                var teamName = request.TeamName.Trim();
+                var normalizedName = teamName.ToLower();
+                if (await _uow.Repository<Team>().QueryNoTracking()
+                        .AnyAsync(t => t.ClassId == classId && t.TeamName.ToLower() == normalizedName, token))
+                    throw new ConflictException("Tên nhóm đã tồn tại trong lớp này");
 
-        try
-        {
-            await _uow.Repository<Team>().AddAsync(team, ct);
-            await _uow.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException
-                                           { SqlState: PostgresErrorCodes.UniqueViolation })
-        {
-            throw new ConflictException("Tên nhóm đã tồn tại hoặc thông tin thành viên bị trùng");
-        }
+                var now = DateTime.UtcNow;
+                var team = new Team
+                {
+                    TeamId = Guid.NewGuid(),
+                    ClassId = classId,
+                    LeaderId = student.StudentProfileId,
+                    TeamName = teamName,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                };
+                team.TeamMembers.Add(new TeamMember
+                {
+                    TeamId = team.TeamId,
+                    StudentId = student.StudentProfileId,
+                    Status = TeamMemberStatuses.Accepted,
+                    InvitedAt = now,
+                    RespondedAt = now,
+                });
 
-        return TeamMappings.ToResponse(await LoadTeamAsync(team.TeamId, ct));
+                try
+                {
+                    await _uow.Repository<Team>().AddAsync(team, token);
+                    await _uow.SaveChangesAsync(token);
+                }
+                catch (DbUpdateException ex) when (ex.InnerException is PostgresException
+                                                   { SqlState: PostgresErrorCodes.UniqueViolation })
+                {
+                    throw new ConflictException("Tên nhóm đã tồn tại hoặc thông tin thành viên bị trùng");
+                }
+
+                return TeamMappings.ToResponse(await LoadTeamAsync(team.TeamId, token));
+            }, ct);
     }
 
     public async Task<TeamResponse> GetMyTeamAsync(Guid classId, CancellationToken ct = default)
@@ -109,7 +116,9 @@ public class TeamService : ITeamService
             throw new ForbiddenException("Chỉ trưởng nhóm trong lớp mới được xem danh sách sinh viên có thể mời");
 
         var unavailableMemberIds = _uow.Repository<TeamMember>().QueryNoTracking()
-            .Where(tm => tm.Team.ClassId == classId && ActiveMembershipStatuses.Contains(tm.Status))
+            .Where(tm => tm.Team.ClassId == classId &&
+                         (tm.Status == TeamMemberStatuses.Accepted ||
+                          (tm.Status == TeamMemberStatuses.Pending && tm.Team.LeaderId == student.StudentProfileId)))
             .Select(tm => tm.StudentId);
         var leaderIds = _uow.Repository<Team>().QueryNoTracking()
             .Where(t => t.ClassId == classId)
@@ -152,55 +161,45 @@ public class TeamService : ITeamService
         Guid teamId, InviteTeamMemberRequest request, CancellationToken ct = default)
     {
         var leader = await GetCurrentStudentAsync(ct);
-        var team = await GetTeamForLeaderAsync(teamId, leader.StudentProfileId, ct);
-        await EnsureActiveEnrollmentAsync(team.ClassId, leader.StudentProfileId, ct);
-
-        if (request.StudentProfileId == leader.StudentProfileId)
-            throw new BadRequestException("Trưởng nhóm đã là thành viên của nhóm");
-
-        var candidateIsEligible = await _uow.Repository<ClassStudent>().QueryNoTracking()
-            .AnyAsync(cs => cs.ClassId == team.ClassId &&
-                            cs.StudentId == request.StudentProfileId &&
-                            cs.Status == StudyingStatus &&
-                            cs.Student.User.IsActive, ct);
-        if (!candidateIsEligible)
-            throw new BadRequestException("Sinh viên không tồn tại, không hoạt động hoặc không thuộc lớp này");
-
-        var members = _uow.Repository<TeamMember>();
-        var existingInvitation = await members.Query()
-            .FirstOrDefaultAsync(tm => tm.TeamId == teamId && tm.StudentId == request.StudentProfileId, ct);
-
-        if (existingInvitation?.Status == TeamMemberStatuses.Pending)
-            throw new ConflictException("Sinh viên đã có lời mời đang chờ phản hồi từ nhóm này");
-        if (existingInvitation?.Status == TeamMemberStatuses.Accepted)
-            throw new ConflictException("Sinh viên đã là thành viên của nhóm này");
-
-        if (await HasActiveTeamAssociationAsync(team.ClassId, request.StudentProfileId, teamId, ct))
-            throw new ConflictException("Sinh viên đã là thành viên, đang có lời mời hoặc đang là trưởng nhóm khác trong lớp này");
-
-        var now = DateTime.UtcNow;
-        if (existingInvitation is null)
-        {
-            await members.AddAsync(new TeamMember
-            {
-                TeamId = teamId,
-                StudentId = request.StudentProfileId,
-                Status = TeamMemberStatuses.Pending,
-                InvitedAt = now,
-                RespondedAt = null,
-            }, ct);
-        }
-        else
-        {
-            existingInvitation.Status = TeamMemberStatuses.Pending;
-            existingInvitation.InvitedAt = now;
-            existingInvitation.RespondedAt = null;
-        }
-
-        team.UpdatedAt = now;
+        var observed = await TeamMutationLock.ReadAsync(_uow, teamId, ct);
         try
         {
-            await _uow.SaveChangesAsync(ct);
+            return await MutateTeamAsync(observed, async (team, now, studentLocked) =>
+            {
+                EnsureLeader(team, leader.StudentProfileId);
+                await EnsureActiveEnrollmentAsync(team.ClassId, leader.StudentProfileId, ct);
+                await EnsureMembershipEditableAsync(teamId, ct);
+                if (request.StudentProfileId == leader.StudentProfileId)
+                    throw new BadRequestException("Trưởng nhóm đã là thành viên của nhóm");
+
+                var eligible = await _uow.Repository<ClassStudent>().QueryNoTracking()
+                    .AnyAsync(cs => cs.ClassId == team.ClassId && cs.StudentId == request.StudentProfileId
+                                    && cs.Status == StudyingStatus && cs.Student.User.IsActive, ct);
+                if (!eligible)
+                    throw new BadRequestException("Sinh viên không tồn tại, không hoạt động hoặc không thuộc lớp này");
+
+                var existing = team.TeamMembers.FirstOrDefault(m => m.StudentId == request.StudentProfileId);
+                if (existing?.Status == TeamMemberStatuses.Pending)
+                    throw new ConflictException("Sinh viên đã có lời mời đang chờ phản hồi từ nhóm này");
+                if (existing?.Status == TeamMemberStatuses.Accepted)
+                    throw new ConflictException("Sinh viên đã là thành viên của nhóm này");
+                if (await HasActiveTeamAssociationAsync(team.ClassId, request.StudentProfileId, teamId, ct, includePending: false))
+                    throw new ConflictException("Sinh viên đã là thành viên hoặc đang là trưởng nhóm khác trong lớp này");
+                EnsureStudentAssociationLocked(studentLocked);
+
+                if (existing is null)
+                    await _uow.Repository<TeamMember>().AddAsync(new TeamMember
+                    {
+                        TeamId = teamId, StudentId = request.StudentProfileId,
+                        Status = TeamMemberStatuses.Pending, InvitedAt = now,
+                    }, ct);
+                else
+                {
+                    existing.Status = TeamMemberStatuses.Pending;
+                    existing.InvitedAt = now;
+                    existing.RespondedAt = null;
+                }
+            }, ct, request.StudentProfileId);
         }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException
                                            { SqlState: PostgresErrorCodes.UniqueViolation })
@@ -208,31 +207,25 @@ public class TeamService : ITeamService
             throw new ConflictException("Lời mời thành viên đã tồn tại");
         }
 
-        return TeamMappings.ToResponse(await LoadTeamAsync(teamId, ct));
     }
 
     public async Task<TeamResponse> RemoveUnacceptedMemberAsync(
         Guid teamId, Guid studentProfileId, CancellationToken ct = default)
     {
         var leader = await GetCurrentStudentAsync(ct);
-        var team = await GetTeamForLeaderAsync(teamId, leader.StudentProfileId, ct);
-
-        if (studentProfileId == team.LeaderId)
-            throw new BadRequestException("Không thể xóa trưởng nhóm");
-
-        var members = _uow.Repository<TeamMember>();
-        var member = await members.Query()
-                         .FirstOrDefaultAsync(tm => tm.TeamId == teamId && tm.StudentId == studentProfileId, ct)
-                     ?? throw new NotFoundException("Không tìm thấy lời mời của sinh viên trong nhóm");
-
-        if (member.Status == TeamMemberStatuses.Accepted)
-            throw new ConflictException("Không thể xóa thành viên đã chấp nhận lời mời trong phạm vi hiện tại");
-
-        members.Remove(member);
-        team.UpdatedAt = DateTime.UtcNow;
-        await _uow.SaveChangesAsync(ct);
-
-        return TeamMappings.ToResponse(await LoadTeamAsync(teamId, ct));
+        var observed = await TeamMutationLock.ReadAsync(_uow, teamId, ct);
+        return await MutateTeamAsync(observed, (team, _, _) =>
+        {
+            EnsureLeader(team, leader.StudentProfileId);
+            if (studentProfileId == team.LeaderId)
+                throw new BadRequestException("Không thể xóa trưởng nhóm");
+            var member = team.TeamMembers.FirstOrDefault(m => m.StudentId == studentProfileId)
+                ?? throw new NotFoundException("Không tìm thấy lời mời của sinh viên trong nhóm");
+            if (member.Status == TeamMemberStatuses.Accepted)
+                throw new ConflictException("Không thể xóa thành viên đã chấp nhận lời mời trong phạm vi hiện tại");
+            _uow.Repository<TeamMember>().Remove(member);
+            return Task.CompletedTask;
+        }, ct);
     }
 
     public async Task<IReadOnlyList<TeamInvitationResponse>> GetMyInvitationsAsync(
@@ -259,33 +252,138 @@ public class TeamService : ITeamService
         Guid teamId, RespondTeamInvitationRequest request, CancellationToken ct = default)
     {
         var student = await GetCurrentStudentAsync(ct);
-        var invitation = await _uow.Repository<TeamMember>().Query()
-                             .Include(tm => tm.Team).ThenInclude(t => t.Class).ThenInclude(c => c.Semester)
-                             .FirstOrDefaultAsync(tm => tm.TeamId == teamId &&
-                                                        tm.StudentId == student.StudentProfileId, ct)
-                         ?? throw new NotFoundException("Không tìm thấy lời mời vào nhóm");
+        var observed = await _uow.Repository<Team>().QueryNoTracking().FirstOrDefaultAsync(t => t.TeamId == teamId, ct)
+            ?? throw new NotFoundException("Không tìm thấy lời mời vào nhóm");
+        var accepting = request.Decision.Equals(TeamMemberStatuses.Accepted, StringComparison.OrdinalIgnoreCase);
+        return await MutateTeamAsync(observed, async (team, now, studentLocked) =>
+        {
+            var invitation = team.TeamMembers.FirstOrDefault(m => m.StudentId == student.StudentProfileId)
+                ?? throw new NotFoundException("Không tìm thấy lời mời vào nhóm");
+            if (invitation.Status != TeamMemberStatuses.Pending)
+                throw new ConflictException("Lời mời này đã được phản hồi");
+            await EnsureActiveEnrollmentAsync(team.ClassId, student.StudentProfileId, ct);
+            var decision = request.Decision.Equals(TeamMemberStatuses.Accepted, StringComparison.OrdinalIgnoreCase)
+                ? TeamMemberStatuses.Accepted : TeamMemberStatuses.Rejected;
+            if (decision == TeamMemberStatuses.Accepted)
+            {
+                await EnsureMembershipEditableAsync(teamId, ct);
+                if (await HasActiveTeamAssociationAsync(team.ClassId, student.StudentProfileId, teamId, ct, includePending: false))
+                    throw new ConflictException("Bạn đã là thành viên hoặc đang là trưởng nhóm khác trong lớp này");
+                EnsureStudentAssociationLocked(studentLocked);
+                await _uow.Repository<TeamMember>().Query()
+                    .Where(m => m.StudentId == student.StudentProfileId && m.Team.ClassId == team.ClassId
+                                && m.TeamId != teamId && m.Status == TeamMemberStatuses.Pending)
+                    .ExecuteUpdateAsync(s => s.SetProperty(m => m.Status, TeamMemberStatuses.Rejected)
+                        .SetProperty(m => m.RespondedAt, now), ct);
+            }
+            invitation.Status = decision;
+            invitation.RespondedAt = now;
+        }, ct, accepting ? student.StudentProfileId : null);
+    }
 
-        if (invitation.Status != TeamMemberStatuses.Pending)
-            throw new ConflictException("Lời mời này đã được phản hồi");
+    public async Task<TeamResponse> LeaveTeamAsync(Guid teamId, CancellationToken ct = default)
+    {
+        var student = await GetCurrentStudentAsync(ct);
+        var observed = await TeamMutationLock.ReadAsync(_uow, teamId, ct);
+        return await MutateTeamAsync(observed, async (team, _, _) =>
+        {
+            if (team.LeaderId == student.StudentProfileId)
+                throw new BadRequestException("Trưởng nhóm phải chuyển quyền cho thành viên khác trước khi rời nhóm");
+            var member = team.TeamMembers.FirstOrDefault(m => m.StudentId == student.StudentProfileId
+                                                             && m.Status == TeamMemberStatuses.Accepted)
+                ?? throw new ForbiddenException("Bạn không phải thành viên đã được chấp nhận của nhóm này");
+            await EnsureMembershipEditableAsync(teamId, ct);
+            _uow.Repository<TeamMember>().Remove(member);
+        }, ct);
+    }
 
-        await EnsureActiveEnrollmentAsync(invitation.Team.ClassId, student.StudentProfileId, ct);
+    public async Task<TeamResponse> RemoveMemberAsync(Guid teamId, Guid studentProfileId, CancellationToken ct = default)
+    {
+        var student = await GetCurrentStudentAsync(ct);
+        var observed = await TeamMutationLock.ReadAsync(_uow, teamId, ct);
+        var result = await MutateTeamAsync(observed, async (team, _, _) =>
+        {
+            EnsureLeader(team, student.StudentProfileId);
+            if (studentProfileId == team.LeaderId)
+                throw new BadRequestException("Không thể xóa trưởng nhóm");
+            var member = team.TeamMembers.FirstOrDefault(m => m.StudentId == studentProfileId
+                                                             && m.Status == TeamMemberStatuses.Accepted)
+                ?? throw new NotFoundException("Không tìm thấy thành viên Accepted trong nhóm");
+            await EnsureMembershipEditableAsync(teamId, ct);
+            _uow.Repository<TeamMember>().Remove(member);
+        }, ct);
+        await _notifier.MemberRemovedAsync(teamId, studentProfileId, CancellationToken.None);
+        return result;
+    }
 
-        var decision = request.Decision.Equals(TeamMemberStatuses.Accepted, StringComparison.OrdinalIgnoreCase)
-            ? TeamMemberStatuses.Accepted
-            : TeamMemberStatuses.Rejected;
+    public async Task<TeamResponse> TransferLeaderAsync(Guid teamId, TransferTeamLeaderRequest request, CancellationToken ct = default)
+    {
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+        var observed = await TeamMutationLock.ReadAsync(_uow, teamId, ct);
+        var result = await MutateTeamAsync(observed, async (team, _, _) =>
+        {
+            var studentLeader = _currentUser.IsInRole(RoleNames.Student) && team.Leader.UserId == userId;
+            var lecturer = _currentUser.IsInRole(RoleNames.Lecturer) && team.Class.Instructor?.UserId == userId;
+            if (!studentLeader && !lecturer && !_currentUser.IsInRole(RoleNames.Admin))
+                throw new ForbiddenException("Chỉ trưởng nhóm, giảng viên phụ trách lớp hoặc Admin được chuyển trưởng nhóm");
+            if (request.StudentProfileId == team.LeaderId)
+                throw new BadRequestException("Sinh viên được chọn hiện đã là trưởng nhóm");
+            var target = team.TeamMembers.FirstOrDefault(m => m.StudentId == request.StudentProfileId
+                                                             && m.Status == TeamMemberStatuses.Accepted);
+            if (target is null || !await _uow.Repository<ClassStudent>().QueryNoTracking()
+                    .AnyAsync(cs => cs.ClassId == team.ClassId && cs.StudentId == request.StudentProfileId
+                                    && cs.Status == StudyingStatus, ct))
+                throw new BadRequestException("Trưởng nhóm mới phải là thành viên Accepted và đang Studying trong lớp");
+            if (!team.TeamMembers.Any(m => m.StudentId == team.LeaderId && m.Status == TeamMemberStatuses.Accepted))
+                throw new ConflictException("Dữ liệu trưởng nhóm hiện tại không nhất quán, vui lòng kiểm tra lại");
 
-        if (decision == TeamMemberStatuses.Accepted &&
-            await HasActiveTeamAssociationAsync(
-                invitation.Team.ClassId, student.StudentProfileId, invitation.TeamId, ct))
-            throw new ConflictException("Bạn đã là thành viên, đang có lời mời hoặc đang là trưởng nhóm khác trong lớp này");
+            await EnsureMembershipEditableAsync(teamId, ct);
+            team.LeaderId = target.StudentId;
+        }, ct);
+        await _notifier.LeaderTransferredAsync(teamId, observed.LeaderId, request.StudentProfileId, CancellationToken.None);
+        return result;
+    }
 
-        var now = DateTime.UtcNow;
-        invitation.Status = decision;
-        invitation.RespondedAt = now;
-        invitation.Team.UpdatedAt = now;
-        await _uow.SaveChangesAsync(ct);
+    /// <summary>One SaveChanges for tracked changes, in the same transaction as conditional database writes.</summary>
+    private Task<TeamResponse> MutateTeamAsync(Team observed, Func<Team, DateTime, bool, Task> change,
+        CancellationToken ct, Guid? associationStudentId = null)
+    {
+        async Task<TeamResponse> WriteAsync(bool studentLocked, CancellationToken token)
+        {
+            var team = await _uow.Repository<Team>().Query()
+                .Include(t => t.Class).ThenInclude(c => c.Instructor)
+                .Include(t => t.Leader).ThenInclude(s => s.User)
+                .Include(t => t.TeamMembers).ThenInclude(m => m.Student).ThenInclude(s => s.User)
+                .AsSplitQuery().SingleAsync(t => t.TeamId == observed.TeamId, token);
+            var now = DateTime.UtcNow;
+            await change(team, now, studentLocked);
+            team.UpdatedAt = now;
+            await _uow.SaveChangesAsync(token);
+            return TeamMappings.ToResponse(await LoadTeamAsync(team.TeamId, token));
+        }
 
-        return TeamMappings.ToResponse(await LoadTeamAsync(teamId, ct));
+        return associationStudentId.HasValue
+            ? TeamMutationLock.RunForStudentAsync(_uow, observed.ClassId, associationStudentId.Value, observed, WriteAsync, ct)
+            : TeamMutationLock.RunAsync(_uow, observed, token => WriteAsync(true, token), ct);
+    }
+
+    /// <summary>The caller holds the same Team row as CreateProject until this mutation commits.</summary>
+    private async Task EnsureMembershipEditableAsync(Guid teamId, CancellationToken ct)
+    {
+        if (await _uow.Repository<Project>().QueryNoTracking().AnyAsync(p => p.TeamId == teamId, ct))
+            throw new ConflictException("Nhóm đã đăng ký đề tài, không thể thay đổi thành viên hoặc trưởng nhóm");
+    }
+
+    private static void EnsureStudentAssociationLocked(bool locked)
+    {
+        if (!locked)
+            throw new ConflictException(TeamMutationLock.ChangedMessage);
+    }
+
+    private static void EnsureLeader(Team team, Guid studentId)
+    {
+        if (team.LeaderId != studentId)
+            throw new ForbiddenException("Chỉ trưởng nhóm mới được thực hiện thao tác này");
     }
 
     private async Task<StudentProfile> GetCurrentStudentAsync(CancellationToken ct)
@@ -316,7 +414,7 @@ public class TeamService : ITeamService
     }
 
     private async Task<bool> HasActiveTeamAssociationAsync(
-        Guid classId, Guid studentId, Guid? excludedTeamId, CancellationToken ct)
+        Guid classId, Guid studentId, Guid? excludedTeamId, CancellationToken ct, bool includePending = true)
     {
         var leadsAnotherTeam = await _uow.Repository<Team>().QueryNoTracking()
             .AnyAsync(t => t.ClassId == classId &&
@@ -328,7 +426,7 @@ public class TeamService : ITeamService
         return await _uow.Repository<TeamMember>().QueryNoTracking()
             .AnyAsync(tm => tm.Team.ClassId == classId &&
                             tm.StudentId == studentId &&
-                            ActiveMembershipStatuses.Contains(tm.Status) &&
+                            (tm.Status == TeamMemberStatuses.Accepted || (includePending && tm.Status == TeamMemberStatuses.Pending)) &&
                             (!excludedTeamId.HasValue || tm.TeamId != excludedTeamId.Value), ct);
     }
 
