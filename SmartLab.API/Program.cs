@@ -26,6 +26,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 
+app.MapGet("/", () => Results.Redirect("/swagger")).AllowAnonymous().ExcludeFromDescription();
 app.MapControllers();
 app.MapSmartLabHealthChecks();
 
