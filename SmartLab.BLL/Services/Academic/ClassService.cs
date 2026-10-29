@@ -3,6 +3,7 @@ using Npgsql;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.ClassSetupDTO;
+using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.Interfaces.Academic;
 using SmartLab.BLL.Mappings.Academic;
 using SmartLab.DAL.Entities;
@@ -13,8 +14,13 @@ namespace SmartLab.BLL.Services.Academic;
 public class ClassService : IClassService
 {
     private readonly IUnitOfWork _uow;
+    private readonly ICurrentUserService _currentUser;
 
-    public ClassService(IUnitOfWork uow) => _uow = uow;
+    public ClassService(IUnitOfWork uow, ICurrentUserService currentUser)
+    {
+        _uow = uow;
+        _currentUser = currentUser;
+    }
 
     // Query helper — luôn include đủ để mapping
     private IQueryable<Class> QueryWithIncludes(bool tracking = false)
@@ -93,6 +99,24 @@ public class ClassService : IClassService
             query = query.Where(c => c.SemesterId == semesterId.Value);
 
         var list = await query.OrderBy(c => c.ClassCode).ToListAsync(ct);
+        return list.Select(ClassSetupMappings.ToResponse).ToList();
+    }
+
+    public async Task<List<ClassResponse>> GetMyClassesAsync(Guid? semesterId = null, CancellationToken ct = default)
+    {
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+
+        var query = QueryWithIncludes()
+            .Where(c => (c.Instructor != null && c.Instructor.UserId == userId)
+                        || c.ClassStudents.Any(cs => cs.Student.UserId == userId
+                                                     && cs.Status == ClassStudentStatuses.Studying));
+        if (semesterId.HasValue)
+            query = query.Where(c => c.SemesterId == semesterId.Value);
+
+        var list = await query
+            .OrderByDescending(c => c.Semester.StartDate)
+            .ThenBy(c => c.ClassCode)
+            .ToListAsync(ct);
         return list.Select(ClassSetupMappings.ToResponse).ToList();
     }
 
