@@ -37,6 +37,12 @@ public class ClassesController : ControllerBase
     public async Task<IActionResult> GetAll([FromQuery] Guid? semesterId, CancellationToken ct)
         => Ok(ApiResponse<List<ClassResponse>>.Ok(await _classService.GetAllAsync(semesterId, ct)));
 
+    /// <summary>Lớp của người đang đăng nhập: sinh viên thấy lớp mình đang học (Studying), giảng viên thấy lớp mình dạy.</summary>
+    [HttpGet("my")]
+    [ProducesResponseType(typeof(ApiResponse<List<ClassResponse>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetMyClasses([FromQuery] Guid? semesterId, CancellationToken ct)
+        => Ok(ApiResponse<List<ClassResponse>>.Ok(await _classService.GetMyClassesAsync(semesterId, ct)));
+
     [HttpGet("{id:guid}")]
     [ProducesResponseType(typeof(ApiResponse<ClassResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
