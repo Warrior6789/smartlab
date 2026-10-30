@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.External.Email;
 using SmartLab.BLL.Interfaces.Academic;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
 
@@ -13,12 +14,15 @@ public class ProjectNotifier : IProjectNotifier
 {
     private readonly IUnitOfWork _uow;
     private readonly IEmailSender _email;
+    private readonly INotificationSender _notifications;
     private readonly ILogger<ProjectNotifier> _logger;
 
-    public ProjectNotifier(IUnitOfWork uow, IEmailSender email, ILogger<ProjectNotifier> logger)
+    public ProjectNotifier(
+        IUnitOfWork uow, IEmailSender email, INotificationSender notifications, ILogger<ProjectNotifier> logger)
     {
         _uow = uow;
         _email = email;
+        _notifications = notifications;
         _logger = logger;
     }
 
@@ -31,7 +35,8 @@ public class ProjectNotifier : IProjectNotifier
                 p.Title,
                 TeamName = p.Team != null ? p.Team.TeamName : null,
                 p.Class!.ClassCode,
-                p.Class.Instructor!.User.Email,
+                p.Class.Instructor!.UserId,
+                p.Class.Instructor.User.Email,
                 p.Class.Instructor.User.FullName,
                 p.Class.Instructor.User.IsActive,
             })
@@ -48,7 +53,7 @@ public class ProjectNotifier : IProjectNotifier
             $"<p>{teamText}lớp <b>{Encode(info.ClassCode)}</b> vừa nộp bài cuối cho project <i>{Encode(info.Title)}</i>.</p>" +
             "<p>Thầy/cô vào SmartLab, mục <b>Bài nộp chờ xác nhận</b> để xác nhận hoặc trả bài.</p>";
 
-        await SendAsync(info.Email, projectId, $"SmartLab - Bài nộp project {info.Title} chờ xác nhận", body);
+        await SendAsync(info.UserId, info.Email, projectId, $"SmartLab - Bài nộp project {info.Title} chờ xác nhận", body);
     }
 
     public async Task FinalReviewedAsync(Guid projectId, CancellationToken ct = default)
@@ -60,7 +65,8 @@ public class ProjectNotifier : IProjectNotifier
                 p.Title,
                 p.FinalStatus,
                 p.FinalComment,
-                p.Team!.Leader.User.Email,
+                p.Team!.Leader.UserId,
+                p.Team.Leader.User.Email,
                 p.Team.Leader.User.FullName,
             })
             .FirstOrDefaultAsync(ct);
@@ -89,10 +95,10 @@ public class ProjectNotifier : IProjectNotifier
             $"<p>Bài nộp cuối của project <i>{Encode(info.Title)}</i> {resultText}</p>" +
             commentText;
 
-        await SendAsync(info.Email, projectId, subject, body);
+        await SendAsync(info.UserId, info.Email, projectId, subject, body);
     }
 
-    private async Task SendAsync(string email, Guid projectId, string subject, string body)
+    private async Task SendAsync(Guid userId, string email, Guid projectId, string subject, string body)
     {
         try
         {
@@ -102,6 +108,8 @@ public class ProjectNotifier : IProjectNotifier
         {
             _logger.LogError(ex, "Could not email {Email} about final submission of project {ProjectId}", email, projectId);
         }
+
+        await _notifications.SendAsync(userId, subject, NotificationRefTypes.Project, projectId);
     }
 
     private static string Encode(string text) => WebUtility.HtmlEncode(text);

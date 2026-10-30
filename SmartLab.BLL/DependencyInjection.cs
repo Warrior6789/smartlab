@@ -16,6 +16,7 @@ using SmartLab.BLL.Interfaces.Borrowing;
 using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.BLL.Interfaces.Inventory;
 using SmartLab.BLL.Interfaces.IssueReports;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.BLL.Interfaces.Settings;
 using SmartLab.BLL.Interfaces.Teamwork;
 using SmartLab.BLL.Seeding;
@@ -25,6 +26,7 @@ using SmartLab.BLL.Services.Borrowing;
 using SmartLab.BLL.Services.Identity;
 using SmartLab.BLL.Services.Inventory;
 using SmartLab.BLL.Services.IssueReports;
+using SmartLab.BLL.Services.Notifications;
 using SmartLab.BLL.Services.Settings;
 using SmartLab.BLL.Services.Teamwork;
 
@@ -114,6 +116,9 @@ public static class DependencyInjection
 
         services.AddScoped<IAuditLogger, AuditLogger>();
         services.AddScoped<IAuditLogService, AuditLogService>();
+
+        services.AddScoped<INotificationSender, NotificationSender>();
+        services.AddScoped<INotificationService, NotificationService>();
 
         services.AddHostedService<AdminSeeder>();
 

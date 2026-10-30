@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.External.Email;
 using SmartLab.BLL.Interfaces.Borrowing;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
 
@@ -15,12 +16,15 @@ public class BorrowNotifier : IBorrowNotifier
 
     private readonly IUnitOfWork _uow;
     private readonly IEmailSender _email;
+    private readonly INotificationSender _notifications;
     private readonly ILogger<BorrowNotifier> _logger;
 
-    public BorrowNotifier(IUnitOfWork uow, IEmailSender email, ILogger<BorrowNotifier> logger)
+    public BorrowNotifier(
+        IUnitOfWork uow, IEmailSender email, INotificationSender notifications, ILogger<BorrowNotifier> logger)
     {
         _uow = uow;
         _email = email;
+        _notifications = notifications;
         _logger = logger;
     }
 
@@ -85,7 +89,7 @@ public class BorrowNotifier : IBorrowNotifier
                 r.DueDate,
                 Approvers = r.BorrowApprovals
                     .Where(a => a.Status == BorrowApprovalStatuses.Pending)
-                    .Select(a => new { a.Approver.Email, a.Approver.FullName, a.Approver.IsActive })
+                    .Select(a => new { a.ApproverId, a.Approver.Email, a.Approver.FullName, a.Approver.IsActive })
                     .ToList(),
             })
             .FirstOrDefaultAsync(ct);
@@ -114,7 +118,9 @@ public class BorrowNotifier : IBorrowNotifier
                 ItemsTable(lines, false) +
                 "<p>Thầy/cô vào SmartLab, mục <b>Project chờ duyệt</b> để duyệt hoặc từ chối.</p>";
 
-            await SendToAsync(approver.Email, info.RequestCode, $"SmartLab - Đơn {info.RequestCode} chờ thầy/cô duyệt", body);
+            await SendToAsync(approver.ApproverId, approver.Email, info.RequestCode,
+                $"SmartLab - Đơn {info.RequestCode} chờ thầy/cô duyệt", body,
+                NotificationRefTypes.BorrowRequest, borrowRequestId);
         }
     }
 
@@ -461,14 +467,14 @@ public class BorrowNotifier : IBorrowNotifier
         Guid? SourceRoomId, string? SourceRoomCode, DateTime? ReceivedAt);
 
     private sealed record StaffMailInfo(
-        string RequestCode, string RequesterName, string? StudentCode, Guid RoomId, string RoomCode, string RoomName,
-        string? Reason, DateTime? BorrowDate, List<StaffLine> Lines);
+        Guid BorrowRequestId, string RequestCode, string RequesterName, string? StudentCode, Guid RoomId, string RoomCode,
+        string RoomName, string? Reason, DateTime? BorrowDate, List<StaffLine> Lines);
 
     private Task<StaffMailInfo?> LoadStaffInfoAsync(Guid borrowRequestId, CancellationToken ct)
         => _uow.Repository<BorrowRequest>().QueryNoTracking()
             .Where(r => r.BorrowRequestId == borrowRequestId)
             .Select(r => new StaffMailInfo(
-                r.RequestCode, r.Requester.FullName,
+                r.BorrowRequestId, r.RequestCode, r.Requester.FullName,
                 r.Requester.StudentProfile != null ? r.Requester.StudentProfile.StudentCode : null,
                 r.RoomId, r.Room.RoomCode, r.Room.RoomName, r.RejectReason, r.BorrowDate,
                 r.BorrowItems
@@ -486,21 +492,23 @@ public class BorrowNotifier : IBorrowNotifier
 
     private async Task SendToStaffAsync(StaffMailInfo info, Guid roomId, Guid? skipUserId, string subject, string body)
     {
-        var emails = await _uow.Repository<LabRoomStaff>().QueryNoTracking()
+        var staff = await _uow.Repository<LabRoomStaff>().QueryNoTracking()
             .Where(s => s.RoomId == roomId && s.User.IsActive && s.UserId != skipUserId)
-            .Select(s => s.User.Email)
+            .Select(s => new { s.UserId, s.User.Email })
             .ToListAsync(CancellationToken.None);
 
-        foreach (var email in emails)
+        foreach (var member in staff)
         {
             try
             {
-                await _email.SendAsync(email, subject, body, CancellationToken.None);
+                await _email.SendAsync(member.Email, subject, body, CancellationToken.None);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Could not email staff {Email} about borrow request {Code}", email, info.RequestCode);
+                _logger.LogError(ex, "Could not email staff {Email} about borrow request {Code}", member.Email, info.RequestCode);
             }
+
+            await _notifications.SendAsync(member.UserId, subject, NotificationRefTypes.BorrowRequest, info.BorrowRequestId);
         }
     }
 
@@ -544,7 +552,8 @@ public class BorrowNotifier : IBorrowNotifier
                 RequesterName = e.BorrowRequest.Requester.FullName,
                 ClassCode = e.BorrowRequest.Class!.ClassCode,
                 ProjectTitle = e.BorrowRequest.Project != null ? e.BorrowRequest.Project.Title : null,
-                LecturerEmail = e.BorrowRequest.Class.Instructor!.User.Email,
+                LecturerUserId = e.BorrowRequest.Class.Instructor!.UserId,
+                LecturerEmail = e.BorrowRequest.Class.Instructor.User.Email,
                 LecturerName = e.BorrowRequest.Class.Instructor.User.FullName,
                 LecturerActive = e.BorrowRequest.Class.Instructor.User.IsActive,
                 e.OldDueDate,
@@ -567,7 +576,8 @@ public class BorrowNotifier : IBorrowNotifier
             $"<p>Lý do: {Encode(info.Reason)}</p>" +
             "<p>Thầy/cô vào SmartLab, mục <b>Yêu cầu gia hạn</b> để duyệt hoặc từ chối.</p>";
 
-        await SendToAsync(info.LecturerEmail, info.RequestCode, $"SmartLab - Đơn {info.RequestCode} xin gia hạn", body);
+        await SendToAsync(info.LecturerUserId, info.LecturerEmail, info.RequestCode,
+            $"SmartLab - Đơn {info.RequestCode} xin gia hạn", body, NotificationRefTypes.BorrowExtension, extensionId);
     }
 
     public async Task ExtensionReviewedAsync(Guid extensionId, CancellationToken ct = default)
@@ -699,7 +709,8 @@ public class BorrowNotifier : IBorrowNotifier
         return ToVietnamDate(utc.Value);
     }
 
-    private async Task SendToAsync(string email, string requestCode, string subject, string body)
+    private async Task SendToAsync(
+        Guid userId, string email, string requestCode, string subject, string body, string refType, Guid refId)
     {
         try
         {
@@ -709,17 +720,20 @@ public class BorrowNotifier : IBorrowNotifier
         {
             _logger.LogError(ex, "Could not email {Email} about borrow request {Code}", email, requestCode);
         }
+
+        await _notifications.SendAsync(userId, subject, refType, refId);
     }
 
     private sealed record MailInfo(
-        string RequestCode, string Email, string FullName, string RoomCode, string RoomName,
-        string? ProjectTitle, string? Reason, DateTime? BorrowDate, DateTime DueDate);
+        Guid BorrowRequestId, Guid UserId, string RequestCode, string Email, string FullName, string RoomCode,
+        string RoomName, string? ProjectTitle, string? Reason, DateTime? BorrowDate, DateTime DueDate);
 
     private Task<MailInfo?> LoadAsync(Guid borrowRequestId, CancellationToken ct)
         => _uow.Repository<BorrowRequest>().QueryNoTracking()
             .Where(r => r.BorrowRequestId == borrowRequestId)
             .Select(r => new MailInfo(
-                r.RequestCode, r.Requester.Email, r.Requester.FullName, r.Room.RoomCode, r.Room.RoomName,
+                r.BorrowRequestId, r.RequesterId, r.RequestCode, r.Requester.Email, r.Requester.FullName,
+                r.Room.RoomCode, r.Room.RoomName,
                 r.Project != null ? r.Project.Title : null, r.RejectReason, r.BorrowDate, r.DueDate))
             .FirstOrDefaultAsync(ct);
 
@@ -733,6 +747,8 @@ public class BorrowNotifier : IBorrowNotifier
         {
             _logger.LogError(ex, "Could not email {Email} about borrow request {Code}", info.Email, info.RequestCode);
         }
+
+        await _notifications.SendAsync(info.UserId, subject, NotificationRefTypes.BorrowRequest, info.BorrowRequestId);
     }
 
     private static string Greeting(MailInfo info) => $"<p>Xin chào <b>{Encode(info.FullName)}</b>,</p>";
