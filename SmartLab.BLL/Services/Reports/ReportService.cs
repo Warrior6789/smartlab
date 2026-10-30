@@ -734,7 +734,7 @@ public class ReportService : IReportService
         if (list.Count == 0)
             return null;
 
-        return Math.Round(list.Average(d => d.TotalHours), 1);
+        return Math.Round(list.Average(d => d.TotalHours), 2);
     }
 
     private IQueryable<StockReceiptItem> CompletedReceiptItems() =>
