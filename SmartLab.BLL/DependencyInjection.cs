@@ -11,6 +11,7 @@ using SmartLab.BLL.External.Jwt;
 using SmartLab.BLL.External.Security;
 using SmartLab.BLL.External.Storage;
 using SmartLab.BLL.Interfaces.Academic;
+using SmartLab.BLL.Interfaces.AuditLogs;
 using SmartLab.BLL.Interfaces.Borrowing;
 using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.BLL.Interfaces.Inventory;
@@ -19,6 +20,7 @@ using SmartLab.BLL.Interfaces.Settings;
 using SmartLab.BLL.Interfaces.Teamwork;
 using SmartLab.BLL.Seeding;
 using SmartLab.BLL.Services.Academic;
+using SmartLab.BLL.Services.AuditLogs;
 using SmartLab.BLL.Services.Borrowing;
 using SmartLab.BLL.Services.Identity;
 using SmartLab.BLL.Services.Inventory;
@@ -109,6 +111,9 @@ public static class DependencyInjection
         services.AddHostedService<BorrowReminderWorker>();
 
         services.AddScoped<ISystemSettingService, SystemSettingService>();
+
+        services.AddScoped<IAuditLogger, AuditLogger>();
+        services.AddScoped<IAuditLogService, AuditLogService>();
 
         services.AddHostedService<AdminSeeder>();
 

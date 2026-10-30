@@ -7,6 +7,7 @@ using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Identity;
 using SmartLab.BLL.External.Email;
 using SmartLab.BLL.External.Security;
+using SmartLab.BLL.Interfaces.AuditLogs;
 using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.BLL.Mappings.Identity;
 using SmartLab.DAL.Entities;
@@ -20,14 +21,17 @@ public class UserService : IUserService
     private readonly IPasswordHasher _passwordHasher;
     private readonly IEmailSender _email;
     private readonly IActiveUserChecker _sessionChecker;
+    private readonly IAuditLogger _auditLogger;
 
     public UserService(
-        IUnitOfWork uow, IPasswordHasher passwordHasher, IEmailSender email, IActiveUserChecker sessionChecker)
+        IUnitOfWork uow, IPasswordHasher passwordHasher, IEmailSender email, IActiveUserChecker sessionChecker,
+        IAuditLogger auditLogger)
     {
         _uow = uow;
         _passwordHasher = passwordHasher;
         _email = email;
         _sessionChecker = sessionChecker;
+        _auditLogger = auditLogger;
     }
 
     public async Task<UserDetailResponse> CreateUserAsync(CreateUserRequest request, CancellationToken ct = default)
@@ -86,6 +90,11 @@ public class UserService : IUserService
             throw new ConflictException("Username, email hoặc mã giảng viên đã được sử dụng");
         }
 
+        await _auditLogger.AddAsync(AuditActions.CreateUser, nameof(User), user.UserId.ToString(),
+            newValue: new { user.Username, user.Email, user.FullName, request.Role, InstructorCode = instructorCode },
+            ct: ct);
+        await _uow.SaveChangesAsync(ct);
+
         return await GetUserByIdAsync(user.UserId, ct);
     }
 
@@ -115,6 +124,10 @@ public class UserService : IUserService
         if (newRoles.Count != request.Roles.Count)
             throw new InvalidOperationException("Có role chưa được seed trong database");
 
+        var oldRoleNames = user.UserRoles.Select(ur => ur.Role.RoleName).OrderBy(r => r).ToList();
+        await _auditLogger.AddAsync(AuditActions.AssignRoles, nameof(User), user.UserId.ToString(),
+            new { Roles = oldRoleNames }, new { Roles = request.Roles.OrderBy(r => r).ToList() }, ct: ct);
+
         var userRoles = _uow.Repository<UserRole>();
         foreach (var old in user.UserRoles.Where(ur => !request.Roles.Contains(ur.Role.RoleName)).ToList())
             userRoles.Remove(old);
@@ -142,10 +155,15 @@ public class UserService : IUserService
         if (await users.QueryNoTracking().AnyAsync(u => u.UserId != userId && u.Email.ToLower() == email, ct))
             throw new ConflictException("Email đã được sử dụng");
 
+        var oldValue = new { user.FullName, user.Email, user.PhoneNumber };
+
         user.FullName = request.FullName.Trim();
         user.Email = email;
         user.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
         user.UpdatedAt = DateTime.UtcNow;
+
+        await _auditLogger.AddAsync(AuditActions.UpdateUser, nameof(User), user.UserId.ToString(),
+            oldValue, new { user.FullName, user.Email, user.PhoneNumber }, ct: ct);
 
         try
         {
@@ -172,6 +190,7 @@ public class UserService : IUserService
         user.PasswordHash = _passwordHasher.Hash(password);
         user.TokenVersion++;
         user.UpdatedAt = DateTime.UtcNow;
+        await _auditLogger.AddAsync(AuditActions.ResetPassword, nameof(User), user.UserId.ToString(), ct: ct);
         await _uow.SaveChangesAsync(ct);
         _sessionChecker.Forget(userId);
 

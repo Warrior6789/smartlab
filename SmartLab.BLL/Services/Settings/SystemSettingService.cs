@@ -3,6 +3,7 @@ using Npgsql;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Settings;
+using SmartLab.BLL.Interfaces.AuditLogs;
 using SmartLab.BLL.Interfaces.Settings;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
@@ -24,10 +25,12 @@ public class SystemSettingService : ISystemSettingService
     };
 
     private readonly IUnitOfWork _uow;
+    private readonly IAuditLogger _auditLogger;
 
-    public SystemSettingService(IUnitOfWork uow)
+    public SystemSettingService(IUnitOfWork uow, IAuditLogger auditLogger)
     {
         _uow = uow;
+        _auditLogger = auditLogger;
     }
 
     public async Task<IReadOnlyList<SystemSettingResponse>> GetSettingsAsync(CancellationToken ct = default)
@@ -59,6 +62,7 @@ public class SystemSettingService : ISystemSettingService
         var settings = _uow.Repository<SystemSetting>();
         var row = await settings.Query().FirstOrDefaultAsync(s => s.SettingKey == normalizedKey, ct);
         var now = DateTime.UtcNow;
+        string? oldValue = null;
         if (row == null)
         {
             row = new SystemSetting
@@ -72,9 +76,13 @@ public class SystemSettingService : ISystemSettingService
         }
         else
         {
+            oldValue = row.SettingValue;
             row.SettingValue = value;
             row.UpdatedAt = now;
         }
+
+        await _auditLogger.AddAsync(AuditActions.UpdateSetting, nameof(SystemSetting), normalizedKey,
+            new { Value = oldValue }, new { Value = value }, ct: ct);
 
         try
         {

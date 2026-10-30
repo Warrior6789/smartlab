@@ -8,6 +8,7 @@ using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.External.Email;
 using SmartLab.BLL.External.Jwt;
 using SmartLab.BLL.External.Security;
+using SmartLab.BLL.Interfaces.AuditLogs;
 using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.BLL.Mappings.Identity;
 using SmartLab.DAL.Entities;
@@ -29,10 +30,11 @@ public class AuthService : IAuthService
     private readonly ICurrentUserService _currentUser;
     private readonly IEmailSender _email;
     private readonly IActiveUserChecker _sessionChecker;
+    private readonly IAuditLogger _auditLogger;
 
     public AuthService(
         IUnitOfWork uow, IPasswordHasher passwordHasher, IJwtService jwtService, ICurrentUserService currentUser,
-        IEmailSender email, IActiveUserChecker sessionChecker)
+        IEmailSender email, IActiveUserChecker sessionChecker, IAuditLogger auditLogger)
     {
         _uow = uow;
         _passwordHasher = passwordHasher;
@@ -40,6 +42,7 @@ public class AuthService : IAuthService
         _currentUser = currentUser;
         _email = email;
         _sessionChecker = sessionChecker;
+        _auditLogger = auditLogger;
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
@@ -53,14 +56,21 @@ public class AuthService : IAuthService
         var user = await query.FirstOrDefaultAsync(ct);
 
         if (user is null || !_passwordHasher.Verify(request.Password, user.PasswordHash))
+        {
+            await LogFailedLoginAsync(user, identifier, "Sai email/username hoặc mật khẩu", ct);
             throw new UnauthorizedException(InvalidCredentialsMessage);
+        }
 
         if (!user.IsActive)
+        {
+            await LogFailedLoginAsync(user, identifier, "Tài khoản đã bị khóa", ct);
             throw new ForbiddenException("Tài khoản đã bị khóa");
+        }
 
         var now = DateTime.UtcNow;
         user.LastLoginAt = now;
         user.UpdatedAt = now;
+        await _auditLogger.AddAsync(AuditActions.Login, nameof(User), user.UserId.ToString(), userId: user.UserId, ct: ct);
         await _uow.SaveChangesAsync(ct);
 
         var dto = UserMappings.ToCurrentUserDto(user);
@@ -113,6 +123,7 @@ public class AuthService : IAuthService
         user.PasswordHash = _passwordHasher.Hash(request.NewPassword);
         user.TokenVersion++;
         user.UpdatedAt = DateTime.UtcNow;
+        await _auditLogger.AddAsync(AuditActions.ChangePassword, nameof(User), user.UserId.ToString(), ct: ct);
         await _uow.SaveChangesAsync(ct);
         _sessionChecker.Forget(userId);
 
@@ -232,6 +243,22 @@ public class AuthService : IAuthService
             $"<p>Mã có hiệu lực trong {(int)CodeLifetime.TotalMinutes} phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>";
 
         return _email.SendAsync(user.Email, "SmartLab - Mã đặt lại mật khẩu", body, ct);
+    }
+
+    /// <summary>Saves a failed LOGIN row; EntityId is the user id, or the typed identifier when no account matches.</summary>
+    private async Task LogFailedLoginAsync(User? user, string identifier, string reason, CancellationToken ct)
+    {
+        Guid? userId = null;
+        var entityId = identifier;
+        if (user != null)
+        {
+            userId = user.UserId;
+            entityId = user.UserId.ToString();
+        }
+
+        await _auditLogger.AddAsync(AuditActions.Login, nameof(User), entityId,
+            newValue: new { Identifier = identifier, Reason = reason }, isSuccess: false, userId: userId, ct: ct);
+        await _uow.SaveChangesAsync(ct);
     }
 
     private IQueryable<User> QueryUserWithAccess(bool tracking)
