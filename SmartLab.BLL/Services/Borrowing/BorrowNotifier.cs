@@ -120,7 +120,7 @@ public class BorrowNotifier : IBorrowNotifier
 
             await SendToAsync(approver.ApproverId, approver.Email, info.RequestCode,
                 $"SmartLab - Đơn {info.RequestCode} chờ thầy/cô duyệt", body,
-                NotificationRefTypes.BorrowRequest, borrowRequestId);
+                NotificationRefTypes.BorrowApproval, borrowRequestId);
         }
     }
 

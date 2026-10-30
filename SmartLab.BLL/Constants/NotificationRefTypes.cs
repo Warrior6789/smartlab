@@ -4,6 +4,7 @@ namespace SmartLab.BLL.Constants;
 public static class NotificationRefTypes
 {
     public const string BorrowRequest = "BorrowRequest";
+    public const string BorrowApproval = "BorrowApproval";
     public const string BorrowExtension = "BorrowExtension";
     public const string Project = "Project";
     public const string Team = "Team";
