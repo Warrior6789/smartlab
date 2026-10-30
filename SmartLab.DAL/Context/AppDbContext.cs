@@ -56,6 +56,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<LabRoomStaff> LabRoomStaffs { get; set; }
 
+    public virtual DbSet<Notification> Notifications { get; set; }
+
     public virtual DbSet<Permission> Permissions { get; set; }
 
     public virtual DbSet<Project> Projects { get; set; }
@@ -989,6 +991,40 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("lab_room_staff_user_id_fkey");
         });
 
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.HasKey(e => e.NotificationId).HasName("notifications_pkey");
+
+            entity.ToTable("notifications");
+
+            entity.HasIndex(e => new { e.UserId, e.CreatedAt }, "ix_notifications_user_created").IsDescending(false, true);
+
+            entity.HasIndex(e => e.UserId, "ix_notifications_user_unread").HasFilter("(is_read = false)");
+
+            entity.Property(e => e.NotificationId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("notification_id");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("created_at");
+            entity.Property(e => e.IsRead)
+                .HasDefaultValue(false)
+                .HasColumnName("is_read");
+            entity.Property(e => e.ReadAt).HasColumnName("read_at");
+            entity.Property(e => e.RefId).HasColumnName("ref_id");
+            entity.Property(e => e.RefType)
+                .HasMaxLength(50)
+                .HasColumnName("ref_type");
+            entity.Property(e => e.Title)
+                .HasMaxLength(300)
+                .HasColumnName("title");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+
+            entity.HasOne(d => d.User).WithMany(p => p.Notifications)
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("notifications_user_id_fkey");
+        });
+
         modelBuilder.Entity<Permission>(entity =>
         {
             entity.HasKey(e => e.PermissionId).HasName("permissions_pkey");
@@ -1049,6 +1085,12 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(500)
                 .HasColumnName("github_url");
             entity.Property(e => e.OwnerId).HasColumnName("owner_id");
+            entity.Property(e => e.ReportStorageKey)
+                .HasMaxLength(255)
+                .HasColumnName("report_storage_key");
+            entity.Property(e => e.ReportUrl)
+                .HasMaxLength(500)
+                .HasColumnName("report_url");
             entity.Property(e => e.ReviewComment)
                 .HasMaxLength(500)
                 .HasColumnName("review_comment");
@@ -1057,6 +1099,12 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.SlideUrl)
                 .HasMaxLength(500)
                 .HasColumnName("slide_url");
+            entity.Property(e => e.SourceCodeStorageKey)
+                .HasMaxLength(255)
+                .HasColumnName("source_code_storage_key");
+            entity.Property(e => e.SourceCodeUrl)
+                .HasMaxLength(500)
+                .HasColumnName("source_code_url");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Draft'::character varying")
@@ -1497,6 +1545,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.PhoneNumber)
                 .HasMaxLength(15)
                 .HasColumnName("phone_number");
+            entity.Property(e => e.TokenVersion)
+                .HasDefaultValue(0)
+                .HasColumnName("token_version");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("updated_at");

@@ -47,6 +47,14 @@ public partial class Project
 
     public string? FinalComment { get; set; }
 
+    public string? ReportUrl { get; set; }
+
+    public string? ReportStorageKey { get; set; }
+
+    public string? SourceCodeUrl { get; set; }
+
+    public string? SourceCodeStorageKey { get; set; }
+
     public virtual ICollection<BorrowRequest> BorrowRequests { get; set; } = new List<BorrowRequest>();
 
     public virtual Class? Class { get; set; }

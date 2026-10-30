@@ -27,6 +27,8 @@ public partial class User
 
     public DateTime UpdatedAt { get; set; }
 
+    public int TokenVersion { get; set; }
+
     public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
 
     public virtual ICollection<BorrowApproval> BorrowApprovals { get; set; } = new List<BorrowApproval>();
@@ -54,6 +56,8 @@ public partial class User
     public virtual ICollection<IssueReport> IssueReportResolvedByNavigations { get; set; } = new List<IssueReport>();
 
     public virtual ICollection<LabRoomStaff> LabRoomStaffs { get; set; } = new List<LabRoomStaff>();
+
+    public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 
     public virtual ICollection<Project> ProjectFinalReviewedByNavigations { get; set; } = new List<Project>();
 
