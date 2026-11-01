@@ -4,6 +4,7 @@ using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.DTOs.Notifications;
 using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.Interfaces.Notifications;
+using SmartLab.BLL.Mappings.Notifications;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
 
@@ -68,16 +69,7 @@ public class NotificationService : INotificationService
             await _uow.SaveChangesAsync(ct);
         }
 
-        return new NotificationResponse
-        {
-            NotificationId = notification.NotificationId,
-            Title = notification.Title,
-            RefType = notification.RefType,
-            RefId = notification.RefId,
-            IsRead = notification.IsRead,
-            CreatedAt = notification.CreatedAt,
-            ReadAt = notification.ReadAt,
-        };
+        return NotificationMappings.ToResponse(notification);
     }
 
     public async Task<UnreadCountResponse> MarkAllAsReadAsync(CancellationToken ct = default)

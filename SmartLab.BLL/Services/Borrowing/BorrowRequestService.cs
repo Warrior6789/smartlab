@@ -12,6 +12,7 @@ using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.External.Storage;
 using SmartLab.BLL.Interfaces.Borrowing;
 using SmartLab.BLL.Interfaces.IssueReports;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.BLL.Mappings.Borrowing;
 using SmartLab.BLL.Services.Inventory;
 using SmartLab.DAL.Entities;
@@ -45,12 +46,13 @@ public class BorrowRequestService : IBorrowRequestService
     private readonly IStudentCardChecker _cardChecker;
     private readonly IBorrowNotifier _notifier;
     private readonly IIssueReportBorrowingIntegration _issueReports;
+    private readonly IChangeBroadcaster _changes;
     private readonly ILogger<BorrowRequestService> _logger;
 
     public BorrowRequestService(
         IUnitOfWork uow, ICurrentUserService currentUser, IFileStorage fileStorage,
         IStudentCardChecker cardChecker, IBorrowNotifier notifier,
-        IIssueReportBorrowingIntegration issueReports, ILogger<BorrowRequestService> logger)
+        IIssueReportBorrowingIntegration issueReports, IChangeBroadcaster changes, ILogger<BorrowRequestService> logger)
     {
         _uow = uow;
         _currentUser = currentUser;
@@ -58,6 +60,7 @@ public class BorrowRequestService : IBorrowRequestService
         _cardChecker = cardChecker;
         _notifier = notifier;
         _issueReports = issueReports;
+        _changes = changes;
         _logger = logger;
     }
 
@@ -346,6 +349,7 @@ public class BorrowRequestService : IBorrowRequestService
         {
             await tx.CommitAsync(ct);
             await _notifier.ReplacementArrivedAsync(borrowRequestId, line.BorrowItemId, ct);
+            await _changes.BorrowRequestChangedAsync(borrowRequestId);
             return await GetRequestByIdAsync(borrowRequestId, ct);
         }
 
@@ -362,6 +366,7 @@ public class BorrowRequestService : IBorrowRequestService
 
         if (!waiting)
             await _notifier.ReadyAsync(borrowRequestId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
     }
@@ -598,6 +603,7 @@ public class BorrowRequestService : IBorrowRequestService
         await tx.CommitAsync(ct);
 
         await _notifier.IssuedAsync(borrowRequestId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
     }
@@ -751,6 +757,7 @@ public class BorrowRequestService : IBorrowRequestService
         await tx.CommitAsync(ct);
 
         await _notifier.ReturnedAsync(borrowRequestId, lineIds, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
     }
@@ -832,6 +839,7 @@ public class BorrowRequestService : IBorrowRequestService
         await tx.CommitAsync(ct);
 
         await _notifier.ReplacementAsync(borrowRequestId, line.BorrowItemId, replacement?.BorrowItemId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         var response = new ReplaceDamagedResponse
         {
@@ -920,6 +928,7 @@ public class BorrowRequestService : IBorrowRequestService
         await tx.CommitAsync(ct);
 
         await _notifier.ReplacementIssuedAsync(borrowRequestId, line.BorrowItemId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
     }
@@ -954,6 +963,7 @@ public class BorrowRequestService : IBorrowRequestService
         await tx.CommitAsync(ct);
 
         await _notifier.ReplacementCancelledAsync(borrowRequestId, componentName, notCarriedFrom, request.Reason.Trim(), userId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
     }
@@ -1027,6 +1037,7 @@ public class BorrowRequestService : IBorrowRequestService
         if (!byBorrower)
             await _notifier.CancelledByStaffAsync(borrowRequestId, ct);
         await _notifier.StaffCancelledAsync(borrowRequestId, userId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
     }

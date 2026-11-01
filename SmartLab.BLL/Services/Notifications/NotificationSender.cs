@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using SmartLab.BLL.Interfaces.Notifications;
+using SmartLab.BLL.Mappings.Notifications;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
 
@@ -11,11 +12,13 @@ public class NotificationSender : INotificationSender
     private const int MaxTitleLength = 300;
 
     private readonly IUnitOfWork _uow;
+    private readonly INotificationPusher _pusher;
     private readonly ILogger<NotificationSender> _logger;
 
-    public NotificationSender(IUnitOfWork uow, ILogger<NotificationSender> logger)
+    public NotificationSender(IUnitOfWork uow, INotificationPusher pusher, ILogger<NotificationSender> logger)
     {
         _uow = uow;
+        _pusher = pusher;
         _logger = logger;
     }
 
@@ -41,6 +44,17 @@ public class NotificationSender : INotificationSender
         {
             notifications.Remove(notification);
             _logger.LogError(ex, "Could not save notification for user {UserId}: {Title}", userId, notification.Title);
+            return;
+        }
+
+        try
+        {
+            await _pusher.PushAsync(userId, NotificationMappings.ToResponse(notification));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not push notification {NotificationId} to user {UserId}",
+                notification.NotificationId, userId);
         }
     }
 

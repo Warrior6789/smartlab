@@ -5,6 +5,7 @@ using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Borrowing;
 using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.Interfaces.Borrowing;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
 
@@ -24,12 +25,14 @@ public class BorrowExtensionService : IBorrowExtensionService
     private readonly IUnitOfWork _uow;
     private readonly ICurrentUserService _currentUser;
     private readonly IBorrowNotifier _notifier;
+    private readonly IChangeBroadcaster _changes;
 
-    public BorrowExtensionService(IUnitOfWork uow, ICurrentUserService currentUser, IBorrowNotifier notifier)
+    public BorrowExtensionService(IUnitOfWork uow, ICurrentUserService currentUser, IBorrowNotifier notifier, IChangeBroadcaster changes)
     {
         _uow = uow;
         _currentUser = currentUser;
         _notifier = notifier;
+        _changes = changes;
     }
 
     public async Task<BorrowExtensionResponse> RequestAsync(
@@ -90,6 +93,7 @@ public class BorrowExtensionService : IBorrowExtensionService
         await tx.CommitAsync(ct);
 
         await _notifier.ExtensionRequestedAsync(extension.ExtensionId, ct);
+        await _changes.BorrowExtensionChangedAsync(extension.ExtensionId);
 
         return await GetByIdAsync(extension.ExtensionId, ct);
     }
@@ -150,6 +154,7 @@ public class BorrowExtensionService : IBorrowExtensionService
         await tx.CommitAsync(ct);
 
         await _notifier.ExtensionReviewedAsync(extensionId, ct);
+        await _changes.BorrowExtensionChangedAsync(extensionId);
 
         return await GetByIdAsync(extensionId, ct);
     }
@@ -170,6 +175,7 @@ public class BorrowExtensionService : IBorrowExtensionService
         await tx.CommitAsync(ct);
 
         await _notifier.ExtensionReviewedAsync(extensionId, ct);
+        await _changes.BorrowExtensionChangedAsync(extensionId);
 
         return await GetByIdAsync(extensionId, ct);
     }

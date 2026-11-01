@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using SmartLab.API.Realtime;
 using SmartLab.BLL.Common;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.External.Jwt;
@@ -22,7 +23,8 @@ public static class AuthExtensions
     /// - 401/403 are returned as ApiResponse JSON;
     /// - a locked account is rejected (401) on every request, not only at login (checked with a short cache);
     /// - a token whose token_version is older than the account's (after logout, password or role change) is rejected (401).
-    ///   Tokens issued before the claim existed count as version 0.
+    ///   Tokens issued before the claim existed count as version 0;
+    /// - the SignalR hub also accepts the token from the "access_token" query string (browsers cannot set headers on WebSockets).
     /// </summary>
     public static IServiceCollection AddSmartLabAuth(this IServiceCollection services, IConfiguration configuration)
     {
@@ -33,6 +35,13 @@ public static class AuthExtensions
                 options.MapInboundClaims = false;
                 options.Events = new JwtBearerEvents
                 {
+                    OnMessageReceived = context =>
+                    {
+                        var accessToken = context.Request.Query["access_token"];
+                        if (!string.IsNullOrEmpty(accessToken) && context.HttpContext.Request.Path.StartsWithSegments(NotificationHub.Path))
+                            context.Token = accessToken;
+                        return Task.CompletedTask;
+                    },
                     OnTokenValidated = async context =>
                     {
                         var subject = context.Principal?.FindFirst(AppClaimTypes.Subject)?.Value;

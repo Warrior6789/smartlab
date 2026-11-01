@@ -12,6 +12,7 @@ builder.Services.AddSmartLabControllers();
 builder.Services.AddSmartLabSwagger();
 builder.Services.AddSmartLabRateLimiting();
 builder.Services.AddSmartLabCors(builder.Configuration);
+builder.Services.AddSmartLabRealtime();
 
 var app = builder.Build();
 
@@ -28,6 +29,7 @@ app.UseRateLimiter();
 
 app.MapGet("/", () => Results.Redirect("/swagger")).AllowAnonymous().ExcludeFromDescription();
 app.MapControllers();
+app.MapSmartLabHubs();
 app.MapSmartLabHealthChecks();
 
 app.Run();

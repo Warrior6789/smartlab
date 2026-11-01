@@ -7,7 +7,8 @@ public static class CorsExtensions
     /// <summary>
     /// Lets the browser front-end call the API from another origin. Origins come from Cors:AllowedOrigins
     /// (appsettings, or environment variables Cors__AllowedOrigins__0, Cors__AllowedOrigins__1... on deploy).
-    /// The JWT is sent in the Authorization header, so no cookies / credentials are allowed.
+    /// The JWT is sent in the Authorization header (or the access_token query for SignalR). Credentials are allowed only
+    /// because the SignalR client sends requests with credentials by default; the API itself uses no cookies.
     /// </summary>
     public static IServiceCollection AddSmartLabCors(this IServiceCollection services, IConfiguration configuration)
     {
@@ -17,6 +18,7 @@ public static class CorsExtensions
             .WithOrigins(origins)
             .AllowAnyHeader()
             .AllowAnyMethod()
+            .AllowCredentials()
             .SetPreflightMaxAge(TimeSpan.FromHours(1))));
 
         return services;

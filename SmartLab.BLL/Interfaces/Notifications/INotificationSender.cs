@@ -1,8 +1,8 @@
 namespace SmartLab.BLL.Interfaces.Notifications;
 
 /// <summary>
-/// Saves an in-app notification next to an email. Call after the business change is committed. Never throws: failures
-/// are only logged, so the business action still succeeds.
+/// Saves an in-app notification next to an email, then pushes it realtime to the user's open connections.
+/// Call after the business change is committed. Never throws: failures are only logged, so the business action still succeeds.
 /// </summary>
 public interface INotificationSender
 {

@@ -10,6 +10,7 @@ using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.External.Storage;
 using SmartLab.BLL.Interfaces.Academic;
 using SmartLab.BLL.Interfaces.Borrowing;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.BLL.Services.Borrowing;
 using SmartLab.BLL.Services.Inventory;
 using SmartLab.BLL.Services.Teamwork;
@@ -37,17 +38,19 @@ public class ProjectService : IProjectService
     private readonly ICurrentUserService _currentUser;
     private readonly IBorrowNotifier _notifier;
     private readonly IProjectNotifier _projectNotifier;
+    private readonly IChangeBroadcaster _changes;
     private readonly IFileStorage _fileStorage;
     private readonly ILogger<ProjectService> _logger;
 
     public ProjectService(
         IUnitOfWork uow, ICurrentUserService currentUser, IBorrowNotifier notifier, IProjectNotifier projectNotifier,
-        IFileStorage fileStorage, ILogger<ProjectService> logger)
+        IChangeBroadcaster changes, IFileStorage fileStorage, ILogger<ProjectService> logger)
     {
         _uow = uow;
         _currentUser = currentUser;
         _notifier = notifier;
         _projectNotifier = projectNotifier;
+        _changes = changes;
         _fileStorage = fileStorage;
         _logger = logger;
     }
@@ -630,6 +633,7 @@ public class ProjectService : IProjectService
         }
 
         await _notifier.SubmittedAsync(borrowRequest!.BorrowRequestId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequest.BorrowRequestId);
 
         return await GetProjectByIdAsync(projectId, ct);
     }
@@ -747,6 +751,7 @@ public class ProjectService : IProjectService
         }
 
         await _notifier.SubmittedAsync(borrowRequest!.BorrowRequestId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequest.BorrowRequestId);
 
         return await GetProjectByIdAsync(projectId, ct);
     }
@@ -764,6 +769,8 @@ public class ProjectService : IProjectService
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, BorrowRequestStatuses.Cancelled), ct);
         if (cancelled == 0)
             throw new ConflictException("Không có đơn mượn thêm đang chờ duyệt hoặc giảng viên vừa xử lý xong");
+
+        await _changes.ProjectChangedAsync(projectId);
 
         return await GetProjectByIdAsync(projectId, ct);
     }
@@ -798,6 +805,7 @@ public class ProjectService : IProjectService
             throw new ConflictException(StatusChangedMessage);
 
         await _projectNotifier.FinalSubmittedAsync(projectId, ct);
+        await _changes.ProjectChangedAsync(projectId);
 
         return await GetProjectByIdAsync(projectId, ct);
     }
@@ -875,6 +883,8 @@ public class ProjectService : IProjectService
 
         await tx.CommitAsync(ct);
 
+        await _changes.ProjectChangedAsync(projectId);
+
         return await GetProjectByIdAsync(projectId, ct);
     }
 
@@ -935,6 +945,7 @@ public class ProjectService : IProjectService
             throw new ConflictException("Bài nộp đã được xử lý");
 
         await _projectNotifier.FinalReviewedAsync(projectId, ct);
+        await _changes.ProjectChangedAsync(projectId);
 
         return await GetProjectByIdAsync(projectId, ct);
     }

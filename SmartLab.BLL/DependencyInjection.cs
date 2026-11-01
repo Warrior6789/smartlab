@@ -121,6 +121,7 @@ public static class DependencyInjection
 
         services.AddScoped<INotificationSender, NotificationSender>();
         services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<IChangeBroadcaster, ChangeBroadcaster>();
 
         services.AddScoped<IReportService, ReportService>();
 

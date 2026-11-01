@@ -6,6 +6,7 @@ using SmartLab.BLL.DTOs.Academic;
 using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.Interfaces.Academic;
 using SmartLab.BLL.Interfaces.Borrowing;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.BLL.Services.Inventory;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
@@ -25,14 +26,17 @@ public class ProjectReviewService : IProjectReviewService
     private readonly ICurrentUserService _currentUser;
     private readonly IProjectService _projectService;
     private readonly IBorrowNotifier _notifier;
+    private readonly IChangeBroadcaster _changes;
 
     public ProjectReviewService(
-        IUnitOfWork uow, ICurrentUserService currentUser, IProjectService projectService, IBorrowNotifier notifier)
+        IUnitOfWork uow, ICurrentUserService currentUser, IProjectService projectService, IBorrowNotifier notifier,
+        IChangeBroadcaster changes)
     {
         _uow = uow;
         _currentUser = currentUser;
         _projectService = projectService;
         _notifier = notifier;
+        _changes = changes;
     }
 
     public Task<PagedResult<PendingApprovalProjectResponse>> GetPendingAsync(
@@ -130,6 +134,8 @@ public class ProjectReviewService : IProjectReviewService
             await _notifier.StaffApprovedAsync(step.BorrowRequestId, ct);
         }
 
+        await _changes.BorrowRequestChangedAsync(step.BorrowRequestId);
+
         return await _projectService.GetProjectByIdAsync(projectId, ct);
     }
 
@@ -157,6 +163,7 @@ public class ProjectReviewService : IProjectReviewService
         await tx.CommitAsync(ct);
 
         await _notifier.RejectedAsync(step.BorrowRequestId, ct);
+        await _changes.BorrowRequestChangedAsync(step.BorrowRequestId);
 
         return await _projectService.GetProjectByIdAsync(projectId, ct);
     }
