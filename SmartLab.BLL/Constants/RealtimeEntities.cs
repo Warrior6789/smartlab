@@ -6,4 +6,5 @@ public static class RealtimeEntities
     public const string BorrowRequest = "BorrowRequest";
     public const string BorrowExtension = "BorrowExtension";
     public const string Project = "Project";
+    public const string Team = "Team";
 }

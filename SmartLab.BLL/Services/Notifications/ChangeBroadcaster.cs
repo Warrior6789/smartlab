@@ -85,6 +85,49 @@ public class ChangeBroadcaster : IChangeBroadcaster
         }
     }
 
+    public async Task TeamChangedAsync(Guid teamId, params Guid[] extraStudentProfileIds)
+    {
+        try
+        {
+            var team = await _uow.Repository<Team>().QueryNoTracking()
+                .Where(t => t.TeamId == teamId)
+                .Select(t => new
+                {
+                    LeaderUserId = t.Leader.UserId,
+                    MemberIds = t.TeamMembers
+                        .Where(m => m.Status == TeamMemberStatuses.Accepted || m.Status == TeamMemberStatuses.Pending)
+                        .Select(m => m.Student.UserId)
+                        .ToList(),
+                })
+                .FirstOrDefaultAsync();
+
+            var userIds = new HashSet<Guid>();
+            if (team != null)
+            {
+                userIds.Add(team.LeaderUserId);
+                userIds.UnionWith(team.MemberIds);
+            }
+
+            if (extraStudentProfileIds.Length > 0)
+            {
+                var extraUserIds = await _uow.Repository<StudentProfile>().QueryNoTracking()
+                    .Where(s => extraStudentProfileIds.Contains(s.StudentProfileId))
+                    .Select(s => s.UserId)
+                    .ToListAsync();
+                userIds.UnionWith(extraUserIds);
+            }
+
+            if (userIds.Count == 0)
+                return;
+
+            await PushAsync(userIds, NoPermissions, RealtimeEntities.Team, teamId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not broadcast change of team {TeamId}", teamId);
+        }
+    }
+
     private sealed class RequestRecipients
     {
         public Guid RequesterId { get; set; }

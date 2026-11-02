@@ -4,6 +4,7 @@ using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Teamwork;
 using SmartLab.BLL.External.CurrentUser;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.BLL.Interfaces.Teamwork;
 using SmartLab.BLL.Mappings.Teamwork;
 using SmartLab.DAL.Entities;
@@ -18,12 +19,14 @@ public class TeamService : ITeamService
     private readonly IUnitOfWork _uow;
     private readonly ICurrentUserService _currentUser;
     private readonly ITeamNotifier _notifier;
+    private readonly IChangeBroadcaster _changes;
 
-    public TeamService(IUnitOfWork uow, ICurrentUserService currentUser, ITeamNotifier notifier)
+    public TeamService(IUnitOfWork uow, ICurrentUserService currentUser, ITeamNotifier notifier, IChangeBroadcaster changes)
     {
         _uow = uow;
         _currentUser = currentUser;
         _notifier = notifier;
+        _changes = changes;
     }
 
     public async Task<TeamResponse> CreateTeamAsync(
@@ -162,9 +165,10 @@ public class TeamService : ITeamService
     {
         var leader = await GetCurrentStudentAsync(ct);
         var observed = await TeamMutationLock.ReadAsync(_uow, teamId, ct);
+        TeamResponse result;
         try
         {
-            return await MutateTeamAsync(observed, async (team, now, studentLocked) =>
+            result = await MutateTeamAsync(observed, async (team, now, studentLocked) =>
             {
                 EnsureLeader(team, leader.StudentProfileId);
                 await EnsureActiveEnrollmentAsync(team.ClassId, leader.StudentProfileId, ct);
@@ -207,6 +211,8 @@ public class TeamService : ITeamService
             throw new ConflictException("Lời mời thành viên đã tồn tại");
         }
 
+        await _changes.TeamChangedAsync(teamId);
+        return result;
     }
 
     public async Task<TeamResponse> RemoveUnacceptedMemberAsync(
@@ -214,7 +220,7 @@ public class TeamService : ITeamService
     {
         var leader = await GetCurrentStudentAsync(ct);
         var observed = await TeamMutationLock.ReadAsync(_uow, teamId, ct);
-        return await MutateTeamAsync(observed, (team, _, _) =>
+        var result = await MutateTeamAsync(observed, (team, _, _) =>
         {
             EnsureLeader(team, leader.StudentProfileId);
             if (studentProfileId == team.LeaderId)
@@ -226,6 +232,8 @@ public class TeamService : ITeamService
             _uow.Repository<TeamMember>().Remove(member);
             return Task.CompletedTask;
         }, ct);
+        await _changes.TeamChangedAsync(teamId, studentProfileId);
+        return result;
     }
 
     public async Task<IReadOnlyList<TeamInvitationResponse>> GetMyInvitationsAsync(
@@ -255,7 +263,8 @@ public class TeamService : ITeamService
         var observed = await _uow.Repository<Team>().QueryNoTracking().FirstOrDefaultAsync(t => t.TeamId == teamId, ct)
             ?? throw new NotFoundException("Không tìm thấy lời mời vào nhóm");
         var accepting = request.Decision.Equals(TeamMemberStatuses.Accepted, StringComparison.OrdinalIgnoreCase);
-        return await MutateTeamAsync(observed, async (team, now, studentLocked) =>
+        var otherTeamIds = new List<Guid>();
+        var result = await MutateTeamAsync(observed, async (team, now, studentLocked) =>
         {
             var invitation = team.TeamMembers.FirstOrDefault(m => m.StudentId == student.StudentProfileId)
                 ?? throw new NotFoundException("Không tìm thấy lời mời vào nhóm");
@@ -270,22 +279,31 @@ public class TeamService : ITeamService
                 if (await HasActiveTeamAssociationAsync(team.ClassId, student.StudentProfileId, teamId, ct, includePending: false))
                     throw new ConflictException("Bạn đã là thành viên hoặc đang là trưởng nhóm khác trong lớp này");
                 EnsureStudentAssociationLocked(studentLocked);
-                await _uow.Repository<TeamMember>().Query()
+                var otherInvitations = _uow.Repository<TeamMember>().Query()
                     .Where(m => m.StudentId == student.StudentProfileId && m.Team.ClassId == team.ClassId
-                                && m.TeamId != teamId && m.Status == TeamMemberStatuses.Pending)
+                                && m.TeamId != teamId && m.Status == TeamMemberStatuses.Pending);
+                otherTeamIds = await otherInvitations.Select(m => m.TeamId).ToListAsync(ct);
+                await otherInvitations
                     .ExecuteUpdateAsync(s => s.SetProperty(m => m.Status, TeamMemberStatuses.Rejected)
                         .SetProperty(m => m.RespondedAt, now), ct);
             }
             invitation.Status = decision;
             invitation.RespondedAt = now;
         }, ct, accepting ? student.StudentProfileId : null);
+
+        await _changes.TeamChangedAsync(teamId);
+        foreach (var otherTeamId in otherTeamIds)
+            await _changes.TeamChangedAsync(otherTeamId);
+        await _notifier.InvitationAnsweredAsync(teamId, student.StudentProfileId, accepting, CancellationToken.None);
+
+        return result;
     }
 
     public async Task<TeamResponse> LeaveTeamAsync(Guid teamId, CancellationToken ct = default)
     {
         var student = await GetCurrentStudentAsync(ct);
         var observed = await TeamMutationLock.ReadAsync(_uow, teamId, ct);
-        return await MutateTeamAsync(observed, async (team, _, _) =>
+        var result = await MutateTeamAsync(observed, async (team, _, _) =>
         {
             if (team.LeaderId == student.StudentProfileId)
                 throw new BadRequestException("Trưởng nhóm phải chuyển quyền cho thành viên khác trước khi rời nhóm");
@@ -295,6 +313,8 @@ public class TeamService : ITeamService
             await EnsureMembershipEditableAsync(teamId, ct);
             _uow.Repository<TeamMember>().Remove(member);
         }, ct);
+        await _changes.TeamChangedAsync(teamId, student.StudentProfileId);
+        return result;
     }
 
     public async Task<TeamResponse> RemoveMemberAsync(Guid teamId, Guid studentProfileId, CancellationToken ct = default)
@@ -312,6 +332,7 @@ public class TeamService : ITeamService
             await EnsureMembershipEditableAsync(teamId, ct);
             _uow.Repository<TeamMember>().Remove(member);
         }, ct);
+        await _changes.TeamChangedAsync(teamId, studentProfileId);
         await _notifier.MemberRemovedAsync(teamId, studentProfileId, CancellationToken.None);
         return result;
     }
@@ -340,6 +361,7 @@ public class TeamService : ITeamService
             await EnsureMembershipEditableAsync(teamId, ct);
             team.LeaderId = target.StudentId;
         }, ct);
+        await _changes.TeamChangedAsync(teamId);
         await _notifier.LeaderTransferredAsync(teamId, observed.LeaderId, request.StudentProfileId, CancellationToken.None);
         return result;
     }

@@ -14,4 +14,10 @@ public interface IChangeBroadcaster
 
     /// <summary>Project team, class lecturer and the approvers of its borrow requests.</summary>
     Task ProjectChangedAsync(Guid projectId);
+
+    /// <summary>
+    /// Team leader and every Accepted or Pending member, plus <paramref name="extraStudentProfileIds"/>: students who just
+    /// left, were removed or had their invitation cancelled, so they are no longer in the team.
+    /// </summary>
+    Task TeamChangedAsync(Guid teamId, params Guid[] extraStudentProfileIds);
 }

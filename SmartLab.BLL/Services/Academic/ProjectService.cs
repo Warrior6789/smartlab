@@ -230,7 +230,7 @@ public class ProjectService : IProjectService
         foreach (var item in request.SelfSuppliedItems)
             project.ProjectSelfSuppliedItems.Add(ToSelfSuppliedItem(item, now));
 
-        return await TeamMutationLock.RunAsync(_uow, team, async token =>
+        var created = await TeamMutationLock.RunAsync(_uow, team, async token =>
         {
             var current = await TeamMutationLock.ReadAsync(_uow, teamId, token);
             if (current.LeaderId != studentId)
@@ -255,6 +255,10 @@ public class ProjectService : IProjectService
 
             return await GetProjectByIdAsync(project.ProjectId, token);
         }, ct);
+
+        await _changes.ProjectChangedAsync(created.ProjectId);
+
+        return created;
     }
 
     public async Task<ProjectDetailResponse> UpdateProjectAsync(
@@ -308,6 +312,8 @@ public class ProjectService : IProjectService
 
         await _uow.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
+
+        await _changes.ProjectChangedAsync(projectId);
 
         return await GetProjectByIdAsync(projectId, ct);
     }

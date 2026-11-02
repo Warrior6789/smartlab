@@ -13,6 +13,31 @@ namespace SmartLab.BLL.Services.Teamwork;
 public class TeamNotifier(
     IUnitOfWork uow, IEmailSender email, INotificationSender notifications, ILogger<TeamNotifier> logger) : ITeamNotifier
 {
+    public async Task InvitationAnsweredAsync(Guid teamId, Guid studentProfileId, bool accepted, CancellationToken ct = default)
+    {
+        try
+        {
+            var team = await uow.Repository<Team>().QueryNoTracking().Where(t => t.TeamId == teamId)
+                .Select(t => new { t.TeamName, t.Leader.UserId, t.Leader.User.Email, t.Leader.User.FullName }).SingleAsync(ct);
+            var studentName = await uow.Repository<StudentProfile>().QueryNoTracking()
+                .Where(s => s.StudentProfileId == studentProfileId)
+                .Select(s => s.User.FullName).SingleAsync(ct);
+
+            var action = "đã từ chối";
+            if (accepted)
+                action = "đã chấp nhận";
+
+            await SendAsync(team.UserId, team.Email, teamId,
+                $"SmartLab - {studentName} {action} lời mời vào {team.TeamName}",
+                $"<p>Xin chào <b>{Encode(team.FullName)}</b>,</p><p><b>{Encode(studentName)}</b> {action} lời mời vào nhóm " +
+                $"<b>{Encode(team.TeamName)}</b>.</p>");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Could not prepare invitation answer email for team {TeamId}", teamId);
+        }
+    }
+
     public async Task MemberRemovedAsync(Guid teamId, Guid studentProfileId, CancellationToken ct = default)
     {
         try
