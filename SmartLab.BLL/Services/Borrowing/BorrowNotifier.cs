@@ -499,6 +499,8 @@ public class BorrowNotifier : IBorrowNotifier
 
         foreach (var member in staff)
         {
+            await _notifications.SendAsync(member.UserId, subject, NotificationRefTypes.BorrowRequest, info.BorrowRequestId);
+
             try
             {
                 await _email.SendAsync(member.Email, subject, body, CancellationToken.None);
@@ -507,8 +509,6 @@ public class BorrowNotifier : IBorrowNotifier
             {
                 _logger.LogError(ex, "Could not email staff {Email} about borrow request {Code}", member.Email, info.RequestCode);
             }
-
-            await _notifications.SendAsync(member.UserId, subject, NotificationRefTypes.BorrowRequest, info.BorrowRequestId);
         }
     }
 
@@ -712,6 +712,8 @@ public class BorrowNotifier : IBorrowNotifier
     private async Task SendToAsync(
         Guid userId, string email, string requestCode, string subject, string body, string refType, Guid refId)
     {
+        await _notifications.SendAsync(userId, subject, refType, refId);
+
         try
         {
             await _email.SendAsync(email, subject, body, CancellationToken.None);
@@ -720,8 +722,6 @@ public class BorrowNotifier : IBorrowNotifier
         {
             _logger.LogError(ex, "Could not email {Email} about borrow request {Code}", email, requestCode);
         }
-
-        await _notifications.SendAsync(userId, subject, refType, refId);
     }
 
     private sealed record MailInfo(
@@ -739,6 +739,8 @@ public class BorrowNotifier : IBorrowNotifier
 
     private async Task SendAsync(MailInfo info, string subject, string body)
     {
+        await _notifications.SendAsync(info.UserId, subject, NotificationRefTypes.BorrowRequest, info.BorrowRequestId);
+
         try
         {
             await _email.SendAsync(info.Email, subject, body, CancellationToken.None);
@@ -747,8 +749,6 @@ public class BorrowNotifier : IBorrowNotifier
         {
             _logger.LogError(ex, "Could not email {Email} about borrow request {Code}", info.Email, info.RequestCode);
         }
-
-        await _notifications.SendAsync(info.UserId, subject, NotificationRefTypes.BorrowRequest, info.BorrowRequestId);
     }
 
     private static string Greeting(MailInfo info) => $"<p>Xin chào <b>{Encode(info.FullName)}</b>,</p>";

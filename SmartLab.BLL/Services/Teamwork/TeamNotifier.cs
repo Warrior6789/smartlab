@@ -102,6 +102,8 @@ public class TeamNotifier(
 
     private async Task SendAsync(Guid userId, string address, Guid teamId, string subject, string body)
     {
+        await notifications.SendAsync(userId, subject, NotificationRefTypes.Team, teamId);
+
         try
         {
             await email.SendAsync(address, subject, body, CancellationToken.None);
@@ -110,8 +112,6 @@ public class TeamNotifier(
         {
             logger.LogError(ex, "Could not email {Email} about team {TeamId}", address, teamId);
         }
-
-        await notifications.SendAsync(userId, subject, NotificationRefTypes.Team, teamId);
     }
 
     private static string Encode(string value) => WebUtility.HtmlEncode(value);

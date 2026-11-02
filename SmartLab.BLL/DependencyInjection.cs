@@ -54,7 +54,10 @@ public static class DependencyInjection
         services.AddSingleton<IFileStorage, CloudinaryFileStorage>();
 
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
-        services.AddSingleton<IEmailSender, SmtpEmailSender>();
+        services.AddSingleton<SmtpEmailSender>();
+        services.AddSingleton<EmailQueue>();
+        services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<EmailQueue>());
+        services.AddHostedService<EmailWorker>();
 
         services.Configure<GeminiOptions>(configuration.GetSection(GeminiOptions.SectionName));
         services.AddHttpClient<IAiComponentAdvisor, GeminiComponentAdvisor>((provider, client) =>

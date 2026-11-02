@@ -177,6 +177,8 @@ public class ProjectNotifier : IProjectNotifier
 
     private async Task SendAsync(Guid userId, string email, Guid projectId, string subject, string body)
     {
+        await _notifications.SendAsync(userId, subject, NotificationRefTypes.Project, projectId);
+
         try
         {
             await _email.SendAsync(email, subject, body, CancellationToken.None);
@@ -185,8 +187,6 @@ public class ProjectNotifier : IProjectNotifier
         {
             _logger.LogError(ex, "Could not email {Email} about project {ProjectId}", email, projectId);
         }
-
-        await _notifications.SendAsync(userId, subject, NotificationRefTypes.Project, projectId);
     }
 
     private static string Encode(string text) => WebUtility.HtmlEncode(text);
