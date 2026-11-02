@@ -41,6 +41,26 @@ public class CloudinaryFileStorage : IFileStorage
             Overwrite = false,
         };
 
+        return await SendImageUploadAsync(uploadParams, ct);
+    }
+
+    public Task<StoredFile> UploadImageOverwriteAsync(
+        Stream content, string fileName, string folder, string publicId, CancellationToken ct = default)
+    {
+        var uploadParams = new ImageUploadParams
+        {
+            File = new FileDescription(fileName, content),
+            Folder = $"{_options.RootFolder}/{folder}",
+            PublicId = publicId,
+            Overwrite = true,
+            Invalidate = true,
+        };
+
+        return SendImageUploadAsync(uploadParams, ct);
+    }
+
+    private async Task<StoredFile> SendImageUploadAsync(ImageUploadParams uploadParams, CancellationToken ct)
+    {
         var result = await _cloudinary.Value.UploadAsync(uploadParams, ct);
         if (result.Error != null && result.StatusCode == HttpStatusCode.BadRequest)
             throw new BadRequestException("File bị hỏng hoặc không đúng định dạng");

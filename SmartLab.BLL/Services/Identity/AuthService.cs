@@ -1,7 +1,6 @@
 using System.Net;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Identity;
@@ -35,12 +34,10 @@ public class AuthService : IAuthService
     private readonly IActiveUserChecker _sessionChecker;
     private readonly IAuditLogger _auditLogger;
     private readonly IFileStorage _fileStorage;
-    private readonly ILogger<AuthService> _logger;
 
     public AuthService(
         IUnitOfWork uow, IPasswordHasher passwordHasher, IJwtService jwtService, ICurrentUserService currentUser,
-        IEmailSender email, IActiveUserChecker sessionChecker, IAuditLogger auditLogger, IFileStorage fileStorage,
-        ILogger<AuthService> logger)
+        IEmailSender email, IActiveUserChecker sessionChecker, IAuditLogger auditLogger, IFileStorage fileStorage)
     {
         _uow = uow;
         _passwordHasher = passwordHasher;
@@ -50,7 +47,6 @@ public class AuthService : IAuthService
         _sessionChecker = sessionChecker;
         _auditLogger = auditLogger;
         _fileStorage = fileStorage;
-        _logger = logger;
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
@@ -128,21 +124,13 @@ public class AuthService : IAuthService
         StoredFile stored;
         await using (var content = request.File.OpenReadStream())
         {
-            stored = await _fileStorage.UploadImageAsync(content, request.File.FileName, AvatarStorageFolder, ct);
+            stored = await _fileStorage.UploadImageOverwriteAsync(
+                content, request.File.FileName, AvatarStorageFolder, user.UserId.ToString(), ct);
         }
 
         user.AvatarUrl = stored.Url;
         user.UpdatedAt = DateTime.UtcNow;
-
-        try
-        {
-            await _uow.SaveChangesAsync(ct);
-        }
-        catch
-        {
-            await TryDeleteStoredFileAsync(stored.Key);
-            throw;
-        }
+        await _uow.SaveChangesAsync(ct);
 
         return UserMappings.ToCurrentUserDto(user);
     }
@@ -311,17 +299,4 @@ public class AuthService : IAuthService
 
     private Task<User?> LoadUserWithAccessAsync(Guid userId, CancellationToken ct)
         => QueryUserWithAccess(tracking: false).FirstOrDefaultAsync(u => u.UserId == userId, ct);
-
-    /// <summary>The DB row is the source of truth; a leftover file in storage is only logged, never fails the request.</summary>
-    private async Task TryDeleteStoredFileAsync(string key)
-    {
-        try
-        {
-            await _fileStorage.DeleteAsync(key);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not delete stored file {StorageKey}", key);
-        }
-    }
 }
