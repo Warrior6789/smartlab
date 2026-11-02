@@ -5,6 +5,7 @@ using SmartLab.BLL.Common;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.ClassSetupDTO;
 using SmartLab.BLL.Interfaces.Academic;
+using SmartLab.BLL.DTOs.Academic;
 
 namespace SmartLab.API.Controllers.Academic;
 
@@ -72,6 +73,57 @@ public class ClassesController : ControllerBase
     {
         var result = await _rosterService.ImportStudentsAsync(id, request, ct);
         return Ok(ApiResponse<ImportRosterResult>.Ok(result, "Import hoàn tất"));
+    }
+    /// <summary>Danh sách sinh viên của lớp. Admin hoặc giảng viên phụ trách chính lớp đó.</summary>
+    [HttpGet("{classId:guid}/students")]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<ClassStudentResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetStudents(
+        Guid classId, [FromQuery] ClassStudentQueryParams query, [FromQuery] PageParams paging, CancellationToken ct)
+    {
+        var result = await _rosterService.GetStudentsAsync(classId, query, paging, ct);
+        return Ok(ApiResponse<PagedResult<ClassStudentResponse>>.Ok(result));
+    }
+
+    /// <summary>Thêm 1 sinh viên vào lớp; chưa có tài khoản thì tạo và gửi mật khẩu qua email như roster import.</summary>
+    [HttpPost("{classId:guid}/students")]
+    [Authorize(Policy = PermissionCodes.AcademicManage)]
+    [ProducesResponseType(typeof(ApiResponse<ClassStudentResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> AddStudent(Guid classId, [FromBody] AddClassStudentRequest request, CancellationToken ct)
+    {
+        var result = await _rosterService.AddStudentAsync(classId, request, ct);
+        return StatusCode(StatusCodes.Status201Created, ApiResponse<ClassStudentResponse>.Ok(result, "Thêm sinh viên vào lớp thành công"));
+    }
+
+    /// <summary>Đổi trạng thái sinh viên trong lớp (Studying/Dropped).</summary>
+    [HttpPut("{classId:guid}/students/{studentProfileId:guid}/status")]
+    [Authorize(Policy = PermissionCodes.AcademicManage)]
+    [ProducesResponseType(typeof(ApiResponse<ClassStudentResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateStudentStatus(
+        Guid classId, Guid studentProfileId, [FromBody] UpdateClassStudentStatusRequest request, CancellationToken ct)
+    {
+        var result = await _rosterService.UpdateStudentStatusAsync(classId, studentProfileId, request, ct);
+        return Ok(ApiResponse<ClassStudentResponse>.Ok(result, "Cập nhật trạng thái sinh viên thành công"));
+    }
+
+    /// <summary>Xóa sinh viên khỏi lớp (sửa import nhầm). Chỉ xóa được khi chưa dính tới nhóm nào trong lớp.</summary>
+    [HttpDelete("{classId:guid}/students/{studentProfileId:guid}")]
+    [Authorize(Policy = PermissionCodes.AcademicManage)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RemoveStudent(Guid classId, Guid studentProfileId, CancellationToken ct)
+    {
+        await _rosterService.RemoveStudentAsync(classId, studentProfileId, ct);
+        return NoContent();
     }
     /// <summary>Phân công giảng viên vào lớp.</summary>
     [HttpPost("assign-instructor")]

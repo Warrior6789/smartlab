@@ -7,4 +7,5 @@ public static class ClassStudentStatuses
     public const string Dropped = "Dropped";
 
     public static readonly IReadOnlyList<string> All = new[] { Studying, Dropped };
+    public static string? Normalize(string? status) => StatusLookup.Find(All, status);
 }
