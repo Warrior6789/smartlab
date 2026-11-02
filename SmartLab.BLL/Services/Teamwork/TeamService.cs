@@ -211,7 +211,8 @@ public class TeamService : ITeamService
             throw new ConflictException("Lời mời thành viên đã tồn tại");
         }
 
-        await _changes.TeamChangedAsync(teamId);
+        await _changes.TeamChangedAsync(teamId, request.StudentProfileId);
+        await _notifier.InvitationSentAsync(teamId, request.StudentProfileId, CancellationToken.None);
         return result;
     }
 

@@ -13,6 +13,28 @@ namespace SmartLab.BLL.Services.Teamwork;
 public class TeamNotifier(
     IUnitOfWork uow, IEmailSender email, INotificationSender notifications, ILogger<TeamNotifier> logger) : ITeamNotifier
 {
+    public async Task InvitationSentAsync(Guid teamId, Guid studentProfileId, CancellationToken ct = default)
+    {
+        try
+        {
+            var team = await uow.Repository<Team>().QueryNoTracking().Where(t => t.TeamId == teamId)
+                .Select(t => new { t.TeamName, LeaderName = t.Leader.User.FullName, t.Class.ClassCode }).SingleAsync(ct);
+            var student = await uow.Repository<StudentProfile>().QueryNoTracking()
+                .Where(s => s.StudentProfileId == studentProfileId)
+                .Select(s => new { s.UserId, s.User.Email, s.User.FullName }).SingleAsync(ct);
+
+            await SendAsync(student.UserId, student.Email, teamId,
+                $"SmartLab - {team.LeaderName} mời bạn vào {team.TeamName}",
+                $"<p>Xin chào <b>{Encode(student.FullName)}</b>,</p><p><b>{Encode(team.LeaderName)}</b> mời bạn vào nhóm " +
+                $"<b>{Encode(team.TeamName)}</b> lớp <b>{Encode(team.ClassCode)}</b>.</p>" +
+                "<p>Bạn vào SmartLab, mục <b>Lời mời vào nhóm</b> để chấp nhận hoặc từ chối.</p>");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Could not prepare invitation email for team {TeamId}", teamId);
+        }
+    }
+
     public async Task InvitationAnsweredAsync(Guid teamId, Guid studentProfileId, bool accepted, CancellationToken ct = default)
     {
         try
