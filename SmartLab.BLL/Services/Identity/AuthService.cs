@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Identity;
@@ -8,6 +9,7 @@ using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.External.Email;
 using SmartLab.BLL.External.Jwt;
 using SmartLab.BLL.External.Security;
+using SmartLab.BLL.External.Storage;
 using SmartLab.BLL.Interfaces.AuditLogs;
 using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.BLL.Mappings.Identity;
@@ -23,6 +25,7 @@ public class AuthService : IAuthService
     private const int MaxCodeAttempts = 5;
     private static readonly TimeSpan CodeLifetime = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan ResendCooldown = TimeSpan.FromSeconds(60);
+    private const string AvatarStorageFolder = "avatars";
 
     private readonly IUnitOfWork _uow;
     private readonly IPasswordHasher _passwordHasher;
@@ -31,10 +34,13 @@ public class AuthService : IAuthService
     private readonly IEmailSender _email;
     private readonly IActiveUserChecker _sessionChecker;
     private readonly IAuditLogger _auditLogger;
+    private readonly IFileStorage _fileStorage;
+    private readonly ILogger<AuthService> _logger;
 
     public AuthService(
         IUnitOfWork uow, IPasswordHasher passwordHasher, IJwtService jwtService, ICurrentUserService currentUser,
-        IEmailSender email, IActiveUserChecker sessionChecker, IAuditLogger auditLogger)
+        IEmailSender email, IActiveUserChecker sessionChecker, IAuditLogger auditLogger, IFileStorage fileStorage,
+        ILogger<AuthService> logger)
     {
         _uow = uow;
         _passwordHasher = passwordHasher;
@@ -43,6 +49,8 @@ public class AuthService : IAuthService
         _email = email;
         _sessionChecker = sessionChecker;
         _auditLogger = auditLogger;
+        _fileStorage = fileStorage;
+        _logger = logger;
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
@@ -104,6 +112,37 @@ public class AuthService : IAuthService
         user.AvatarUrl = string.IsNullOrWhiteSpace(request.AvatarUrl) ? null : request.AvatarUrl.Trim();
         user.UpdatedAt = DateTime.UtcNow;
         await _uow.SaveChangesAsync(ct);
+
+        return UserMappings.ToCurrentUserDto(user);
+    }
+
+    public async Task<CurrentUserDto> UploadAvatarAsync(UploadAvatarRequest request, CancellationToken ct = default)
+    {
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+
+        var user = await QueryUserWithAccess(tracking: true).FirstOrDefaultAsync(u => u.UserId == userId, ct)
+                   ?? throw new UnauthorizedException("Tài khoản không còn tồn tại");
+        if (!user.IsActive)
+            throw new ForbiddenException("Tài khoản đã bị khóa");
+
+        StoredFile stored;
+        await using (var content = request.File.OpenReadStream())
+        {
+            stored = await _fileStorage.UploadImageAsync(content, request.File.FileName, AvatarStorageFolder, ct);
+        }
+
+        user.AvatarUrl = stored.Url;
+        user.UpdatedAt = DateTime.UtcNow;
+
+        try
+        {
+            await _uow.SaveChangesAsync(ct);
+        }
+        catch
+        {
+            await TryDeleteStoredFileAsync(stored.Key);
+            throw;
+        }
 
         return UserMappings.ToCurrentUserDto(user);
     }
@@ -272,4 +311,17 @@ public class AuthService : IAuthService
 
     private Task<User?> LoadUserWithAccessAsync(Guid userId, CancellationToken ct)
         => QueryUserWithAccess(tracking: false).FirstOrDefaultAsync(u => u.UserId == userId, ct);
+
+    /// <summary>The DB row is the source of truth; a leftover file in storage is only logged, never fails the request.</summary>
+    private async Task TryDeleteStoredFileAsync(string key)
+    {
+        try
+        {
+            await _fileStorage.DeleteAsync(key);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not delete stored file {StorageKey}", key);
+        }
+    }
 }

@@ -13,6 +13,9 @@ public interface IAuthService
     /// <summary>Updates full name, phone number and avatar of the currently authenticated user.</summary>
     Task<CurrentUserDto> UpdateProfileAsync(UpdateProfileRequest request, CancellationToken ct = default);
 
+    /// <summary>Uploads a new avatar image for the currently authenticated user and saves its URL.</summary>
+    Task<CurrentUserDto> UploadAvatarAsync(UploadAvatarRequest request, CancellationToken ct = default);
+
     /// <summary>
     /// Changes the password of the currently authenticated user after checking the current one. Every old token
     /// (other devices included) stops working; the returned token keeps this device logged in.

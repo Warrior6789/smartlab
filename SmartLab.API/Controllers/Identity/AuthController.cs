@@ -74,6 +74,20 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse<CurrentUserDto>.Ok(user, "Cập nhật thông tin thành công"));
     }
 
+    /// <summary>Tải ảnh đại diện mới (JPG/PNG/WEBP, tối đa 5 MB) cho người dùng hiện tại.</summary>
+    [HttpPost("me/avatar")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(6 * 1024 * 1024)]
+    [ProducesResponseType(typeof(ApiResponse<CurrentUserDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> UploadAvatar([FromForm] UploadAvatarRequest request, CancellationToken ct)
+    {
+        var user = await _authService.UploadAvatarAsync(request, ct);
+        return Ok(ApiResponse<CurrentUserDto>.Ok(user, "Cập nhật ảnh đại diện thành công"));
+    }
+
     /// <summary>
     /// Đổi mật khẩu của người dùng hiện tại (phải nhập đúng mật khẩu hiện tại). Mọi token cũ, kể cả trên thiết bị khác,
     /// hết hiệu lực; trả về token mới để thiết bị này vẫn đăng nhập.
