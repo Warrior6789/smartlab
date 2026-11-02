@@ -8,10 +8,12 @@ public class SubmitProjectRequestValidator : AbstractValidator<SubmitProjectRequ
     public SubmitProjectRequestValidator()
     {
         RuleFor(x => x.BorrowDate)
-            .NotNull().WithMessage("Ngày mượn là bắt buộc");
+            .NotNull().WithMessage("Ngày mượn là bắt buộc khi đã chọn ngày trả")
+            .When(x => x.DueDate.HasValue);
 
         RuleFor(x => x.DueDate)
-            .NotNull().WithMessage("Ngày trả là bắt buộc");
+            .NotNull().WithMessage("Ngày trả là bắt buộc khi đã chọn ngày mượn")
+            .When(x => x.BorrowDate.HasValue);
 
         RuleFor(x => x.DueDate)
             .Must((x, dueDate) => dueDate!.Value.Date > x.BorrowDate!.Value.Date)

@@ -44,6 +44,7 @@ public class ProjectsController : ControllerBase
     /// Duyệt xong thì project thành Approved; hệ thống chia mỗi dòng lấy từ lab nào (ưu tiên lab nhận đồ).
     /// Đơn mượn thành Approved (chờ mang hàng từ lab khác về), hoặc Ready nếu mọi thứ đã có sẵn ở lab nhận đồ.
     /// Với đơn mượn thêm (isSupplementary = true trong danh sách chờ duyệt) chỉ đơn mượn được duyệt, project giữ nguyên.
+    /// Project không có đơn mượn (borrowRequestId = null, chỉ dùng đồ tự chuẩn bị) thì chỉ project chuyển Approved.
     /// </summary>
     [HttpPost("{id:guid}/approve")]
     [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
@@ -217,6 +218,7 @@ public class ProjectsController : ControllerBase
     /// Gửi duyệt: project thành Submitted và tạo luôn đơn mượn (Pending) từ danh sách linh kiện, nhận đồ ở lab nhận đồ chung.
     /// Kiểm tra tồn trên tất cả lab (đã trừ các đơn đã duyệt chưa giao).
     /// Người duyệt là giảng viên của lớp, kể cả khi có thiết bị HIGH_VALUE.
+    /// Project chỉ có đồ tự chuẩn bị (không mượn linh kiện lab) thì không tạo đơn mượn, không cần ngày mượn/ngày trả.
     /// </summary>
     [HttpPost("{id:guid}/submit")]
     [Authorize(Policy = PermissionCodes.ProjectCreate)]

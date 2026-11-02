@@ -537,17 +537,20 @@ public class ProjectService : IProjectService
             throw new ConflictException("Project đã được gửi duyệt hoặc đã được duyệt");
 
         var now = DateTime.UtcNow;
-        var borrowDate = ToVietnamDateUtc(request.BorrowDate!.Value);
-        var dueDate = ToVietnamDateUtc(request.DueDate!.Value);
-        if (borrowDate < ToVietnamDateUtc(now))
-            throw new BadRequestException("Ngày mượn không được trước hôm nay");
+        DateTime? borrowDate = null;
+        DateTime? dueDate = null;
+        if (request.BorrowDate.HasValue && request.DueDate.HasValue)
+        {
+            borrowDate = ToVietnamDateUtc(request.BorrowDate.Value);
+            dueDate = ToVietnamDateUtc(request.DueDate.Value);
+            if (borrowDate < ToVietnamDateUtc(now))
+                throw new BadRequestException("Ngày mượn không được trước hôm nay");
 
-        var maxBorrowDays = await SystemSettingValues.GetPositiveIntAsync(
-            _uow, SystemSettingKeys.BorrowMaxDays, "số ngày mượn tối đa", ct);
-        if (dueDate > borrowDate.AddDays(maxBorrowDays))
-            throw new BadRequestException($"Thời gian mượn tối đa {maxBorrowDays} ngày");
-
-        var pickupRoomId = await PickupRoom.GetActiveIdAsync(_uow, ct);
+            var maxBorrowDays = await SystemSettingValues.GetPositiveIntAsync(
+                _uow, SystemSettingKeys.BorrowMaxDays, "số ngày mượn tối đa", ct);
+            if (dueDate > borrowDate.Value.AddDays(maxBorrowDays))
+                throw new BadRequestException($"Thời gian mượn tối đa {maxBorrowDays} ngày");
+        }
 
         var lecturerId = await _uow.Repository<Class>().QueryNoTracking()
             .Where(c => c.ClassId == project.ClassId && c.Instructor != null)
@@ -578,10 +581,17 @@ public class ProjectService : IProjectService
                     if (updated == 0)
                         throw new ConflictException(StatusChangedMessage);
 
+                    var lines = new List<SubmitLine>();
                     if (borrowRequest == null)
+                        lines = await LoadSubmitLinesAsync(projectId, token);
+
+                    if (lines.Count > 0)
                     {
-                        var lines = await LoadSubmitLinesAsync(projectId, token);
+                        if (borrowDate == null || dueDate == null)
+                            throw new BadRequestException("Project có linh kiện mượn của lab, cần chọn ngày mượn và ngày trả");
+
                         await EnsureStockAsync(lines, token);
+                        var pickupRoomId = await PickupRoom.GetActiveIdAsync(_uow, token);
 
                         borrowRequest = new BorrowRequest
                         {
@@ -593,7 +603,7 @@ public class ProjectService : IProjectService
                             Status = BorrowRequestStatuses.Pending,
                             RequestDate = now,
                             BorrowDate = borrowDate,
-                            DueDate = dueDate,
+                            DueDate = dueDate.Value,
                             RoomId = pickupRoomId,
                         };
                         foreach (var line in lines)
@@ -632,8 +642,16 @@ public class ProjectService : IProjectService
             }
         }
 
-        await _notifier.SubmittedAsync(borrowRequest!.BorrowRequestId, ct);
-        await _changes.BorrowRequestChangedAsync(borrowRequest.BorrowRequestId);
+        if (borrowRequest != null)
+        {
+            await _notifier.SubmittedAsync(borrowRequest.BorrowRequestId, ct);
+            await _changes.BorrowRequestChangedAsync(borrowRequest.BorrowRequestId);
+        }
+        else
+        {
+            await _projectNotifier.SubmittedAsync(projectId, ct);
+            await _changes.ProjectChangedAsync(projectId);
+        }
 
         return await GetProjectByIdAsync(projectId, ct);
     }
@@ -866,11 +884,9 @@ public class ProjectService : IProjectService
 
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
-        var cancelled = await _uow.Repository<BorrowRequest>().Query()
+        await _uow.Repository<BorrowRequest>().Query()
             .Where(r => r.ProjectId == projectId && r.Status == BorrowRequestStatuses.Pending)
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, BorrowRequestStatuses.Cancelled), ct);
-        if (cancelled == 0)
-            throw new ConflictException(StatusChangedMessage);
 
         var updated = await _uow.Repository<Project>().Query()
             .Where(p => p.ProjectId == projectId && p.Status == ProjectStatuses.Submitted)
@@ -1027,7 +1043,12 @@ public class ProjectService : IProjectService
                 pc.Component.IsActive, pc.Quantity))
             .ToListAsync(ct);
         if (lines.Count == 0)
-            throw new BadRequestException("Project chưa có linh kiện nào, không gửi duyệt được");
+        {
+            var hasSelfSupplied = await _uow.Repository<ProjectSelfSuppliedItem>().QueryNoTracking()
+                .AnyAsync(i => i.ProjectId == projectId, ct);
+            if (!hasSelfSupplied)
+                throw new BadRequestException("Project chưa có linh kiện nào, không gửi duyệt được");
+        }
 
         var inactive = lines.Where(l => !l.IsActive).Select(l => l.ComponentName).ToList();
         if (inactive.Count > 0)

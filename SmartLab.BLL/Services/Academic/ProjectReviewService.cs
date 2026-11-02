@@ -16,7 +16,9 @@ namespace SmartLab.BLL.Services.Academic;
 /// <summary>
 /// Every decision first locks the project's Pending borrow request (a no-op UPDATE ... WHERE status = 'Pending'), then
 /// reads the current step. Approve, reject and withdraw of the same project therefore run one after another. Lock order is
-/// always borrow request → lab (approve only) → project, so they cannot deadlock.
+/// always borrow request → lab (approve only) → project, so they cannot deadlock. A project that only uses self-supplied
+/// items has no borrow request: the lecturer of its class decides it directly, and the conditional UPDATE on the project
+/// (WHERE status = 'Submitted') makes the first decision or withdrawal win.
 /// </summary>
 public class ProjectReviewService : IProjectReviewService
 {
@@ -26,23 +28,32 @@ public class ProjectReviewService : IProjectReviewService
     private readonly ICurrentUserService _currentUser;
     private readonly IProjectService _projectService;
     private readonly IBorrowNotifier _notifier;
+    private readonly IProjectNotifier _projectNotifier;
     private readonly IChangeBroadcaster _changes;
 
     public ProjectReviewService(
         IUnitOfWork uow, ICurrentUserService currentUser, IProjectService projectService, IBorrowNotifier notifier,
-        IChangeBroadcaster changes)
+        IProjectNotifier projectNotifier, IChangeBroadcaster changes)
     {
         _uow = uow;
         _currentUser = currentUser;
         _projectService = projectService;
         _notifier = notifier;
+        _projectNotifier = projectNotifier;
         _changes = changes;
     }
 
-    public Task<PagedResult<PendingApprovalProjectResponse>> GetPendingAsync(
+    /// <summary>
+    /// Borrow requests waiting for the caller plus submitted projects without a borrow request (self-supplied only).
+    /// The two come from different tables, so both are read and merged, oldest first, then paged in memory.
+    /// </summary>
+    public async Task<PagedResult<PendingApprovalProjectResponse>> GetPendingAsync(
         PendingApprovalQueryParams query, PageParams paging, CancellationToken ct = default)
     {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+        string? keyword = null;
+        if (!string.IsNullOrWhiteSpace(query.Search))
+            keyword = query.Search.Trim().ToLower();
 
         var approvals = _uow.Repository<BorrowApproval>().QueryNoTracking()
             .Where(a => a.Status == BorrowApprovalStatuses.Pending
@@ -54,41 +65,104 @@ public class ProjectReviewService : IProjectReviewService
         if (!_currentUser.IsInRole(RoleNames.Admin))
             approvals = approvals.Where(a => a.ApproverId == userId);
 
-        if (!string.IsNullOrWhiteSpace(query.Search))
+        if (keyword != null)
         {
-            var keyword = query.Search.Trim().ToLower();
             approvals = approvals.Where(a =>
                 a.BorrowRequest.RequestCode.ToLower().Contains(keyword)
                 || a.BorrowRequest.Project!.Title.ToLower().Contains(keyword)
                 || (a.BorrowRequest.Project.Team != null && a.BorrowRequest.Project.Team.TeamName.ToLower().Contains(keyword)));
         }
 
-        var result = approvals
-            .OrderBy(a => a.BorrowRequest.RequestDate).ThenBy(a => a.ApprovalId)
-            .Select(a => new PendingApprovalProjectResponse
+        var fromBorrows = await approvals
+            .Select(a => new PendingRow
             {
-                ProjectId = a.BorrowRequest.Project!.ProjectId,
-                Title = a.BorrowRequest.Project.Title,
-                TeamName = a.BorrowRequest.Project.Team != null ? a.BorrowRequest.Project.Team.TeamName : null,
-                ClassCode = a.BorrowRequest.Project.Class != null ? a.BorrowRequest.Project.Class.ClassCode : null,
-                OwnerName = a.BorrowRequest.Project.Owner.FullName,
-                SubmittedAt = a.BorrowRequest.Project.SubmittedAt,
-                BorrowRequestId = a.BorrowRequestId,
-                RequestCode = a.BorrowRequest.RequestCode,
-                IsSupplementary = a.BorrowRequest.Project.Status == ProjectStatuses.Approved,
-                Purpose = a.BorrowRequest.Purpose,
-                StepNo = a.StepNo,
-                ApproverRole = a.ApproverRole,
-                ApproverId = a.ApproverId,
-                ApproverName = a.Approver.FullName,
-                RoomCode = a.BorrowRequest.Room.RoomCode,
-                BorrowDate = a.BorrowRequest.BorrowDate,
-                DueDate = a.BorrowRequest.DueDate,
-                ComponentCount = a.BorrowRequest.BorrowItems.Count,
-                HasHighValue = a.BorrowRequest.BorrowItems.Any(i => i.Component.TrackingType == ComponentTrackingTypes.HighValue),
-            });
+                SortAt = a.BorrowRequest.RequestDate,
+                Item = new PendingApprovalProjectResponse
+                {
+                    ProjectId = a.BorrowRequest.Project!.ProjectId,
+                    Title = a.BorrowRequest.Project.Title,
+                    TeamName = a.BorrowRequest.Project.Team != null ? a.BorrowRequest.Project.Team.TeamName : null,
+                    ClassCode = a.BorrowRequest.Project.Class != null ? a.BorrowRequest.Project.Class.ClassCode : null,
+                    OwnerName = a.BorrowRequest.Project.Owner.FullName,
+                    SubmittedAt = a.BorrowRequest.Project.SubmittedAt,
+                    BorrowRequestId = a.BorrowRequestId,
+                    RequestCode = a.BorrowRequest.RequestCode,
+                    IsSupplementary = a.BorrowRequest.Project.Status == ProjectStatuses.Approved,
+                    Purpose = a.BorrowRequest.Purpose,
+                    StepNo = a.StepNo,
+                    ApproverRole = a.ApproverRole,
+                    ApproverId = a.ApproverId,
+                    ApproverName = a.Approver.FullName,
+                    RoomCode = a.BorrowRequest.Room.RoomCode,
+                    BorrowDate = a.BorrowRequest.BorrowDate,
+                    DueDate = a.BorrowRequest.DueDate,
+                    ComponentCount = a.BorrowRequest.BorrowItems.Count,
+                    HasHighValue = a.BorrowRequest.BorrowItems.Any(i => i.Component.TrackingType == ComponentTrackingTypes.HighValue),
+                },
+            })
+            .ToListAsync(ct);
 
-        return PagedResult<PendingApprovalProjectResponse>.CreateAsync(result, paging, ct);
+        var projects = _uow.Repository<Project>().QueryNoTracking()
+            .Where(p => p.Status == ProjectStatuses.Submitted
+                        && p.Class != null && p.Class.Instructor != null
+                        && !p.BorrowRequests.Any(r => r.Status == BorrowRequestStatuses.Pending));
+
+        if (!_currentUser.IsInRole(RoleNames.Admin))
+            projects = projects.Where(p => p.Class!.Instructor!.UserId == userId);
+
+        if (keyword != null)
+        {
+            projects = projects.Where(p =>
+                p.Title.ToLower().Contains(keyword)
+                || (p.Team != null && p.Team.TeamName.ToLower().Contains(keyword)));
+        }
+
+        var fromProjects = await projects
+            .Select(p => new PendingRow
+            {
+                SortAt = p.SubmittedAt ?? p.UpdatedAt,
+                Item = new PendingApprovalProjectResponse
+                {
+                    ProjectId = p.ProjectId,
+                    Title = p.Title,
+                    TeamName = p.Team != null ? p.Team.TeamName : null,
+                    ClassCode = p.Class!.ClassCode,
+                    OwnerName = p.Owner.FullName,
+                    SubmittedAt = p.SubmittedAt,
+                    IsSupplementary = false,
+                    Purpose = "Project chỉ dùng linh kiện tự chuẩn bị: " + p.Title,
+                    StepNo = 1,
+                    ApproverRole = ApproverRoles.Lecturer,
+                    ApproverId = p.Class.Instructor!.UserId,
+                    ApproverName = p.Class.Instructor.User.FullName,
+                    ComponentCount = 0,
+                    HasHighValue = false,
+                },
+            })
+            .ToListAsync(ct);
+
+        var all = fromBorrows.Concat(fromProjects)
+            .OrderBy(r => r.SortAt).ThenBy(r => r.Item.ProjectId)
+            .Select(r => r.Item)
+            .ToList();
+
+        var pageSize = Math.Clamp(paging.Size, 1, 100);
+        var pageNumber = Math.Clamp(paging.Page, 1, int.MaxValue / pageSize);
+
+        return new PagedResult<PendingApprovalProjectResponse>
+        {
+            Items = all.Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList(),
+            PageNumber = pageNumber,
+            PageSize = pageSize,
+            TotalCount = all.Count,
+        };
+    }
+
+    private sealed class PendingRow
+    {
+        public DateTime SortAt { get; init; }
+
+        public PendingApprovalProjectResponse Item { get; init; } = null!;
     }
 
     public async Task<ProjectDetailResponse> ApproveAsync(Guid projectId, ApproveProjectRequest request, CancellationToken ct = default)
@@ -96,6 +170,9 @@ public class ProjectReviewService : IProjectReviewService
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
         var comment = CleanText(request.Comment);
         var now = DateTime.UtcNow;
+
+        if (!await HasPendingBorrowAsync(projectId, ct))
+            return await ReviewWithoutBorrowAsync(projectId, ProjectStatuses.Approved, userId, comment, now, ct);
 
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
@@ -145,6 +222,9 @@ public class ProjectReviewService : IProjectReviewService
         var reason = request.Reason.Trim();
         var now = DateTime.UtcNow;
 
+        if (!await HasPendingBorrowAsync(projectId, ct))
+            return await ReviewWithoutBorrowAsync(projectId, ProjectStatuses.Rejected, userId, reason, now, ct);
+
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
         var step = await LockAndGetCurrentStepAsync(projectId, userId, ct);
@@ -164,6 +244,42 @@ public class ProjectReviewService : IProjectReviewService
 
         await _notifier.RejectedAsync(step.BorrowRequestId, ct);
         await _changes.BorrowRequestChangedAsync(step.BorrowRequestId);
+
+        return await _projectService.GetProjectByIdAsync(projectId, ct);
+    }
+
+    private Task<bool> HasPendingBorrowAsync(Guid projectId, CancellationToken ct)
+        => _uow.Repository<BorrowRequest>().QueryNoTracking()
+            .AnyAsync(r => r.ProjectId == projectId && r.Status == BorrowRequestStatuses.Pending, ct);
+
+    /// <summary>
+    /// Approves or rejects a submitted project that has no borrow request (self-supplied items only). Only the lecturer
+    /// of the class, or an Admin standing in, may decide it.
+    /// </summary>
+    private async Task<ProjectDetailResponse> ReviewWithoutBorrowAsync(
+        Guid projectId, string status, Guid userId, string? comment, DateTime now, CancellationToken ct)
+    {
+        var project = await _uow.Repository<Project>().QueryNoTracking()
+                          .Where(p => p.ProjectId == projectId)
+                          .Select(p => new
+                          {
+                              p.Status,
+                              LecturerUserId = p.Class != null && p.Class.Instructor != null
+                                  ? (Guid?)p.Class.Instructor.UserId
+                                  : null,
+                          })
+                          .FirstOrDefaultAsync(ct)
+                      ?? throw new NotFoundException("Không tìm thấy project");
+
+        if (project.Status != ProjectStatuses.Submitted)
+            throw new ConflictException("Project không ở trạng thái chờ duyệt");
+        if (project.LecturerUserId != userId && !_currentUser.IsInRole(RoleNames.Admin))
+            throw new ForbiddenException("Chỉ giảng viên của lớp được duyệt project này");
+
+        await ReviewProjectAsync(projectId, status, userId, comment, now, ct);
+
+        await _projectNotifier.ReviewedAsync(projectId, ct);
+        await _changes.ProjectChangedAsync(projectId);
 
         return await _projectService.GetProjectByIdAsync(projectId, ct);
     }
