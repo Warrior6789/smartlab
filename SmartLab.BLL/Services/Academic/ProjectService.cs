@@ -845,6 +845,9 @@ public class ProjectService : IProjectService
         if (!_currentUser.IsInRole(RoleNames.Admin))
             projects = projects.Where(p => p.Class != null && p.Class.Instructor != null && p.Class.Instructor.UserId == userId);
 
+        if (query.ClassId.HasValue)
+            projects = projects.Where(p => p.ClassId == query.ClassId.Value);
+
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             var keyword = query.Search.Trim().ToLower();
