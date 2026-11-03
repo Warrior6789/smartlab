@@ -58,9 +58,12 @@ public class TeamsController : ControllerBase
         return Ok(ApiResponse<IReadOnlyList<TeamCandidateResponse>>.Ok(candidates));
     }
 
-    /// <summary>Chi tiết nhóm dành cho trưởng nhóm và thành viên đã chấp nhận.</summary>
+    /// <summary>
+    /// Chi tiết nhóm dành cho trưởng nhóm và thành viên đã chấp nhận; giảng viên phụ trách lớp và
+    /// người quản lý học vụ (Admin) được xem (chỉ đọc).
+    /// </summary>
     [HttpGet("teams/{teamId:guid}")]
-    [Authorize(Roles = RoleNames.Student)]
+    [Authorize(Roles = RoleNames.Student + "," + RoleNames.Lecturer + "," + RoleNames.Admin)]
     [ProducesResponseType(typeof(ApiResponse<TeamResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]

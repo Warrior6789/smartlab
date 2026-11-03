@@ -148,12 +148,31 @@ public class TeamService : ITeamService
 
     public async Task<TeamResponse> GetTeamAsync(Guid teamId, CancellationToken ct = default)
     {
-        var student = await GetCurrentStudentAsync(ct);
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
         var team = await LoadTeamAsync(teamId, ct);
 
-        var canView = team.LeaderId == student.StudentProfileId ||
-                      team.TeamMembers.Any(tm => tm.StudentId == student.StudentProfileId &&
-                                                 tm.Status == TeamMemberStatuses.Accepted);
+        // Read-only access for the lecturer of the team's class and for academic managers (Admin).
+        if (_currentUser.HasPermission(PermissionCodes.AcademicManage))
+            return TeamMappings.ToResponse(team);
+
+        var instructorUserId = team.Class.InstructorId == null
+            ? (Guid?)null
+            : await _uow.Repository<InstructorProfile>().QueryNoTracking()
+                .Where(i => i.InstructorProfileId == team.Class.InstructorId)
+                .Select(i => (Guid?)i.UserId)
+                .FirstOrDefaultAsync(ct);
+        if (instructorUserId == userId)
+            return TeamMappings.ToResponse(team);
+
+        // Students: the leader and the members who accepted.
+        var studentProfileId = await _uow.Repository<StudentProfile>().QueryNoTracking()
+            .Where(s => s.UserId == userId)
+            .Select(s => (Guid?)s.StudentProfileId)
+            .FirstOrDefaultAsync(ct);
+        var canView = studentProfileId != null &&
+                      (team.LeaderId == studentProfileId ||
+                       team.TeamMembers.Any(tm => tm.StudentId == studentProfileId &&
+                                                  tm.Status == TeamMemberStatuses.Accepted));
         if (!canView)
             throw new ForbiddenException("Bạn không phải thành viên đã được chấp nhận của nhóm này");
 
