@@ -7,6 +7,9 @@ public interface IClassService
     Task<List<ClassResponse>> GetAllAsync(Guid? semesterId = null, CancellationToken ct = default);
     Task<List<ClassResponse>> GetMyClassesAsync(Guid? semesterId = null, CancellationToken ct = default);
     Task<ClassResponse> GetByIdAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Roster of a class with each student's team. Only the class lecturer or an academic manager.</summary>
+    Task<List<ClassStudentResponse>> GetStudentsAsync(Guid classId, CancellationToken ct = default);
     Task<ClassResponse> UpdateAsync(Guid id, UpdateClassRequest request, CancellationToken ct = default);
     Task DeleteAsync(Guid id, CancellationToken ct = default);
 }

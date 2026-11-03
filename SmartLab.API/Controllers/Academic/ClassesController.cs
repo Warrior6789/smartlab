@@ -49,6 +49,14 @@ public class ClassesController : ControllerBase
     public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
         => Ok(ApiResponse<ClassResponse>.Ok(await _classService.GetByIdAsync(id, ct)));
 
+    /// <summary>Danh sách sinh viên của lớp kèm nhóm của từng bạn. Chỉ giảng viên phụ trách lớp hoặc người quản lý học vụ.</summary>
+    [HttpGet("{id:guid}/students")]
+    [ProducesResponseType(typeof(ApiResponse<List<ClassStudentResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetStudents(Guid id, CancellationToken ct)
+        => Ok(ApiResponse<List<ClassStudentResponse>>.Ok(await _classService.GetStudentsAsync(id, ct)));
+
     [HttpPut("{id:guid}")]
     [Authorize(Policy = PermissionCodes.AcademicManage)]
     [ProducesResponseType(typeof(ApiResponse<ClassResponse>), StatusCodes.Status200OK)]

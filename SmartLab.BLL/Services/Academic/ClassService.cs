@@ -128,6 +128,71 @@ public class ClassService : IClassService
         return ClassSetupMappings.ToResponse(entity);
     }
 
+    public async Task<List<ClassStudentResponse>> GetStudentsAsync(Guid classId, CancellationToken ct = default)
+    {
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+
+        var cls = await _uow.Repository<Class>().QueryNoTracking()
+            .Where(c => c.ClassId == classId)
+            .Select(c => new { InstructorUserId = c.Instructor != null ? (Guid?)c.Instructor.UserId : null })
+            .FirstOrDefaultAsync(ct)
+            ?? throw new NotFoundException("Lớp học", classId);
+
+        // The lecturer of this class, or an academic manager (Admin); other lecturers may not see it.
+        if (cls.InstructorUserId != userId && !_currentUser.HasPermission(PermissionCodes.AcademicManage))
+            throw new ForbiddenException("Bạn chỉ xem được danh sách sinh viên của lớp mình phụ trách");
+
+        var students = await _uow.Repository<ClassStudent>().QueryNoTracking()
+            .Where(cs => cs.ClassId == classId)
+            .Select(cs => new
+            {
+                cs.StudentId,
+                cs.Student.UserId,
+                cs.Student.StudentCode,
+                cs.Student.User.FullName,
+                cs.Student.User.Email,
+                cs.Student.User.AvatarUrl,
+                cs.Student.Major,
+                cs.Student.Cohort,
+                cs.Status,
+                cs.EnrolledAt,
+            })
+            .ToListAsync(ct);
+
+        var memberships = await _uow.Repository<TeamMember>().QueryNoTracking()
+            .Where(m => m.Team.ClassId == classId && m.Status == TeamMemberStatuses.Accepted)
+            .Select(m => new { m.StudentId, m.TeamId, m.Team.TeamName, m.Team.LeaderId })
+            .ToListAsync(ct);
+        var teamOf = memberships
+            .GroupBy(m => m.StudentId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        return students
+            .Select(s =>
+            {
+                teamOf.TryGetValue(s.StudentId, out var team);
+                return new ClassStudentResponse
+                {
+                    StudentProfileId = s.StudentId,
+                    UserId = s.UserId,
+                    StudentCode = s.StudentCode,
+                    FullName = s.FullName,
+                    Email = s.Email,
+                    AvatarUrl = s.AvatarUrl,
+                    Major = s.Major,
+                    Cohort = s.Cohort,
+                    Status = s.Status,
+                    EnrolledAt = s.EnrolledAt,
+                    TeamId = team?.TeamId,
+                    TeamName = team?.TeamName,
+                    IsTeamLeader = team != null && team.LeaderId == s.StudentId,
+                };
+            })
+            .OrderBy(s => s.Status == ClassStudentStatuses.Studying ? 0 : 1)
+            .ThenBy(s => s.StudentCode)
+            .ToList();
+    }
+
     public async Task<ClassResponse> UpdateAsync(Guid id, UpdateClassRequest request, CancellationToken ct = default)
     {
         var entity = await QueryWithIncludes(tracking: true)
