@@ -220,6 +220,18 @@ public class ProjectsController : ControllerBase
     /// Người duyệt là giảng viên của lớp, kể cả khi có thiết bị HIGH_VALUE.
     /// Project chỉ có đồ tự chuẩn bị (không mượn linh kiện lab) thì không tạo đơn mượn, không cần ngày mượn/ngày trả.
     /// </summary>
+    /// <summary>Hạn trả linh kiện của project: theo học kỳ của lớp, sinh viên không chọn ngày.</summary>
+    [HttpGet("{id:guid}/borrow-deadline")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<BorrowDeadlineResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetBorrowDeadline(Guid id, CancellationToken ct)
+    {
+        var deadline = await _projectService.GetBorrowDeadlineAsync(id, ct);
+        return Ok(ApiResponse<BorrowDeadlineResponse>.Ok(deadline));
+    }
+
     [HttpPost("{id:guid}/submit")]
     [Authorize(Policy = PermissionCodes.ProjectCreate)]
     [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]

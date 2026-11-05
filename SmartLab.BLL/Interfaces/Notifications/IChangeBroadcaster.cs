@@ -16,8 +16,15 @@ public interface IChangeBroadcaster
     Task ProjectChangedAsync(Guid projectId);
 
     /// <summary>
-    /// Team leader and every Accepted or Pending member, plus <paramref name="extraStudentProfileIds"/>: students who just
-    /// left, were removed or had their invitation cancelled, so they are no longer in the team.
+    /// Team leader, every Accepted or Pending member, the class lecturer and the classmates (they see who is still free to
+    /// invite), plus <paramref name="extraStudentProfileIds"/>: students who just left, were removed or had their invitation
+    /// cancelled, so they are no longer in the team.
     /// </summary>
     Task TeamChangedAsync(Guid teamId, params Guid[] extraStudentProfileIds);
+
+    /// <summary>
+    /// A shared list changed (see <see cref="SmartLab.BLL.Constants.RealtimeEntities"/>): tells every signed-in user, because
+    /// every role has COMPONENT_VIEW. The event carries no data, and <paramref name="id"/> may be empty for a list-wide change.
+    /// </summary>
+    Task SharedDataChangedAsync(string entity, Guid id);
 }

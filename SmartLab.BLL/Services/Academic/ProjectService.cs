@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SmartLab.BLL.Common;
 using SmartLab.BLL.Common.Exceptions;
@@ -543,21 +543,6 @@ public class ProjectService : IProjectService
             throw new ConflictException("Project đã được gửi duyệt hoặc đã được duyệt");
 
         var now = DateTime.UtcNow;
-        DateTime? borrowDate = null;
-        DateTime? dueDate = null;
-        if (request.BorrowDate.HasValue && request.DueDate.HasValue)
-        {
-            borrowDate = ToVietnamDateUtc(request.BorrowDate.Value);
-            dueDate = ToVietnamDateUtc(request.DueDate.Value);
-            if (borrowDate < ToVietnamDateUtc(now))
-                throw new BadRequestException("Ngày mượn không được trước hôm nay");
-
-            var maxBorrowDays = await SystemSettingValues.GetPositiveIntAsync(
-                _uow, SystemSettingKeys.BorrowMaxDays, "số ngày mượn tối đa", ct);
-            if (dueDate > borrowDate.Value.AddDays(maxBorrowDays))
-                throw new BadRequestException($"Thời gian mượn tối đa {maxBorrowDays} ngày");
-        }
-
         var lecturerId = await _uow.Repository<Class>().QueryNoTracking()
             .Where(c => c.ClassId == project.ClassId && c.Instructor != null)
             .Select(c => (Guid?)c.Instructor!.UserId)
@@ -593,11 +578,10 @@ public class ProjectService : IProjectService
 
                     if (lines.Count > 0)
                     {
-                        if (borrowDate == null || dueDate == null)
-                            throw new BadRequestException("Project có linh kiện mượn của lab, cần chọn ngày mượn và ngày trả");
-
                         await EnsureStockAsync(lines, token);
-                        var pickupRoomId = await PickupRoom.GetActiveIdAsync(_uow, token);
+                        var roomId = await BorrowRoom.PickBestAsync(
+                            _uow, lines.Select(l => (l.ComponentId, l.Quantity)).ToList(), token);
+                        var dueDate = await BorrowDeadline.GetDueDateForNewRequestAsync(_uow, project.ClassId, token);
 
                         borrowRequest = new BorrowRequest
                         {
@@ -608,9 +592,9 @@ public class ProjectService : IProjectService
                             Purpose = $"Mượn linh kiện cho project: {project.Title}",
                             Status = BorrowRequestStatuses.Pending,
                             RequestDate = now,
-                            BorrowDate = borrowDate,
-                            DueDate = dueDate.Value,
-                            RoomId = pickupRoomId,
+                            BorrowDate = ToVietnamDateUtc(now),
+                            DueDate = dueDate,
+                            RoomId = roomId,
                         };
                         foreach (var line in lines)
                         {
@@ -662,6 +646,20 @@ public class ProjectService : IProjectService
         return await GetProjectByIdAsync(projectId, ct);
     }
 
+    public async Task<BorrowDeadlineResponse> GetBorrowDeadlineAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var project = await GetProjectForLeaderAsync(projectId, ct);
+        var deadline = await BorrowDeadline.GetAsync(_uow, project.ClassId, ct);
+
+        return new BorrowDeadlineResponse
+        {
+            DueDate = deadline.DueDate,
+            SemesterCode = deadline.SemesterCode,
+            DaysLeft = deadline.DaysLeft,
+            CanBorrow = deadline.CanBorrow,
+        };
+    }
+
     public async Task<ProjectDetailResponse> SubmitSupplementaryBorrowAsync(
         Guid projectId, SupplementaryBorrowRequest request, CancellationToken ct = default)
     {
@@ -674,20 +672,11 @@ public class ProjectService : IProjectService
             throw new ConflictException("Đã nộp bài cuối, không mượn thêm được");
 
         var now = DateTime.UtcNow;
-        var borrowDate = ToVietnamDateUtc(request.BorrowDate!.Value);
-        var dueDate = ToVietnamDateUtc(request.DueDate!.Value);
-        if (borrowDate < ToVietnamDateUtc(now))
-            throw new BadRequestException("Ngày mượn không được trước hôm nay");
-
-        var maxBorrowDays = await SystemSettingValues.GetPositiveIntAsync(
-            _uow, SystemSettingKeys.BorrowMaxDays, "số ngày mượn tối đa", ct);
-        if (dueDate > borrowDate.AddDays(maxBorrowDays))
-            throw new BadRequestException($"Thời gian mượn tối đa {maxBorrowDays} ngày");
-
         await EnsureComponentsUsableAsync(request.Components, ct);
         var lines = await LoadRequestLinesAsync(request.Components, ct);
 
-        var pickupRoomId = await PickupRoom.GetActiveIdAsync(_uow, ct);
+        var roomId = await SupplementaryRoomAsync(projectId, lines, ct);
+        var dueDate = await BorrowDeadline.GetDueDateForNewRequestAsync(_uow, project.ClassId, ct);
 
         var lecturerId = await _uow.Repository<Class>().QueryNoTracking()
             .Where(c => c.ClassId == project.ClassId && c.Instructor != null)
@@ -734,9 +723,9 @@ public class ProjectService : IProjectService
                             Purpose = purpose,
                             Status = BorrowRequestStatuses.Pending,
                             RequestDate = now,
-                            BorrowDate = borrowDate,
+                            BorrowDate = ToVietnamDateUtc(now),
                             DueDate = dueDate,
-                            RoomId = pickupRoomId,
+                            RoomId = roomId,
                         };
                         foreach (var line in lines)
                         {
@@ -985,6 +974,29 @@ public class ProjectService : IProjectService
             throw new ForbiddenException("Chỉ sinh viên (nhóm trưởng) được thao tác với project");
 
         return studentId.Value;
+    }
+
+    /// <summary>
+    /// A supplementary request stays in the lab of the project's first request, so the team returns everything in one
+    /// place. A project that borrowed nothing so far gets the best lab, like a first request.
+    /// </summary>
+    private async Task<Guid> SupplementaryRoomAsync(Guid projectId, List<SubmitLine> lines, CancellationToken ct)
+    {
+        var first = await _uow.Repository<BorrowRequest>().QueryNoTracking()
+            .Where(r => r.ProjectId == projectId
+                        && r.Status != BorrowRequestStatuses.Cancelled
+                        && r.Status != BorrowRequestStatuses.Rejected)
+            .OrderBy(r => r.RequestDate)
+            .Select(r => new { r.RoomId, r.Room.Status })
+            .FirstOrDefaultAsync(ct);
+
+        if (first == null)
+            return await BorrowRoom.PickBestAsync(_uow, lines.Select(l => (l.ComponentId, l.Quantity)).ToList(), ct);
+
+        if (first.Status != LabRoomStatuses.Active)
+            throw new BadRequestException("Lab nhận đồ của project đã ngừng hoạt động, vui lòng báo Admin");
+
+        return first.RoomId;
     }
 
     /// <summary>The project, after checking that the current user leads its team and still studies in the class.</summary>

@@ -8,8 +8,10 @@ namespace SmartLab.BLL.DTOs.Academic;
 public class SubmitProjectRequest
 {
     /// <summary>Vietnam calendar date (yyyy-MM-dd); today or later. Required when the project has lab components.</summary>
+    [Obsolete("Ignored: the due date comes from the semester of the class.")]
     public DateTime? BorrowDate { get; set; }
 
     /// <summary>Vietnam calendar date (yyyy-MM-dd); after BorrowDate. Required when the project has lab components.</summary>
+    [Obsolete("Ignored: the due date comes from the semester of the class.")]
     public DateTime? DueDate { get; set; }
 }

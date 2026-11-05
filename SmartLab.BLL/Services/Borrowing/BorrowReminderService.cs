@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.Interfaces.Borrowing;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
 
@@ -19,13 +20,33 @@ public class BorrowReminderService : IBorrowReminderService
 
     private readonly IUnitOfWork _uow;
     private readonly IBorrowNotifier _notifier;
+    private readonly IChangeBroadcaster _changes;
     private readonly ILogger<BorrowReminderService> _logger;
 
-    public BorrowReminderService(IUnitOfWork uow, IBorrowNotifier notifier, ILogger<BorrowReminderService> logger)
+    public BorrowReminderService(
+        IUnitOfWork uow, IBorrowNotifier notifier, IChangeBroadcaster changes, ILogger<BorrowReminderService> logger)
     {
         _uow = uow;
         _notifier = notifier;
+        _changes = changes;
         _logger = logger;
+    }
+
+    public async Task<int> AnnounceNewlyOverdueAsync(CancellationToken ct = default)
+    {
+        // due_date is the start of the last day to return, so a loan is overdue one day after it.
+        var overdueBefore = DateTime.UtcNow.AddDays(-1);
+        var since = overdueBefore.AddDays(-1);
+
+        var ids = await _uow.Repository<BorrowRequest>().QueryNoTracking()
+            .Where(r => BorrowedStatuses.Contains(r.Status) && r.DueDate >= since && r.DueDate < overdueBefore)
+            .Select(r => r.BorrowRequestId)
+            .ToListAsync(ct);
+
+        foreach (var id in ids)
+            await _changes.BorrowRequestChangedAsync(id);
+
+        return ids.Count;
     }
 
     public async Task<int> SendDailyRemindersAsync(CancellationToken ct = default)

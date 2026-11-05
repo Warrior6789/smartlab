@@ -35,7 +35,7 @@ public class TeamService : ITeamService
         var student = await GetCurrentStudentAsync(ct);
         await EnsureActiveEnrollmentAsync(classId, student.StudentProfileId, ct);
 
-        return await TeamMutationLock.RunForStudentAsync(_uow, classId, student.StudentProfileId, null,
+        var created = await TeamMutationLock.RunForStudentAsync(_uow, classId, student.StudentProfileId, null,
             async (studentLocked, token) =>
             {
                 await GetCurrentStudentAsync(token);
@@ -83,6 +83,9 @@ public class TeamService : ITeamService
 
                 return TeamMappings.ToResponse(await LoadTeamAsync(team.TeamId, token));
             }, ct);
+
+        await _changes.TeamChangedAsync(created.TeamId);
+        return created;
     }
 
     public async Task<TeamResponse> GetMyTeamAsync(Guid classId, CancellationToken ct = default)

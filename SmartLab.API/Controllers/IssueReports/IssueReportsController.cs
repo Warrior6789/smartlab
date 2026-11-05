@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+using SmartLab.API.Filters;
 using SmartLab.BLL.Common;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.IssueReports;
@@ -9,6 +10,7 @@ using SmartLab.BLL.Interfaces.IssueReports;
 namespace SmartLab.API.Controllers.IssueReports;
 
 [ApiController]
+[BroadcastChange(RealtimeEntities.IssueReport)]
 [Route("api/issue-reports")]
 [Produces("application/json")]
 public class IssueReportsController : ControllerBase

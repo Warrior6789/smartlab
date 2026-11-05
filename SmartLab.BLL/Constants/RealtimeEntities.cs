@@ -7,4 +7,15 @@ public static class RealtimeEntities
     public const string BorrowExtension = "BorrowExtension";
     public const string Project = "Project";
     public const string Team = "Team";
+
+    /// <summary>Stock moved: receipts, audits, units, consumables, cabinets, or a borrow request that took or returned stock.</summary>
+    public const string Inventory = "Inventory";
+
+    /// <summary>Component catalog: components, photos, datasheets, tutorials, categories.</summary>
+    public const string Catalog = "Catalog";
+
+    public const string IssueReport = "IssueReport";
+
+    /// <summary>Classes, rosters, courses and semesters.</summary>
+    public const string Academic = "Academic";
 }

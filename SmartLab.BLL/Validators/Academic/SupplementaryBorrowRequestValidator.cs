@@ -14,17 +14,6 @@ public class SupplementaryBorrowRequestValidator : AbstractValidator<Supplementa
             .NotEmpty().WithMessage("Vui lòng nhập lý do mượn thêm")
             .MaximumLength(ReasonMaxLength).WithMessage($"Lý do tối đa {ReasonMaxLength} ký tự");
 
-        RuleFor(x => x.BorrowDate)
-            .NotNull().WithMessage("Ngày mượn là bắt buộc");
-
-        RuleFor(x => x.DueDate)
-            .NotNull().WithMessage("Ngày trả là bắt buộc");
-
-        RuleFor(x => x.DueDate)
-            .Must((x, dueDate) => dueDate!.Value.Date > x.BorrowDate!.Value.Date)
-            .WithMessage("Ngày trả phải sau ngày mượn")
-            .When(x => x.BorrowDate.HasValue && x.DueDate.HasValue);
-
         RuleFor(x => x.Components)
             .Cascade(CascadeMode.Stop)
             .NotNull().WithMessage("Danh sách linh kiện không được null")

@@ -35,67 +35,10 @@ public class BorrowExtensionService : IBorrowExtensionService
         _changes = changes;
     }
 
-    public async Task<BorrowExtensionResponse> RequestAsync(
+    public Task<BorrowExtensionResponse> RequestAsync(
         Guid borrowRequestId, RequestExtensionRequest request, CancellationToken ct = default)
     {
-        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
-        var now = DateTime.UtcNow;
-
-        await using var tx = await _uow.BeginTransactionAsync(ct);
-
-        await LockRequestAsync(borrowRequestId, ct);
-
-        var borrow = await _uow.Repository<BorrowRequest>().QueryNoTracking()
-            .Where(r => r.BorrowRequestId == borrowRequestId)
-            .Select(r => new { r.RequesterId, r.Status, r.DueDate })
-            .FirstAsync(ct);
-
-        if (borrow.RequesterId != userId)
-            throw new ForbiddenException("Chỉ nhóm trưởng (người gửi đơn mượn) được xin gia hạn");
-        if (!BorrowedStatuses.Contains(borrow.Status))
-            throw new ConflictException("Chỉ xin gia hạn được khi đơn đang mượn");
-        if (borrow.DueDate < now.AddDays(-1))
-            throw new BadRequestException("Đơn đã quá hạn trả nên không xin gia hạn được, hãy mang đồ đến trả");
-
-        var extensions = _uow.Repository<BorrowExtension>();
-        var hasPending = await extensions.QueryNoTracking()
-            .AnyAsync(e => e.BorrowRequestId == borrowRequestId && e.Status == BorrowExtensionStatuses.Pending, ct);
-        if (hasPending)
-            throw new ConflictException("Đơn đang có một yêu cầu gia hạn chờ duyệt");
-
-        var approvedCount = await extensions.QueryNoTracking()
-            .CountAsync(e => e.BorrowRequestId == borrowRequestId && e.Status == BorrowExtensionStatuses.Approved, ct);
-        var maxTimes = await SystemSettingValues.GetPositiveIntAsync(
-            _uow, SystemSettingKeys.BorrowExtensionMaxTimes, "số lần gia hạn tối đa", ct);
-        if (approvedCount >= maxTimes)
-            throw new BadRequestException($"Mỗi đơn chỉ được gia hạn tối đa {maxTimes} lần");
-
-        var newDueDate = ToVietnamDateUtc(request.NewDueDate!.Value);
-        if (newDueDate <= borrow.DueDate)
-            throw new BadRequestException("Ngày trả mới phải sau hạn trả hiện tại");
-        var maxDays = await SystemSettingValues.GetPositiveIntAsync(
-            _uow, SystemSettingKeys.BorrowExtensionMaxDays, "số ngày gia hạn tối đa", ct);
-        if (newDueDate > borrow.DueDate.AddDays(maxDays))
-            throw new BadRequestException($"Mỗi lần chỉ được gia hạn tối đa {maxDays} ngày");
-
-        var extension = new BorrowExtension
-        {
-            BorrowRequestId = borrowRequestId,
-            OldDueDate = borrow.DueDate,
-            NewDueDate = newDueDate,
-            Reason = request.Reason.Trim(),
-            Status = BorrowExtensionStatuses.Pending,
-            CreatedAt = now,
-        };
-        await extensions.AddAsync(extension, ct);
-        await _uow.SaveChangesAsync(ct);
-
-        await tx.CommitAsync(ct);
-
-        await _notifier.ExtensionRequestedAsync(extension.ExtensionId, ct);
-        await _changes.BorrowExtensionChangedAsync(extension.ExtensionId);
-
-        return await GetByIdAsync(extension.ExtensionId, ct);
+        throw new BadRequestException("Không còn gia hạn: linh kiện được mượn theo học kỳ của lớp");
     }
 
     public Task<PagedResult<BorrowExtensionResponse>> GetExtensionsAsync(

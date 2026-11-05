@@ -40,6 +40,8 @@ public interface IProjectService
     /// for the class lecturer, decided through the same approve / reject as the project; the project stays Approved.
     /// One pending request at a time; not allowed after the final submission.
     /// </summary>
+    Task<BorrowDeadlineResponse> GetBorrowDeadlineAsync(Guid projectId, CancellationToken ct = default);
+
     Task<ProjectDetailResponse> SubmitSupplementaryBorrowAsync(Guid projectId, SupplementaryBorrowRequest request, CancellationToken ct = default);
 
     /// <summary>Team leader withdraws the supplementary borrow request still waiting for the lecturer.</summary>

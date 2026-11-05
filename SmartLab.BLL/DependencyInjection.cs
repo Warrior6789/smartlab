@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using FluentValidation;
 
 using Microsoft.Extensions.Configuration;
@@ -116,6 +116,7 @@ public static class DependencyInjection
         services.AddScoped<IBorrowReminderService, BorrowReminderService>();
         services.AddScoped<IBorrowExtensionService, BorrowExtensionService>();
         services.AddHostedService<BorrowReminderWorker>();
+        services.AddHostedService<BorrowOverdueWorker>();
 
         services.AddScoped<ISystemSettingService, SystemSettingService>();
 

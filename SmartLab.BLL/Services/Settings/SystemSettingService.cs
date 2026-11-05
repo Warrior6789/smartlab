@@ -17,10 +17,7 @@ public class SystemSettingService : ISystemSettingService
     /// <summary>Keys Admin can change, in display order, with the description saved on a new row.</summary>
     private static readonly Dictionary<string, string> EditableKeys = new()
     {
-        [SystemSettingKeys.PickupRoomId] = "Lab nhận đồ chung, nơi sinh viên nhận và trả linh kiện",
-        [SystemSettingKeys.BorrowMaxDays] = "Số ngày mượn tối đa tính từ ngày mượn đến hạn trả",
-        [SystemSettingKeys.BorrowExtensionMaxDays] = "Số ngày tối đa mỗi lần gia hạn",
-        [SystemSettingKeys.BorrowExtensionMaxTimes] = "Số lần gia hạn tối đa của một đơn mượn",
+        [SystemSettingKeys.BorrowDaysBeforeSemesterEnd] = "Hạn trả linh kiện sớm hơn ngày kết thúc học kỳ bao nhiêu ngày",
         [SystemSettingKeys.BorrowReminderHour] = "Giờ (0-23, giờ Việt Nam) gửi email nhắc hạn trả mỗi ngày",
     };
 
@@ -99,19 +96,6 @@ public class SystemSettingService : ISystemSettingService
     /// <summary>The value to save for <paramref name="key"/>; 400 when it does not fit the key.</summary>
     private async Task<string> CheckValueAsync(string key, string value, CancellationToken ct)
     {
-        if (key == SystemSettingKeys.PickupRoomId)
-        {
-            if (!Guid.TryParse(value, out var roomId))
-                throw new BadRequestException("Lab nhận đồ phải là id của một phòng lab");
-
-            var active = await _uow.Repository<LabRoom>().QueryNoTracking()
-                .AnyAsync(r => r.RoomId == roomId && r.Status == LabRoomStatuses.Active, ct);
-            if (!active)
-                throw new BadRequestException("Phòng lab không tồn tại hoặc đã ngừng sử dụng");
-
-            return roomId.ToString();
-        }
-
         if (!int.TryParse(value, out var number))
             throw new BadRequestException("Giá trị phải là số nguyên");
 
@@ -119,6 +103,11 @@ public class SystemSettingService : ISystemSettingService
         {
             if (number < 0 || number > 23)
                 throw new BadRequestException("Giờ gửi nhắc phải từ 0 đến 23");
+        }
+        else if (key == SystemSettingKeys.BorrowDaysBeforeSemesterEnd)
+        {
+            if (number < 0 || number > MaxDaysOrTimes)
+                throw new BadRequestException($"Giá trị phải từ 0 đến {MaxDaysOrTimes}");
         }
         else if (number < 1 || number > MaxDaysOrTimes)
         {

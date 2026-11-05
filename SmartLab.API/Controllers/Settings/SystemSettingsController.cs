@@ -30,7 +30,7 @@ public class SystemSettingsController : ControllerBase
         return Ok(ApiResponse<IReadOnlyList<SystemSettingResponse>>.Ok(settings));
     }
 
-    /// <summary>Sửa một cài đặt theo key, ví dụ PICKUP_ROOM_ID hoặc BORROW_MAX_DAYS.</summary>
+    /// <summary>Sửa một cài đặt theo key, ví dụ BORROW_MAX_DAYS.</summary>
     [HttpPut("{key}")]
     [ProducesResponseType(typeof(ApiResponse<SystemSettingResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]

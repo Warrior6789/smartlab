@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SmartLab.BLL.Common;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
@@ -7,6 +7,7 @@ using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.Interfaces.Academic;
 using SmartLab.BLL.Interfaces.Borrowing;
 using SmartLab.BLL.Interfaces.Notifications;
+using SmartLab.BLL.Services.Borrowing;
 using SmartLab.BLL.Services.Inventory;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
@@ -290,20 +291,17 @@ public class ProjectReviewService : IProjectReviewService
     private sealed record CurrentStep(Guid ApprovalId, Guid BorrowRequestId, Guid RoomId, bool IsLast, bool IsSupplementary);
 
     /// <summary>
-    /// Approving reserves stock, so the checks of submitting run again (things may have changed since): the pickup lab is
-    /// still active, every component is still in use, and all labs together can still lend every line. Then each line gets
-    /// its source lab: the pickup lab first, the rest from the labs with the most left (a line may be split over several
-    /// labs). Lines taken from the pickup lab count as received. Every lab is locked first, so two approvals cannot both
-    /// take the last units. Returns true when everything is already at the pickup lab. Rejecting is always allowed.
+    /// Approving reserves stock, so the checks of submitting run again (things may have changed since): every component is
+    /// still in use, and all labs together can still lend every line. A first request also gets its lab chosen again from
+    /// the stock of now, because nothing was reserved while it was pending; a supplementary request stays in its lab, which
+    /// must still be active. Then each line gets its source lab: the pickup lab first, the rest from the labs with the most
+    /// left (a line may be split over several labs). Lines taken from the pickup lab count as received. Every lab is locked
+    /// first, so two approvals cannot both take the last units. Returns true when everything is already at the pickup lab.
+    /// Rejecting is always allowed.
     /// </summary>
     private async Task<bool> AllocateSourcesAsync(CurrentStep step, Guid userId, DateTime now, CancellationToken ct)
     {
         await RoomStock.LockAllRoomsAsync(_uow, ct);
-
-        var pickupActive = await _uow.Repository<LabRoom>().QueryNoTracking()
-            .AnyAsync(r => r.RoomId == step.RoomId && r.Status == LabRoomStatuses.Active, ct);
-        if (!pickupActive)
-            throw new BadRequestException("Lab nhận đồ của đơn mượn đã ngừng hoạt động, vui lòng báo Admin.");
 
         var lines = await _uow.Repository<BorrowItem>().Query()
             .Include(i => i.Component)
@@ -319,11 +317,31 @@ public class ProjectReviewService : IProjectReviewService
         var ids = lines.Select(l => l.ComponentId).Distinct().ToList();
         var availableByRoom = await RoomStock.GetAvailableByRoomAsync(_uow, ids, ct);
 
+        var pickupRoomId = step.RoomId;
+        if (step.IsSupplementary)
+        {
+            var pickupActive = await _uow.Repository<LabRoom>().QueryNoTracking()
+                .AnyAsync(r => r.RoomId == pickupRoomId && r.Status == LabRoomStatuses.Active, ct);
+            if (!pickupActive)
+                throw new BadRequestException("Lab nhận đồ của đơn mượn đã ngừng hoạt động, vui lòng báo Admin.");
+        }
+        else
+        {
+            var needed = lines.Select(l => (l.ComponentId, l.Quantity)).ToList();
+            pickupRoomId = await BorrowRoom.PickBestAsync(_uow, needed, availableByRoom, ct);
+            if (pickupRoomId != step.RoomId)
+            {
+                await _uow.Repository<BorrowRequest>().Query()
+                    .Where(r => r.BorrowRequestId == step.BorrowRequestId)
+                    .ExecuteUpdateAsync(s => s.SetProperty(r => r.RoomId, pickupRoomId), ct);
+            }
+        }
+
         var plans = new List<(BorrowItem Line, List<(Guid RoomId, int Quantity)> Parts)>();
         var shortages = new List<string>();
         foreach (var line in lines)
         {
-            var parts = TakeFromRooms(availableByRoom, step.RoomId, line.ComponentId, line.Quantity);
+            var parts = TakeFromRooms(availableByRoom, pickupRoomId, line.ComponentId, line.Quantity);
             var taken = parts.Sum(p => p.Quantity);
             if (taken < line.Quantity)
                 shortages.Add($"{line.Component.ComponentName} (cần {line.Quantity}, còn {taken})");
@@ -358,7 +376,7 @@ public class ProjectReviewService : IProjectReviewService
 
                 target.Quantity = quantity;
                 target.SourceRoomId = roomId;
-                if (roomId == step.RoomId)
+                if (roomId == pickupRoomId)
                 {
                     target.ReceivedAt = now;
                     target.ReceivedBy = userId;

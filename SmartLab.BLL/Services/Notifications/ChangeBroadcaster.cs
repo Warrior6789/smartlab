@@ -12,6 +12,8 @@ public class ChangeBroadcaster : IChangeBroadcaster
 {
     private static readonly string[] NoPermissions = Array.Empty<string>();
     private static readonly string[] StaffPermissions = { PermissionCodes.BorrowIssue };
+    private static readonly string[] EveryonePermissions = { PermissionCodes.ComponentView };
+    private static readonly HashSet<Guid> NoUsers = new();
 
     private readonly IUnitOfWork _uow;
     private readonly INotificationPusher _pusher;
@@ -37,6 +39,9 @@ public class ChangeBroadcaster : IChangeBroadcaster
 
             if (request.ProjectId != null)
                 await PushAsync(userIds, NoPermissions, RealtimeEntities.Project, request.ProjectId.Value);
+
+            // Handing out, returning or reserving units changes the stock everyone sees.
+            await PushAsync(NoUsers, EveryonePermissions, RealtimeEntities.Inventory, Guid.Empty);
         }
         catch (Exception ex)
         {
@@ -98,6 +103,11 @@ public class ChangeBroadcaster : IChangeBroadcaster
                         .Where(m => m.Status == TeamMemberStatuses.Accepted || m.Status == TeamMemberStatuses.Pending)
                         .Select(m => m.Student.UserId)
                         .ToList(),
+                    LecturerUserId = t.Class.Instructor != null ? t.Class.Instructor.UserId : (Guid?)null,
+                    ClassmateIds = t.Class.ClassStudents
+                        .Where(cs => cs.Status == ClassStudentStatuses.Studying)
+                        .Select(cs => cs.Student.UserId)
+                        .ToList(),
                 })
                 .FirstOrDefaultAsync();
 
@@ -106,6 +116,9 @@ public class ChangeBroadcaster : IChangeBroadcaster
             {
                 userIds.Add(team.LeaderUserId);
                 userIds.UnionWith(team.MemberIds);
+                userIds.UnionWith(team.ClassmateIds);
+                if (team.LecturerUserId != null)
+                    userIds.Add(team.LecturerUserId.Value);
             }
 
             if (extraStudentProfileIds.Length > 0)
@@ -125,6 +138,18 @@ public class ChangeBroadcaster : IChangeBroadcaster
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not broadcast change of team {TeamId}", teamId);
+        }
+    }
+
+    public async Task SharedDataChangedAsync(string entity, Guid id)
+    {
+        try
+        {
+            await PushAsync(NoUsers, EveryonePermissions, entity, id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not broadcast change of {Entity}", entity);
         }
     }
 
