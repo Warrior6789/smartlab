@@ -32,4 +32,13 @@ public class TransferLineResponse
     public DateTime? ApprovedAt { get; set; }
 
     public DateTime? BorrowDate { get; set; }
+
+    /// <summary>When the source lab sent the line; null while it has not left yet.</summary>
+    public DateTime? DispatchedAt { get; set; }
+
+    /// <summary>The current user works in the source lab, so they can say the line was sent.</summary>
+    public bool CanDispatch { get; set; }
+
+    /// <summary>The current user works in the pickup lab, so they can confirm the line arrived.</summary>
+    public bool CanReceive { get; set; }
 }

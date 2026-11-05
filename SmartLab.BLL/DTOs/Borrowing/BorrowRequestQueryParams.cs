@@ -10,4 +10,7 @@ public class BorrowRequestQueryParams
 
     /// <summary>true: only requests being borrowed past their due date.</summary>
     public bool? Overdue { get; set; }
+
+    /// <summary>true: only requests handed over by the caller's labs, without those that merely took stock from them.</summary>
+    public bool? PickupOnly { get; set; }
 }

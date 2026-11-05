@@ -181,19 +181,15 @@ public class ProjectReviewService : IProjectReviewService
 
         await DecideStepAsync(step.ApprovalId, BorrowApprovalStatuses.Approved, userId, comment, now, ct);
 
-        var allAtPickup = false;
         if (step.IsLast)
         {
-            allAtPickup = await AllocateSourcesAsync(step, userId, now, ct);
+            await AllocateSourcesAsync(step, userId, now, ct);
 
-            var status = BorrowRequestStatuses.Approved;
-            if (allAtPickup)
-                status = BorrowRequestStatuses.Ready;
-
+            // Ready only comes from the lab: see IBorrowRequestService.LabAcceptAsync.
             await _uow.Repository<BorrowRequest>().Query()
                 .Where(r => r.BorrowRequestId == step.BorrowRequestId)
                 .ExecuteUpdateAsync(s => s
-                    .SetProperty(r => r.Status, status)
+                    .SetProperty(r => r.Status, BorrowRequestStatuses.Approved)
                     .SetProperty(r => r.ApprovedAt, now), ct);
 
             if (!step.IsSupplementary)
@@ -204,11 +200,7 @@ public class ProjectReviewService : IProjectReviewService
 
         if (step.IsLast)
         {
-            if (allAtPickup)
-                await _notifier.ReadyAsync(step.BorrowRequestId, ct);
-            else
-                await _notifier.ApprovedAsync(step.BorrowRequestId, ct);
-
+            await _notifier.ApprovedAsync(step.BorrowRequestId, ct);
             await _notifier.StaffApprovedAsync(step.BorrowRequestId, ct);
         }
 
@@ -296,10 +288,9 @@ public class ProjectReviewService : IProjectReviewService
     /// the stock of now, because nothing was reserved while it was pending; a supplementary request stays in its lab, which
     /// must still be active. Then each line gets its source lab: the pickup lab first, the rest from the labs with the most
     /// left (a line may be split over several labs). Lines taken from the pickup lab count as received. Every lab is locked
-    /// first, so two approvals cannot both take the last units. Returns true when everything is already at the pickup lab.
-    /// Rejecting is always allowed.
+    /// first, so two approvals cannot both take the last units. Rejecting is always allowed.
     /// </summary>
-    private async Task<bool> AllocateSourcesAsync(CurrentStep step, Guid userId, DateTime now, CancellationToken ct)
+    private async Task AllocateSourcesAsync(CurrentStep step, Guid userId, DateTime now, CancellationToken ct)
     {
         await RoomStock.LockAllRoomsAsync(_uow, ct);
 
@@ -337,11 +328,13 @@ public class ProjectReviewService : IProjectReviewService
             }
         }
 
+        var staffedRooms = await BorrowRoom.GetStaffedIdsAsync(_uow, ct);
+
         var plans = new List<(BorrowItem Line, List<(Guid RoomId, int Quantity)> Parts)>();
         var shortages = new List<string>();
         foreach (var line in lines)
         {
-            var parts = TakeFromRooms(availableByRoom, pickupRoomId, line.ComponentId, line.Quantity);
+            var parts = TakeFromRooms(availableByRoom, staffedRooms, pickupRoomId, line.ComponentId, line.Quantity);
             var taken = parts.Sum(p => p.Quantity);
             if (taken < line.Quantity)
                 shortages.Add($"{line.Component.ComponentName} (cần {line.Quantity}, còn {taken})");
@@ -355,7 +348,6 @@ public class ProjectReviewService : IProjectReviewService
                 "Hãy từ chối để nhóm giảm số lượng hoặc đổi linh kiện.");
 
         var borrowItems = _uow.Repository<BorrowItem>();
-        var allAtPickup = true;
         foreach (var (line, parts) in plans)
         {
             for (var index = 0; index < parts.Count; index++)
@@ -381,27 +373,25 @@ public class ProjectReviewService : IProjectReviewService
                     target.ReceivedAt = now;
                     target.ReceivedBy = userId;
                 }
-                else
-                {
-                    allAtPickup = false;
-                }
             }
         }
 
         await _uow.SaveChangesAsync(ct);
-        return allAtPickup;
     }
 
     /// <summary>
-    /// Takes up to <paramref name="quantity"/> of a component: the pickup lab first, then the labs with the most left
-    /// (ties by lab id so the result is stable). Taken amounts are removed from <paramref name="availableByRoom"/>.
+    /// Takes up to <paramref name="quantity"/> of a component: the pickup lab first, then labs with Lab Staff to carry it
+    /// over, then the labs with the most left (ties by lab id so the result is stable). A lab without staff is the last
+    /// resort. Taken amounts are removed from <paramref name="availableByRoom"/>.
     /// </summary>
     private static List<(Guid RoomId, int Quantity)> TakeFromRooms(
-        Dictionary<Guid, Dictionary<Guid, int>> availableByRoom, Guid pickupRoomId, Guid componentId, int quantity)
+        Dictionary<Guid, Dictionary<Guid, int>> availableByRoom, HashSet<Guid> staffedRooms, Guid pickupRoomId,
+        Guid componentId, int quantity)
     {
         var order = availableByRoom
             .Where(r => r.Key != pickupRoomId && r.Value.GetValueOrDefault(componentId) > 0)
-            .OrderByDescending(r => r.Value[componentId]).ThenBy(r => r.Key)
+            .OrderByDescending(r => staffedRooms.Contains(r.Key))
+            .ThenByDescending(r => r.Value[componentId]).ThenBy(r => r.Key)
             .Select(r => r.Key)
             .ToList();
         if (availableByRoom.TryGetValue(pickupRoomId, out var pickup) && pickup.GetValueOrDefault(componentId) > 0)

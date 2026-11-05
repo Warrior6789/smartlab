@@ -13,6 +13,18 @@ namespace SmartLab.BLL.Services.Borrowing;
 /// </summary>
 internal static class BorrowRoom
 {
+    /// <summary>Labs with an active Lab Staff, who are told to carry goods over.</summary>
+    public static async Task<HashSet<Guid>> GetStaffedIdsAsync(IUnitOfWork uow, CancellationToken ct)
+    {
+        var ids = await uow.Repository<LabRoomStaff>().QueryNoTracking()
+            .Where(s => s.User.IsActive)
+            .Select(s => s.RoomId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        return ids.ToHashSet();
+    }
+
     /// <summary>The best lab for these lines, with stock read now. See the overload for how it is chosen.</summary>
     public static async Task<Guid> PickBestAsync(
         IUnitOfWork uow, IReadOnlyCollection<(Guid ComponentId, int Quantity)> lines, CancellationToken ct)
