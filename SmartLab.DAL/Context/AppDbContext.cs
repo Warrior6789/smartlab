@@ -283,6 +283,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.BorrowRequestId).HasColumnName("borrow_request_id");
             entity.Property(e => e.ComponentId).HasColumnName("component_id");
             entity.Property(e => e.ComponentItemId).HasColumnName("component_item_id");
+            entity.Property(e => e.DispatchedAt).HasColumnName("dispatched_at");
             entity.Property(e => e.IssuedAt).HasColumnName("issued_at");
             entity.Property(e => e.Quantity)
                 .HasDefaultValue(1)
@@ -1281,9 +1282,6 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValueSql("now()")
                 .HasColumnName("created_at");
             entity.Property(e => e.CreatedBy).HasColumnName("created_by");
-            entity.Property(e => e.DelivererName)
-                .HasMaxLength(100)
-                .HasColumnName("deliverer_name");
             entity.Property(e => e.InvoiceDate).HasColumnName("invoice_date");
             entity.Property(e => e.InvoiceNumber)
                 .HasMaxLength(50)

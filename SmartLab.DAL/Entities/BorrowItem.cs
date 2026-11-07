@@ -33,6 +33,8 @@ public partial class BorrowItem
 
     public Guid? ReturnPhotoId { get; set; }
 
+    public DateTime? DispatchedAt { get; set; }
+
     public virtual BorrowRequest BorrowRequest { get; set; } = null!;
 
     public virtual Component Component { get; set; } = null!;

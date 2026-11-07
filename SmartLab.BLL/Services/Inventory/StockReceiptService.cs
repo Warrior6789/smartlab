@@ -103,7 +103,6 @@ public class StockReceiptService : IStockReceiptService
                        SupplierName = r.SupplierName,
                        InvoiceNumber = r.InvoiceNumber,
                        InvoiceDate = r.InvoiceDate,
-                       DelivererName = r.DelivererName,
                        Status = r.Status,
                        ReceivedAt = r.ReceivedAt,
                        CreatedAt = r.CreatedAt,
@@ -190,7 +189,6 @@ public class StockReceiptService : IStockReceiptService
             SupplierName = supplierName,
             InvoiceNumber = invoiceNumber,
             InvoiceDate = ToInvoiceDate(request.InvoiceDate, now),
-            DelivererName = string.IsNullOrWhiteSpace(request.DelivererName) ? null : request.DelivererName.Trim(),
             Status = StockReceiptStatuses.Completed,
             ReceivedAt = receivedAt,
             CreatedAt = now,
@@ -287,7 +285,6 @@ public class StockReceiptService : IStockReceiptService
         receipt.SupplierName = supplierName;
         receipt.InvoiceNumber = invoiceNumber;
         receipt.InvoiceDate = ToInvoiceDate(request.InvoiceDate, now);
-        receipt.DelivererName = string.IsNullOrWhiteSpace(request.DelivererName) ? null : request.DelivererName.Trim();
         receipt.Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
         receipt.UpdatedAt = now;
         receipt.UpdatedBy = userId;

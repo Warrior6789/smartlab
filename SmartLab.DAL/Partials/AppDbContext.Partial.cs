@@ -14,9 +14,5 @@ public partial class AppDbContext
         modelBuilder.Entity<AuditLog>()
             .Property(e => e.IsSuccess)
             .ValueGeneratedNever();
-
-        modelBuilder.Entity<BorrowItem>()
-            .Property(e => e.DispatchedAt)
-            .HasColumnName("dispatched_at");
     }
 }

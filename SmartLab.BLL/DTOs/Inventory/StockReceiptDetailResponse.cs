@@ -4,7 +4,6 @@ namespace SmartLab.BLL.DTOs.Inventory;
 public class StockReceiptDetailResponse : StockReceiptResponse
 {
     public DateTime? InvoiceDate { get; set; }
-    public string? DelivererName { get; set; }
 
     /// <summary>TotalAmount written in Vietnamese words, e.g. "Năm triệu đồng".</summary>
     public string TotalAmountInWords { get; set; } = string.Empty;

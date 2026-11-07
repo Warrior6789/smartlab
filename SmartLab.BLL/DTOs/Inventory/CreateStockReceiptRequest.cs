@@ -10,9 +10,6 @@ public class CreateStockReceiptRequest
     /// <summary>Date printed on the supplier invoice; cannot be in the future.</summary>
     public DateTime? InvoiceDate { get; set; }
 
-    /// <summary>Name of the person who delivered the goods (người giao hàng).</summary>
-    public string? DelivererName { get; set; }
-
     public string? Note { get; set; }
 
     /// <summary>
