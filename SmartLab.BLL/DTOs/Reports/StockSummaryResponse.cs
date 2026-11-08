@@ -20,6 +20,9 @@ public class StockSummaryResponse
 
     public int? MinStock { get; set; }
 
-    /// <summary>Available is below MinStock.</summary>
+    /// <summary>
+    /// Available + Borrowed is below MinStock. Lent units come back, so lending alone never makes a component
+    /// low; only consumables used up and units lost or retired do.
+    /// </summary>
     public bool IsLowStock { get; set; }
 }

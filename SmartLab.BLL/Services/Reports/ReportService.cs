@@ -52,7 +52,7 @@ public class ReportService : IReportService
                 Unit = s.Unit,
                 Available = s.Available,
                 MinStock = s.MinStock!.Value,
-                Shortage = s.MinStock!.Value - s.Available,
+                Shortage = s.MinStock!.Value - (s.Available + s.Borrowed),
                 LastUnitPrice = receiptItems
                     .Where(ri => ri.ComponentId == s.ComponentId)
                     .OrderByDescending(ri => ri.Receipt.ReceivedAt)
@@ -639,7 +639,9 @@ public class ReportService : IReportService
             MinStock = c.MinStock,
             IsLowStock = c.MinStock != null
                          && stocks.Where(s => s.ComponentId == c.ComponentId).Sum(s => s.Quantity)
-                            + items.Count(i => i.ComponentId == c.ComponentId && i.Status == ComponentItemStatuses.Available)
+                            + items.Count(i => i.ComponentId == c.ComponentId
+                                               && (i.Status == ComponentItemStatuses.Available
+                                                   || i.Status == ComponentItemStatuses.Borrowed))
                             < c.MinStock,
         });
     }

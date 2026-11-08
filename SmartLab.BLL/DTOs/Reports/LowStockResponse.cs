@@ -11,7 +11,7 @@ public class LowStockResponse
     public int Available { get; set; }
     public int MinStock { get; set; }
 
-    /// <summary>MinStock - Available: how many to buy to reach the minimum.</summary>
+    /// <summary>MinStock - (Available + units on loan): how many to buy to reach the minimum.</summary>
     public int Shortage { get; set; }
 
     /// <summary>Unit price on the latest completed stock receipt; null when never received or for LabStaff.</summary>
