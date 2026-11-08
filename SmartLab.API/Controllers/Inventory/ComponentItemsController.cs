@@ -62,9 +62,10 @@ public class ComponentItemsController : ControllerBase
     /// <summary>
     /// Chuyển tủ cho con Available, hoặc đưa con Lost tìm lại được trở lại kho (toStatus = Available). Con Retired đã ra khỏi hệ thống, dùng lại thì nhập phiếu mới. Gửi itemIds để chọn đúng con (vd 1 serial), hoặc quantity để hệ thống tự chọn con cũ nhất. Có thể kèm lý do và phiếu nhập đang sửa. Báo mất hoặc thanh lý dùng API retire.
     /// Hàng đang được giữ chỗ cho đơn đã duyệt: không chuyển sang lab khác được (409).
+    /// Lab Staff (BORROW_ISSUE) chỉ chuyển được con Available giữa các tủ trong cùng lab; còn lại cần COMPONENT_MANAGE (403).
     /// </summary>
     [HttpPost("move")]
-    [Authorize(Policy = PermissionCodes.ComponentManage)]
+    [Authorize(Policy = PermissionCodes.ComponentView)]
     [ProducesResponseType(typeof(ApiResponse<MoveComponentItemsResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]

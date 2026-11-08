@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Inventory;
+using SmartLab.BLL.External.CurrentUser;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
 
@@ -15,6 +16,21 @@ namespace SmartLab.BLL.Services.Inventory;
 /// </summary>
 internal static class RoomStock
 {
+    /// <summary>
+    /// Lab staff work inside a lab, so they may rearrange its cabinets: same room, and <paramref name="cabinetOnly"/>
+    /// means nothing but the cabinet changes. Anything wider needs COMPONENT_MANAGE.
+    /// </summary>
+    public static async Task EnsureMayMoveAsync(
+        IUnitOfWork uow, ICurrentUserService user, Guid fromCabinetId, Guid toCabinetId, bool cabinetOnly, CancellationToken ct)
+    {
+        if (user.HasPermission(PermissionCodes.ComponentManage))
+            return;
+
+        if (!user.HasPermission(PermissionCodes.BorrowIssue) || !cabinetOnly
+            || !await SameRoomAsync(uow, fromCabinetId, toCabinetId, ct))
+            throw new ForbiddenException("Chỉ được chuyển hàng giữa các tủ trong cùng một lab");
+    }
+
     /// <summary>Borrow request statuses whose lines hold stock (nothing handed over yet).</summary>
     public static readonly string[] ReservingStatuses = { BorrowRequestStatuses.Approved, BorrowRequestStatuses.Ready };
 
