@@ -904,6 +904,7 @@ public class ProjectService : IProjectService
 
     /// <summary>
     /// Admin sees every project; others see their team's, their classes', and the ones they approve.
+    /// A Draft is still the team's work in progress: only its team sees it, not the class lecturer or approvers.
     /// </summary>
     private IQueryable<Project> VisibleProjects()
     {
@@ -916,8 +917,9 @@ public class ProjectService : IProjectService
             (p.Team != null && (p.Team.Leader.UserId == userId
                                 || p.Team.TeamMembers.Any(tm => tm.Student.UserId == userId
                                                                 && tm.Status == TeamMemberStatuses.Accepted)))
-            || (p.Class != null && p.Class.Instructor != null && p.Class.Instructor.UserId == userId)
-            || p.BorrowRequests.Any(r => r.BorrowApprovals.Any(a => a.ApproverId == userId)));
+            || (p.Status != ProjectStatuses.Draft
+                && ((p.Class != null && p.Class.Instructor != null && p.Class.Instructor.UserId == userId)
+                    || p.BorrowRequests.Any(r => r.BorrowApprovals.Any(a => a.ApproverId == userId)))));
     }
 
     /// <summary>
