@@ -55,6 +55,12 @@ public static class DependencyInjection
 
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
         services.AddSingleton<SmtpEmailSender>();
+        services.AddHttpClient(BrevoEmailSender.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri("https://api.brevo.com/");
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+        services.AddSingleton<BrevoEmailSender>();
         services.AddSingleton<EmailQueue>();
         services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<EmailQueue>());
         services.AddHostedService<EmailWorker>();
