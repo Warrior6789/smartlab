@@ -12,6 +12,12 @@ public class ProjectDetailResponse : ProjectResponse
 
     public string? DemoVideoUrl { get; set; }
 
+    /// <summary>Final report PDF; required before the final submission.</summary>
+    public string? ReportUrl { get; set; }
+
+    /// <summary>Source code ZIP; optional, the GitHub link is enough.</summary>
+    public string? SourceCodeUrl { get; set; }
+
     public Guid? ReviewedBy { get; set; }
 
     public string? ReviewedByName { get; set; }

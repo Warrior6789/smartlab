@@ -12,4 +12,7 @@ public interface ITeamService
     Task<TeamResponse> RemoveUnacceptedMemberAsync(Guid teamId, Guid studentProfileId, CancellationToken ct = default);
     Task<IReadOnlyList<TeamInvitationResponse>> GetMyInvitationsAsync(CancellationToken ct = default);
     Task<TeamResponse> RespondToInvitationAsync(Guid teamId, RespondTeamInvitationRequest request, CancellationToken ct = default);
+    Task<TeamResponse> LeaveTeamAsync(Guid teamId, CancellationToken ct = default);
+    Task<TeamResponse> RemoveMemberAsync(Guid teamId, Guid studentProfileId, CancellationToken ct = default);
+    Task<TeamResponse> TransferLeaderAsync(Guid teamId, TransferTeamLeaderRequest request, CancellationToken ct = default);
 }

@@ -44,6 +44,7 @@ public class ProjectsController : ControllerBase
     /// Duyệt xong thì project thành Approved; hệ thống chia mỗi dòng lấy từ lab nào (ưu tiên lab nhận đồ).
     /// Đơn mượn thành Approved (chờ mang hàng từ lab khác về), hoặc Ready nếu mọi thứ đã có sẵn ở lab nhận đồ.
     /// Với đơn mượn thêm (isSupplementary = true trong danh sách chờ duyệt) chỉ đơn mượn được duyệt, project giữ nguyên.
+    /// Project không có đơn mượn (borrowRequestId = null, chỉ dùng đồ tự chuẩn bị) thì chỉ project chuyển Approved.
     /// </summary>
     [HttpPost("{id:guid}/approve")]
     [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
@@ -157,11 +158,80 @@ public class ProjectsController : ControllerBase
         return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Cập nhật link thành công"));
     }
 
+    /// <summary>Nhóm trưởng tải file báo cáo PDF (tối đa 10 MB, bắt buộc trước khi nộp bài cuối). Thay file cũ nếu có.</summary>
+    [HttpPut("{id:guid}/report")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UploadReport(Guid id, [FromForm] UploadProjectReportRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.UploadReportAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Tải báo cáo thành công"));
+    }
+
+    /// <summary>Nhóm trưởng xóa file báo cáo.</summary>
+    [HttpDelete("{id:guid}/report")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteReport(Guid id, CancellationToken ct)
+    {
+        var project = await _projectService.DeleteReportAsync(id, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã xóa file báo cáo"));
+    }
+
+    /// <summary>Nhóm trưởng tải mã nguồn dạng ZIP (tối đa 10 MB, không bắt buộc). Thay file cũ nếu có.</summary>
+    [HttpPut("{id:guid}/source-code")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UploadSourceCode(Guid id, [FromForm] UploadProjectSourceCodeRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.UploadSourceCodeAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Tải mã nguồn thành công"));
+    }
+
+    /// <summary>Nhóm trưởng xóa file mã nguồn.</summary>
+    [HttpDelete("{id:guid}/source-code")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteSourceCode(Guid id, CancellationToken ct)
+    {
+        var project = await _projectService.DeleteSourceCodeAsync(id, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã xóa file mã nguồn"));
+    }
+
     /// <summary>
     /// Gửi duyệt: project thành Submitted và tạo luôn đơn mượn (Pending) từ danh sách linh kiện, nhận đồ ở lab nhận đồ chung.
     /// Kiểm tra tồn trên tất cả lab (đã trừ các đơn đã duyệt chưa giao).
     /// Người duyệt là giảng viên của lớp, kể cả khi có thiết bị HIGH_VALUE.
+    /// Project chỉ có đồ tự chuẩn bị (không mượn linh kiện lab) thì không tạo đơn mượn, không cần ngày mượn/ngày trả.
     /// </summary>
+    /// <summary>Hạn trả linh kiện của project: theo học kỳ của lớp, sinh viên không chọn ngày.</summary>
+    [HttpGet("{id:guid}/borrow-deadline")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<BorrowDeadlineResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetBorrowDeadline(Guid id, CancellationToken ct)
+    {
+        var deadline = await _projectService.GetBorrowDeadlineAsync(id, ct);
+        return Ok(ApiResponse<BorrowDeadlineResponse>.Ok(deadline));
+    }
+
     [HttpPost("{id:guid}/submit")]
     [Authorize(Policy = PermissionCodes.ProjectCreate)]
     [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
@@ -223,7 +293,7 @@ public class ProjectsController : ControllerBase
     }
 
     /// <summary>
-    /// Nhóm trưởng nộp bài cuối: project phải Approved và đủ link GitHub, slide, video demo.
+    /// Nhóm trưởng nộp bài cuối: project phải Approved, đủ link GitHub, slide, video demo và đã tải file báo cáo PDF.
     /// Bài nộp chờ giảng viên của lớp xác nhận; trong lúc chờ hoặc đã xác nhận thì không sửa link được.
     /// </summary>
     [HttpPost("{id:guid}/final-submission")]

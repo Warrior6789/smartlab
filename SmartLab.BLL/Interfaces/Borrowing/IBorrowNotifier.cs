@@ -62,6 +62,9 @@ public interface IBorrowNotifier
     /// </summary>
     Task StaffApprovedAsync(Guid borrowRequestId, CancellationToken ct = default);
 
+    /// <summary>Tells staff of the pickup lab that the source lab sent a line.</summary>
+    Task TransferDispatchedAsync(Guid borrowRequestId, Guid borrowItemId, CancellationToken ct = default);
+
     /// <summary>
     /// Tells lab staff that a request was cancelled: source labs with lines not yet carried over no longer need to bring
     /// them, and the pickup lab staff (except the one who cancelled) stop preparing it.

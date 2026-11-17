@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SmartLab.API.Filters;
 using SmartLab.BLL.Common;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Inventory;
@@ -8,6 +9,7 @@ using SmartLab.BLL.Interfaces.Inventory;
 namespace SmartLab.API.Controllers.Inventory;
 
 [ApiController]
+[BroadcastChange(RealtimeEntities.Inventory)]
 [Route("api/consumable-stocks")]
 [Produces("application/json")]
 public class ConsumableStocksController : ControllerBase
@@ -31,9 +33,12 @@ public class ConsumableStocksController : ControllerBase
         return Ok(ApiResponse<PagedResult<ConsumableStockResponse>>.Ok(result));
     }
 
-    /// <summary>Chuyển hàng tiêu hao từ tủ này sang tủ khác. Có thể kèm lý do và phiếu nhập đang sửa (vd phiếu chọn nhầm tủ).</summary>
+    /// <summary>
+    /// Chuyển hàng tiêu hao từ tủ này sang tủ khác. Có thể kèm lý do và phiếu nhập đang sửa (vd phiếu chọn nhầm tủ).
+    /// Lab Staff (BORROW_ISSUE) chỉ chuyển được giữa các tủ trong cùng lab, không gắn phiếu nhập; còn lại cần COMPONENT_MANAGE (403).
+    /// </summary>
     [HttpPost("move")]
-    [Authorize(Policy = PermissionCodes.ComponentManage)]
+    [Authorize(Policy = PermissionCodes.ComponentView)]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<ConsumableStockResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]

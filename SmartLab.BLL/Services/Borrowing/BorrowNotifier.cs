@@ -1,9 +1,10 @@
-﻿using System.Net;
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.External.Email;
 using SmartLab.BLL.Interfaces.Borrowing;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
 
@@ -15,12 +16,15 @@ public class BorrowNotifier : IBorrowNotifier
 
     private readonly IUnitOfWork _uow;
     private readonly IEmailSender _email;
+    private readonly INotificationSender _notifications;
     private readonly ILogger<BorrowNotifier> _logger;
 
-    public BorrowNotifier(IUnitOfWork uow, IEmailSender email, ILogger<BorrowNotifier> logger)
+    public BorrowNotifier(
+        IUnitOfWork uow, IEmailSender email, INotificationSender notifications, ILogger<BorrowNotifier> logger)
     {
         _uow = uow;
         _email = email;
+        _notifications = notifications;
         _logger = logger;
     }
 
@@ -85,7 +89,7 @@ public class BorrowNotifier : IBorrowNotifier
                 r.DueDate,
                 Approvers = r.BorrowApprovals
                     .Where(a => a.Status == BorrowApprovalStatuses.Pending)
-                    .Select(a => new { a.Approver.Email, a.Approver.FullName, a.Approver.IsActive })
+                    .Select(a => new { a.ApproverId, a.Approver.Email, a.Approver.FullName, a.Approver.IsActive })
                     .ToList(),
             })
             .FirstOrDefaultAsync(ct);
@@ -114,7 +118,9 @@ public class BorrowNotifier : IBorrowNotifier
                 ItemsTable(lines, false) +
                 "<p>Thầy/cô vào SmartLab, mục <b>Project chờ duyệt</b> để duyệt hoặc từ chối.</p>";
 
-            await SendToAsync(approver.Email, info.RequestCode, $"SmartLab - Đơn {info.RequestCode} chờ thầy/cô duyệt", body);
+            await SendToAsync(approver.ApproverId, approver.Email, info.RequestCode,
+                $"SmartLab - Đơn {info.RequestCode} chờ thầy/cô duyệt", body,
+                NotificationRefTypes.BorrowApproval, borrowRequestId);
         }
     }
 
@@ -237,7 +243,7 @@ public class BorrowNotifier : IBorrowNotifier
             LinesTable(new[] { line }) +
             "<p>Nhân viên lab nhận đồ sẽ bấm \"Đã nhận\" khi hàng tới.</p>";
 
-        await SendToStaffAsync(staff, replacement.SourceRoomId.Value, null,
+        await SendToSourceLabAsync(staff, replacement.SourceRoomId.Value,
             $"SmartLab - Chuyển món thay thế cho đơn {staff.RequestCode} sang {staff.RoomCode}", staffBody);
     }
 
@@ -382,6 +388,34 @@ public class BorrowNotifier : IBorrowNotifier
         await SendAsync(info, $"SmartLab - Đơn {info.RequestCode} đã bị hủy", body);
     }
 
+    public async Task TransferDispatchedAsync(Guid borrowRequestId, Guid borrowItemId, CancellationToken ct = default)
+    {
+        var info = await LoadStaffInfoAsync(borrowRequestId, ct);
+        if (info == null)
+            return;
+
+        var line = await _uow.Repository<BorrowItem>().QueryNoTracking()
+            .Where(i => i.BorrowItemId == borrowItemId)
+            .Select(i => new
+            {
+                i.Component.ComponentName,
+                i.Quantity,
+                i.Component.Unit,
+                SourceRoomCode = i.SourceRoom != null ? i.SourceRoom.RoomCode : null,
+            })
+            .FirstOrDefaultAsync(ct);
+        if (line == null)
+            return;
+
+        var body =
+            $"<p>Lab <b>{Encode(line.SourceRoomCode ?? string.Empty)}</b> đã gửi {line.Quantity} {Encode(line.Unit)} " +
+            $"{Encode(line.ComponentName)} của đơn <b>{Encode(info.RequestCode)}</b> sang <b>{Encode(info.RoomCode)}</b>.</p>" +
+            "<p>Khi hàng tới, hãy kiểm tra rồi bấm \"Nhập kho\" trong mục Chuyển hàng.</p>";
+
+        await SendToStaffAsync(info, info.RoomId, null,
+            $"SmartLab - Hàng cho đơn {info.RequestCode} đang chuyển tới {info.RoomCode}", body);
+    }
+
     public async Task StaffApprovedAsync(Guid borrowRequestId, CancellationToken ct = default)
     {
         var info = await LoadStaffInfoAsync(borrowRequestId, ct);
@@ -399,7 +433,7 @@ public class BorrowNotifier : IBorrowNotifier
                 LinesTable(source) +
                 "<p>Nhân viên lab nhận đồ sẽ bấm \"Đã nhận\" khi hàng tới.</p>";
 
-            await SendToStaffAsync(info, source.Key!.Value, null,
+            await SendToSourceLabAsync(info, source.Key!.Value,
                 $"SmartLab - Chuyển linh kiện cho đơn {info.RequestCode} sang {info.RoomCode}", body);
         }
 
@@ -407,10 +441,10 @@ public class BorrowNotifier : IBorrowNotifier
         string pickupSubject;
         if (waiting.Count == 0)
         {
-            pickupSubject = $"SmartLab - Đơn {info.RequestCode} đã sẵn sàng để giao";
+            pickupSubject = $"SmartLab - Đơn {info.RequestCode} chờ lab chấp nhận";
             pickupBody =
-                $"<p>Đơn mượn <b>{Encode(info.RequestCode)}</b> của {RequesterText(info)} vừa được duyệt, " +
-                $"linh kiện đã có đủ tại <b>{Encode(info.RoomCode)}</b>. Sinh viên sẽ đến nhận{BorrowDateText(info.BorrowDate, "từ ngày")}.</p>" +
+                $"<p>Đơn mượn <b>{Encode(info.RequestCode)}</b> của {RequesterText(info)} vừa được giảng viên duyệt, " +
+                $"linh kiện đang có tại <b>{Encode(info.RoomCode)}</b>. Hãy kiểm tra hàng rồi bấm \"Chấp nhận\" để báo sinh viên đến nhận:</p>" +
                 LinesTable(info.Lines);
         }
         else
@@ -419,7 +453,7 @@ public class BorrowNotifier : IBorrowNotifier
             pickupBody =
                 $"<p>Đơn mượn <b>{Encode(info.RequestCode)}</b> của {RequesterText(info)} vừa được duyệt.</p>" +
                 $"<p>Các linh kiện dưới đây đang được mang từ lab khác sang <b>{Encode(info.RoomCode)}</b>. " +
-                "Khi hàng tới, hãy kiểm tra rồi bấm \"Đã nhận\" trong mục Hàng chờ chuyển:</p>" +
+                "Khi hàng tới, hãy kiểm tra rồi bấm \"Đã nhận\" trong mục Hàng chờ chuyển, sau đó bấm \"Chấp nhận\" ở đơn mượn:</p>" +
                 LinesTable(waiting);
         }
 
@@ -461,14 +495,14 @@ public class BorrowNotifier : IBorrowNotifier
         Guid? SourceRoomId, string? SourceRoomCode, DateTime? ReceivedAt);
 
     private sealed record StaffMailInfo(
-        string RequestCode, string RequesterName, string? StudentCode, Guid RoomId, string RoomCode, string RoomName,
-        string? Reason, DateTime? BorrowDate, List<StaffLine> Lines);
+        Guid BorrowRequestId, string RequestCode, string RequesterName, string? StudentCode, Guid RoomId, string RoomCode,
+        string RoomName, string? Reason, DateTime? BorrowDate, List<StaffLine> Lines);
 
     private Task<StaffMailInfo?> LoadStaffInfoAsync(Guid borrowRequestId, CancellationToken ct)
         => _uow.Repository<BorrowRequest>().QueryNoTracking()
             .Where(r => r.BorrowRequestId == borrowRequestId)
             .Select(r => new StaffMailInfo(
-                r.RequestCode, r.Requester.FullName,
+                r.BorrowRequestId, r.RequestCode, r.Requester.FullName,
                 r.Requester.StudentProfile != null ? r.Requester.StudentProfile.StudentCode : null,
                 r.RoomId, r.Room.RoomCode, r.Room.RoomName, r.RejectReason, r.BorrowDate,
                 r.BorrowItems
@@ -484,22 +518,55 @@ public class BorrowNotifier : IBorrowNotifier
             .Where(l => l.SourceRoomId.HasValue && l.SourceRoomId != info.RoomId && l.ReceivedAt == null)
             .ToList();
 
-    private async Task SendToStaffAsync(StaffMailInfo info, Guid roomId, Guid? skipUserId, string subject, string body)
+    /// <summary>Goods must leave this lab: its staff are told, or the inventory managers when it has none.</summary>
+    private async Task SendToSourceLabAsync(StaffMailInfo info, Guid roomId, string subject, string body)
     {
-        var emails = await _uow.Repository<LabRoomStaff>().QueryNoTracking()
-            .Where(s => s.RoomId == roomId && s.User.IsActive && s.UserId != skipUserId)
-            .Select(s => s.User.Email)
+        var hasStaff = await _uow.Repository<LabRoomStaff>().QueryNoTracking()
+            .AnyAsync(s => s.RoomId == roomId && s.User.IsActive, CancellationToken.None);
+        if (hasStaff)
+        {
+            await SendToStaffAsync(info, roomId, null, subject, body);
+            return;
+        }
+
+        var managers = await _uow.Repository<User>().QueryNoTracking()
+            .Where(u => u.IsActive && u.UserRoles.Any(r => r.Role.RoleName == RoleNames.InventoryManager))
+            .Select(u => new { u.UserId, u.Email })
             .ToListAsync(CancellationToken.None);
 
-        foreach (var email in emails)
+        foreach (var manager in managers)
         {
+            await _notifications.SendAsync(manager.UserId, subject, NotificationRefTypes.BorrowRequest, info.BorrowRequestId);
+
             try
             {
-                await _email.SendAsync(email, subject, body, CancellationToken.None);
+                await _email.SendAsync(manager.Email, subject, body + "<p>Lab này chưa có Lab Staff phụ trách.</p>", CancellationToken.None);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Could not email staff {Email} about borrow request {Code}", email, info.RequestCode);
+                _logger.LogError(ex, "Could not email manager {Email} about borrow request {Code}", manager.Email, info.RequestCode);
+            }
+        }
+    }
+
+    private async Task SendToStaffAsync(StaffMailInfo info, Guid roomId, Guid? skipUserId, string subject, string body)
+    {
+        var staff = await _uow.Repository<LabRoomStaff>().QueryNoTracking()
+            .Where(s => s.RoomId == roomId && s.User.IsActive && s.UserId != skipUserId)
+            .Select(s => new { s.UserId, s.User.Email })
+            .ToListAsync(CancellationToken.None);
+
+        foreach (var member in staff)
+        {
+            await _notifications.SendAsync(member.UserId, subject, NotificationRefTypes.BorrowRequest, info.BorrowRequestId);
+
+            try
+            {
+                await _email.SendAsync(member.Email, subject, body, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Could not email staff {Email} about borrow request {Code}", member.Email, info.RequestCode);
             }
         }
     }
@@ -544,7 +611,8 @@ public class BorrowNotifier : IBorrowNotifier
                 RequesterName = e.BorrowRequest.Requester.FullName,
                 ClassCode = e.BorrowRequest.Class!.ClassCode,
                 ProjectTitle = e.BorrowRequest.Project != null ? e.BorrowRequest.Project.Title : null,
-                LecturerEmail = e.BorrowRequest.Class.Instructor!.User.Email,
+                LecturerUserId = e.BorrowRequest.Class.Instructor!.UserId,
+                LecturerEmail = e.BorrowRequest.Class.Instructor.User.Email,
                 LecturerName = e.BorrowRequest.Class.Instructor.User.FullName,
                 LecturerActive = e.BorrowRequest.Class.Instructor.User.IsActive,
                 e.OldDueDate,
@@ -567,7 +635,8 @@ public class BorrowNotifier : IBorrowNotifier
             $"<p>Lý do: {Encode(info.Reason)}</p>" +
             "<p>Thầy/cô vào SmartLab, mục <b>Yêu cầu gia hạn</b> để duyệt hoặc từ chối.</p>";
 
-        await SendToAsync(info.LecturerEmail, info.RequestCode, $"SmartLab - Đơn {info.RequestCode} xin gia hạn", body);
+        await SendToAsync(info.LecturerUserId, info.LecturerEmail, info.RequestCode,
+            $"SmartLab - Đơn {info.RequestCode} xin gia hạn", body, NotificationRefTypes.BorrowExtension, extensionId);
     }
 
     public async Task ExtensionReviewedAsync(Guid extensionId, CancellationToken ct = default)
@@ -699,8 +768,11 @@ public class BorrowNotifier : IBorrowNotifier
         return ToVietnamDate(utc.Value);
     }
 
-    private async Task SendToAsync(string email, string requestCode, string subject, string body)
+    private async Task SendToAsync(
+        Guid userId, string email, string requestCode, string subject, string body, string refType, Guid refId)
     {
+        await _notifications.SendAsync(userId, subject, refType, refId);
+
         try
         {
             await _email.SendAsync(email, subject, body, CancellationToken.None);
@@ -712,19 +784,22 @@ public class BorrowNotifier : IBorrowNotifier
     }
 
     private sealed record MailInfo(
-        string RequestCode, string Email, string FullName, string RoomCode, string RoomName,
-        string? ProjectTitle, string? Reason, DateTime? BorrowDate, DateTime DueDate);
+        Guid BorrowRequestId, Guid UserId, string RequestCode, string Email, string FullName, string RoomCode,
+        string RoomName, string? ProjectTitle, string? Reason, DateTime? BorrowDate, DateTime DueDate);
 
     private Task<MailInfo?> LoadAsync(Guid borrowRequestId, CancellationToken ct)
         => _uow.Repository<BorrowRequest>().QueryNoTracking()
             .Where(r => r.BorrowRequestId == borrowRequestId)
             .Select(r => new MailInfo(
-                r.RequestCode, r.Requester.Email, r.Requester.FullName, r.Room.RoomCode, r.Room.RoomName,
+                r.BorrowRequestId, r.RequesterId, r.RequestCode, r.Requester.Email, r.Requester.FullName,
+                r.Room.RoomCode, r.Room.RoomName,
                 r.Project != null ? r.Project.Title : null, r.RejectReason, r.BorrowDate, r.DueDate))
             .FirstOrDefaultAsync(ct);
 
     private async Task SendAsync(MailInfo info, string subject, string body)
     {
+        await _notifications.SendAsync(info.UserId, subject, NotificationRefTypes.BorrowRequest, info.BorrowRequestId);
+
         try
         {
             await _email.SendAsync(info.Email, subject, body, CancellationToken.None);

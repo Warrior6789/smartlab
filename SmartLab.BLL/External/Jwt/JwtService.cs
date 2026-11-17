@@ -29,6 +29,7 @@ public class JwtService : IJwtService
             new(AppClaimTypes.Username, user.Username),
             new(AppClaimTypes.Email, user.Email),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new(AppClaimTypes.TokenVersion, user.TokenVersion.ToString(), ClaimValueTypes.Integer32),
         };
         foreach (var role in roles)
             claims.Add(new Claim(AppClaimTypes.Role, role));

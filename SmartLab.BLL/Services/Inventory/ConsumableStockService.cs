@@ -58,6 +58,9 @@ public class ConsumableStockService : IConsumableStockService
     {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
 
+        await RoomStock.EnsureMayMoveAsync(_uow, _currentUser, request.FromCabinetId, request.ToCabinetId,
+            cabinetOnly: !request.ReceiptId.HasValue, ct);
+
         await EnsureConsumableAsync(request.ComponentId, ct);
 
         if (!await _uow.Repository<StorageCabinet>().QueryNoTracking()

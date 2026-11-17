@@ -17,6 +17,9 @@ public class ComponentResponse
     public int TotalQuantity { get; set; }
     public int AvailableQuantity { get; set; }
 
+    /// <summary>What can still be borrowed: AvailableQuantity minus what approved requests hold, as checked when sending one.</summary>
+    public int BorrowableQuantity { get; set; }
+
     /// <summary>Warning level set by admin; null = no warning.</summary>
     public int? MinStock { get; set; }
 

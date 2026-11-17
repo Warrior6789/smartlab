@@ -7,6 +7,7 @@ public class LabRoomResponse
     public string RoomName { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public int CabinetCount { get; set; }
+    public int StaffCount { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

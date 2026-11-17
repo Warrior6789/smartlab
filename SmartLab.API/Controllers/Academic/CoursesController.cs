@@ -1,6 +1,7 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+using SmartLab.API.Filters;
 using SmartLab.BLL.Common;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.ClassSetupDTO;
@@ -9,6 +10,7 @@ using SmartLab.BLL.Interfaces.Academic;
 namespace SmartLab.API.Controllers.Academic;
 
 [ApiController]
+[BroadcastChange(RealtimeEntities.Academic)]
 [Route("api/courses")]
 [Produces("application/json")]
 [Authorize]

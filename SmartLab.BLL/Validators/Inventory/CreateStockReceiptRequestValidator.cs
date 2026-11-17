@@ -16,9 +16,6 @@ public class CreateStockReceiptRequestValidator : AbstractValidator<CreateStockR
         RuleFor(x => x.InvoiceNumber)
             .MaximumLength(50).WithMessage("Số hóa đơn tối đa 50 ký tự");
 
-        RuleFor(x => x.DelivererName)
-            .MaximumLength(100).WithMessage("Tên người giao hàng tối đa 100 ký tự");
-
         RuleFor(x => x.Note)
             .MaximumLength(NoteMaxLength).WithMessage($"Ghi chú tối đa {NoteMaxLength} ký tự");
 

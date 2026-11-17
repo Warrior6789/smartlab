@@ -20,10 +20,11 @@ public static class PermissionCodes
     public const string IssueResolve = "ISSUE_RESOLVE";
     public const string ReportView = "REPORT_VIEW";
     public const string AuditLogView = "AUDITLOG_VIEW";
+    public const string TutorialManage = "TUTORIAL_MANAGE";
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>
     {
         UserManage, RoleManage, AcademicManage, ProjectCreate, ComponentView, ComponentManage, StockReceiptManage,
-        InventoryAudit, BorrowCreate, BorrowApprove, BorrowIssue, IssueResolve, ReportView, AuditLogView,
+        InventoryAudit, BorrowCreate, BorrowApprove, BorrowIssue, IssueResolve, ReportView, AuditLogView, TutorialManage,
     };
 }

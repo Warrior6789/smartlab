@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Identity;
+using SmartLab.BLL.Interfaces.AuditLogs;
 using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.BLL.Mappings.Identity;
 using SmartLab.DAL.Entities;
@@ -12,10 +13,12 @@ namespace SmartLab.BLL.Services.Identity;
 public class RoleService : IRoleService
 {
     private readonly IUnitOfWork _uow;
+    private readonly IAuditLogger _auditLogger;
 
-    public RoleService(IUnitOfWork uow)
+    public RoleService(IUnitOfWork uow, IAuditLogger auditLogger)
     {
         _uow = uow;
+        _auditLogger = auditLogger;
     }
 
     public async Task<IReadOnlyList<RoleItemResponse>> GetRolesAsync(CancellationToken ct = default)
@@ -67,7 +70,9 @@ public class RoleService : IRoleService
                          ?? throw new NotFoundException($"Không tìm thấy permission '{code}'");
 
         role.Permissions.Add(permission);
-        await _uow.SaveChangesAsync(ct);
+        await _auditLogger.AddAsync(AuditActions.AddPermission, nameof(Role), role.RoleId.ToString(),
+            newValue: new { role.RoleName, Permission = code }, ct: ct);
+        await SavePermissionChangeAsync(roleId, ct);
 
         return RoleMappings.ToDetailResponse(role);
     }
@@ -82,9 +87,29 @@ public class RoleService : IRoleService
                          ?? throw new NotFoundException($"Role '{role.RoleName}' không có permission '{code}'");
 
         role.Permissions.Remove(permission);
-        await _uow.SaveChangesAsync(ct);
+        await _auditLogger.AddAsync(AuditActions.RemovePermission, nameof(Role), role.RoleId.ToString(),
+            oldValue: new { role.RoleName, Permission = code }, ct: ct);
+        await SavePermissionChangeAsync(roleId, ct);
 
         return RoleMappings.ToDetailResponse(role);
+    }
+
+    /// <summary>
+    /// Saves the permission change and revokes the tokens of every user with the role, so the new permissions apply at
+    /// their next login (within about a minute, the session check cache).
+    /// </summary>
+    private async Task SavePermissionChangeAsync(Guid roleId, CancellationToken ct)
+    {
+        await using var tx = await _uow.BeginTransactionAsync(ct);
+
+        await _uow.SaveChangesAsync(ct);
+        await _uow.Repository<User>().Query()
+            .Where(u => u.UserRoles.Any(ur => ur.RoleId == roleId))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(u => u.TokenVersion, u => u.TokenVersion + 1)
+                .SetProperty(u => u.UpdatedAt, DateTime.UtcNow), ct);
+
+        await tx.CommitAsync(ct);
     }
 
     private async Task<Role> LoadEditableRoleAsync(Guid roleId, CancellationToken ct)

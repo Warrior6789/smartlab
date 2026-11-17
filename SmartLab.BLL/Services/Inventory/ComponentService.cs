@@ -38,7 +38,7 @@ public class ComponentService : IComponentService
         _logger = logger;
     }
 
-    public Task<PagedResult<ComponentResponse>> GetComponentsAsync(
+    public async Task<PagedResult<ComponentResponse>> GetComponentsAsync(
         ComponentQueryParams query, PageParams paging, CancellationToken ct = default)
     {
         var components = _uow.Repository<Component>().QueryNoTracking();
@@ -100,7 +100,13 @@ public class ComponentService : IComponentService
                     .FirstOrDefault(),
             });
 
-        return PagedResult<ComponentResponse>.CreateAsync(result, paging, ct);
+        var page = await PagedResult<ComponentResponse>.CreateAsync(result, paging, ct);
+
+        var borrowable = await RoomStock.GetTotalAvailableAsync(_uow, page.Items.Select(c => c.ComponentId).ToList(), ct);
+        foreach (var component in page.Items)
+            component.BorrowableQuantity = borrowable.GetValueOrDefault(component.ComponentId);
+
+        return page;
     }
 
     public async Task<ComponentDetailResponse> GetComponentByIdAsync(Guid componentId, CancellationToken ct = default)
@@ -159,6 +165,9 @@ public class ComponentService : IComponentService
                             })
                             .FirstOrDefaultAsync(ct)
                         ?? throw new NotFoundException("Không tìm thấy linh kiện");
+
+        var borrowable = await RoomStock.GetTotalAvailableAsync(_uow, new[] { componentId }, ct);
+        component.BorrowableQuantity = borrowable.GetValueOrDefault(componentId);
 
         if (component.TrackingType == ComponentTrackingTypes.Consumable)
         {

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SmartLab.API.Filters;
 using SmartLab.BLL.Common;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Inventory;
@@ -8,6 +9,7 @@ using SmartLab.BLL.Interfaces.Inventory;
 namespace SmartLab.API.Controllers.Inventory;
 
 [ApiController]
+[BroadcastChange(RealtimeEntities.Catalog)]
 [Route("api/components")]
 [Produces("application/json")]
 public class ComponentsController : ControllerBase

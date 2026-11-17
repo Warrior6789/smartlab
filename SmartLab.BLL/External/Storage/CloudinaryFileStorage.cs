@@ -41,6 +41,26 @@ public class CloudinaryFileStorage : IFileStorage
             Overwrite = false,
         };
 
+        return await SendImageUploadAsync(uploadParams, ct);
+    }
+
+    public Task<StoredFile> UploadImageOverwriteAsync(
+        Stream content, string fileName, string folder, string publicId, CancellationToken ct = default)
+    {
+        var uploadParams = new ImageUploadParams
+        {
+            File = new FileDescription(fileName, content),
+            Folder = $"{_options.RootFolder}/{folder}",
+            PublicId = publicId,
+            Overwrite = true,
+            Invalidate = true,
+        };
+
+        return SendImageUploadAsync(uploadParams, ct);
+    }
+
+    private async Task<StoredFile> SendImageUploadAsync(ImageUploadParams uploadParams, CancellationToken ct)
+    {
         var result = await _cloudinary.Value.UploadAsync(uploadParams, ct);
         if (result.Error != null && result.StatusCode == HttpStatusCode.BadRequest)
             throw new BadRequestException("File bị hỏng hoặc không đúng định dạng");
@@ -54,9 +74,39 @@ public class CloudinaryFileStorage : IFileStorage
         };
     }
 
-    public async Task DeleteAsync(string key, CancellationToken ct = default)
+    public Task DeleteAsync(string key, CancellationToken ct = default)
+        => DeleteAsync(key, ResourceType.Image);
+
+    /// <summary>Stored as a raw resource; the public id keeps the .zip extension so the URL downloads as a ZIP.</summary>
+    public async Task<StoredFile> UploadZipAsync(Stream content, string fileName, string folder, CancellationToken ct = default)
     {
-        var result = await _cloudinary.Value.DestroyAsync(new DeletionParams(key) { ResourceType = ResourceType.Image, Invalidate = true });
+        var uploadParams = new RawUploadParams
+        {
+            File = new FileDescription(fileName, content),
+            Folder = $"{_options.RootFolder}/{folder}",
+            PublicId = $"{Guid.NewGuid():N}.zip",
+            Overwrite = false,
+        };
+
+        var result = await _cloudinary.Value.UploadAsync(uploadParams, "raw", ct);
+        if (result.Error != null && result.StatusCode == HttpStatusCode.BadRequest)
+            throw new BadRequestException("File bị hỏng hoặc không đúng định dạng");
+        if (result.Error != null)
+            throw new InvalidOperationException($"Cloudinary upload failed: {result.Error.Message}");
+
+        return new StoredFile
+        {
+            Key = result.PublicId,
+            Url = result.SecureUrl.ToString(),
+        };
+    }
+
+    public Task DeleteZipAsync(string key, CancellationToken ct = default)
+        => DeleteAsync(key, ResourceType.Raw);
+
+    private async Task DeleteAsync(string key, ResourceType resourceType)
+    {
+        var result = await _cloudinary.Value.DestroyAsync(new DeletionParams(key) { ResourceType = resourceType, Invalidate = true });
         if (result.Error != null)
             throw new InvalidOperationException($"Cloudinary delete failed: {result.Error.Message}");
     }

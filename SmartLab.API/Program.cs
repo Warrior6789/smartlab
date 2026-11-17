@@ -12,24 +12,24 @@ builder.Services.AddSmartLabControllers();
 builder.Services.AddSmartLabSwagger();
 builder.Services.AddSmartLabRateLimiting();
 builder.Services.AddSmartLabCors(builder.Configuration);
+builder.Services.AddSmartLabRealtime();
 
 var app = builder.Build();
 
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseSmartLabStatusCodePages();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.UseCors(CorsExtensions.FrontendPolicy);
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 
+app.MapGet("/", () => Results.Redirect("/swagger")).AllowAnonymous().ExcludeFromDescription();
 app.MapControllers();
+app.MapSmartLabHubs();
 app.MapSmartLabHealthChecks();
 
 app.Run();

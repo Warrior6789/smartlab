@@ -1,15 +1,19 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SmartLab.BLL.Common;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Academic;
 using SmartLab.BLL.DTOs.Borrowing;
+using Microsoft.Extensions.Logging;
 using SmartLab.BLL.External.CurrentUser;
+using SmartLab.BLL.External.Storage;
 using SmartLab.BLL.Interfaces.Academic;
 using SmartLab.BLL.Interfaces.Borrowing;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.BLL.Services.Borrowing;
 using SmartLab.BLL.Services.Inventory;
+using SmartLab.BLL.Services.Teamwork;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
 
@@ -24,6 +28,8 @@ public class ProjectService : IProjectService
 
     /// <summary>Each round at least one of the racing requests is saved, so this covers that many simultaneous submits.</summary>
     private const int MaxCodeAttempts = 10;
+    private const string ReportStorageFolder = "project-reports";
+    private const string SourceCodeStorageFolder = "project-source-code";
 
     /// <summary>Vietnam has no DST, so a fixed UTC+7 offset is exact.</summary>
     private static readonly TimeSpan VietnamUtcOffset = TimeSpan.FromHours(7);
@@ -32,14 +38,21 @@ public class ProjectService : IProjectService
     private readonly ICurrentUserService _currentUser;
     private readonly IBorrowNotifier _notifier;
     private readonly IProjectNotifier _projectNotifier;
+    private readonly IChangeBroadcaster _changes;
+    private readonly IFileStorage _fileStorage;
+    private readonly ILogger<ProjectService> _logger;
 
     public ProjectService(
-        IUnitOfWork uow, ICurrentUserService currentUser, IBorrowNotifier notifier, IProjectNotifier projectNotifier)
+        IUnitOfWork uow, ICurrentUserService currentUser, IBorrowNotifier notifier, IProjectNotifier projectNotifier,
+        IChangeBroadcaster changes, IFileStorage fileStorage, ILogger<ProjectService> logger)
     {
         _uow = uow;
         _currentUser = currentUser;
         _notifier = notifier;
         _projectNotifier = projectNotifier;
+        _changes = changes;
+        _fileStorage = fileStorage;
+        _logger = logger;
     }
 
     public Task<PagedResult<ProjectResponse>> GetProjectsAsync(
@@ -114,6 +127,8 @@ public class ProjectService : IProjectService
                        GithubUrl = p.GithubUrl,
                        SlideUrl = p.SlideUrl,
                        DemoVideoUrl = p.DemoVideoUrl,
+                       ReportUrl = p.ReportUrl,
+                       SourceCodeUrl = p.SourceCodeUrl,
                        ReviewedBy = p.ReviewedBy,
                        ReviewedByName = p.ReviewedByNavigation != null ? p.ReviewedByNavigation.FullName : null,
                        ReviewComment = p.ReviewComment,
@@ -188,9 +203,7 @@ public class ProjectService : IProjectService
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
         var studentId = await GetCurrentStudentIdAsync(userId, ct);
 
-        var team = await _uow.Repository<Team>().QueryNoTracking()
-                       .FirstOrDefaultAsync(t => t.TeamId == teamId, ct)
-                   ?? throw new NotFoundException("Không tìm thấy nhóm");
+        var team = await TeamMutationLock.ReadAsync(_uow, teamId, ct);
         if (team.LeaderId != studentId)
             throw new ForbiddenException("Chỉ nhóm trưởng được tạo project");
         await EnsureStudyingAsync(team.ClassId, studentId, ct);
@@ -217,21 +230,35 @@ public class ProjectService : IProjectService
         foreach (var item in request.SelfSuppliedItems)
             project.ProjectSelfSuppliedItems.Add(ToSelfSuppliedItem(item, now));
 
-        try
+        var created = await TeamMutationLock.RunAsync(_uow, team, async token =>
         {
-            await _uow.Repository<Project>().AddAsync(project, ct);
-            await _uow.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException
-                                           {
-                                               SqlState: PostgresErrorCodes.UniqueViolation,
-                                               ConstraintName: TeamProjectUniqueConstraint,
-                                           })
-        {
-            throw new ConflictException("Nhóm đã có project");
-        }
+            var current = await TeamMutationLock.ReadAsync(_uow, teamId, token);
+            if (current.LeaderId != studentId)
+                throw new ConflictException(TeamMutationLock.ChangedMessage);
+            await EnsureStudyingAsync(current.ClassId, studentId, token);
+            if (await _uow.Repository<TeamMember>().QueryNoTracking()
+                    .AnyAsync(m => m.TeamId == teamId && m.Status == TeamMemberStatuses.Pending, token))
+                throw new ConflictException("Nhóm vẫn còn lời mời Pending, hãy xử lý hết trước khi đăng ký đề tài");
+            try
+            {
+                await _uow.Repository<Project>().AddAsync(project, token);
+                await _uow.SaveChangesAsync(token);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException
+                                               {
+                                                   SqlState: PostgresErrorCodes.UniqueViolation,
+                                                   ConstraintName: TeamProjectUniqueConstraint,
+                                               })
+            {
+                throw new ConflictException("Nhóm đã có project");
+            }
 
-        return await GetProjectByIdAsync(project.ProjectId, ct);
+            return await GetProjectByIdAsync(project.ProjectId, token);
+        }, ct);
+
+        await _changes.ProjectChangedAsync(created.ProjectId);
+
+        return created;
     }
 
     public async Task<ProjectDetailResponse> UpdateProjectAsync(
@@ -286,27 +313,224 @@ public class ProjectService : IProjectService
         await _uow.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 
+        await _changes.ProjectChangedAsync(projectId);
+
         return await GetProjectByIdAsync(projectId, ct);
     }
 
     public async Task<ProjectDetailResponse> UpdateProjectLinksAsync(
         Guid projectId, UpdateProjectLinksRequest request, CancellationToken ct = default)
     {
-        await GetProjectForLeaderAsync(projectId, ct);
-
-        var project = await _uow.Repository<Project>().Query()
-                          .FirstOrDefaultAsync(p => p.ProjectId == projectId, ct)
-                      ?? throw new NotFoundException("Không tìm thấy project");
+        var project = await GetProjectForLeaderAsync(projectId, ct);
         if (project.FinalStatus != null && FinalSubmissionStatuses.Locked.Contains(project.FinalStatus))
             throw new ConflictException("Bài nộp đang chờ hoặc đã được xác nhận, không sửa link được");
 
-        project.GithubUrl = CleanText(request.GithubUrl);
-        project.SlideUrl = CleanText(request.SlideUrl);
-        project.DemoVideoUrl = CleanText(request.DemoVideoUrl);
-        project.UpdatedAt = DateTime.UtcNow;
-        await _uow.SaveChangesAsync(ct);
+        var result = await MutateFinalContentAsync(projectId, p =>
+        {
+            p.GithubUrl = CleanText(request.GithubUrl);
+            p.SlideUrl = CleanText(request.SlideUrl);
+            p.DemoVideoUrl = CleanText(request.DemoVideoUrl);
+        }, _ => null, "Bài nộp đang chờ hoặc đã được xác nhận, không sửa link được", null, ct);
+        return result.Response;
+    }
 
-        return await GetProjectByIdAsync(projectId, ct);
+    public async Task<ProjectDetailResponse> UploadReportAsync(
+        Guid projectId, UploadProjectReportRequest request, CancellationToken ct = default)
+    {
+        await GetProjectForFinalFilesAsync(projectId, ct);
+
+        StoredFile stored;
+        await using (var content = request.File.OpenReadStream())
+        {
+            stored = await _fileStorage.UploadPdfAsync(content, request.File.FileName, ReportStorageFolder, ct);
+        }
+
+        var cleanupAllowed = true;
+        try
+        {
+            var result = await MutateFinalContentAsync(projectId, p =>
+            {
+                p.ReportUrl = stored.Url;
+                p.ReportStorageKey = stored.Key;
+            }, p => p.ReportStorageKey, "Bài nộp đang chờ hoặc đã được xác nhận, không sửa file được",
+                allowed => cleanupAllowed = allowed, ct);
+            if (result.OldKey is not null && result.OldKey != stored.Key)
+                await TryDeleteStoredFileAsync(result.OldKey, isZip: false);
+            return result.Response;
+        }
+        catch
+        {
+            if (cleanupAllowed)
+                await TryDeleteStoredFileAsync(stored.Key, isZip: false);
+            else
+                _logger.LogWarning("Deferred cleanup of PDF {StorageKey} for project {ProjectId}; commit may have succeeded", stored.Key, projectId);
+            throw;
+        }
+    }
+
+    public async Task<ProjectDetailResponse> DeleteReportAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var project = await GetProjectForFinalFilesAsync(projectId, ct);
+        if (project.ReportUrl == null)
+            throw new NotFoundException("Project chưa có file báo cáo");
+
+        var result = await MutateFinalContentAsync(projectId, p =>
+        {
+            if (p.ReportUrl is null)
+                throw new NotFoundException("Project chưa có file báo cáo");
+            p.ReportUrl = null;
+            p.ReportStorageKey = null;
+        }, p => p.ReportStorageKey, "Bài nộp đang chờ hoặc đã được xác nhận, không sửa file được", null, ct);
+        if (result.OldKey is not null)
+            await TryDeleteStoredFileAsync(result.OldKey, isZip: false);
+        return result.Response;
+    }
+
+    public async Task<ProjectDetailResponse> UploadSourceCodeAsync(
+        Guid projectId, UploadProjectSourceCodeRequest request, CancellationToken ct = default)
+    {
+        await GetProjectForFinalFilesAsync(projectId, ct);
+
+        StoredFile stored;
+        await using (var content = request.File.OpenReadStream())
+        {
+            stored = await _fileStorage.UploadZipAsync(content, request.File.FileName, SourceCodeStorageFolder, ct);
+        }
+
+        var cleanupAllowed = true;
+        try
+        {
+            var result = await MutateFinalContentAsync(projectId, p =>
+            {
+                p.SourceCodeUrl = stored.Url;
+                p.SourceCodeStorageKey = stored.Key;
+            }, p => p.SourceCodeStorageKey, "Bài nộp đang chờ hoặc đã được xác nhận, không sửa file được",
+                allowed => cleanupAllowed = allowed, ct);
+            if (result.OldKey is not null && result.OldKey != stored.Key)
+                await TryDeleteStoredFileAsync(result.OldKey, isZip: true);
+            return result.Response;
+        }
+        catch
+        {
+            if (cleanupAllowed)
+                await TryDeleteStoredFileAsync(stored.Key, isZip: true);
+            else
+                _logger.LogWarning("Deferred cleanup of ZIP {StorageKey} for project {ProjectId}; commit may have succeeded", stored.Key, projectId);
+            throw;
+        }
+    }
+
+    public async Task<ProjectDetailResponse> DeleteSourceCodeAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var project = await GetProjectForFinalFilesAsync(projectId, ct);
+        if (project.SourceCodeUrl == null)
+            throw new NotFoundException("Project chưa có file mã nguồn");
+
+        var result = await MutateFinalContentAsync(projectId, p =>
+        {
+            if (p.SourceCodeUrl is null)
+                throw new NotFoundException("Project chưa có file mã nguồn");
+            p.SourceCodeUrl = null;
+            p.SourceCodeStorageKey = null;
+        }, p => p.SourceCodeStorageKey, "Bài nộp đang chờ hoặc đã được xác nhận, không sửa file được", null, ct);
+        if (result.OldKey is not null)
+            await TryDeleteStoredFileAsync(result.OldKey, isZip: true);
+        return result.Response;
+    }
+
+    /// <summary>No-tracking preflight; the write reloads a tracked row only after taking the final-content guard.</summary>
+    private async Task<Project> GetProjectForFinalFilesAsync(Guid projectId, CancellationToken ct)
+    {
+        await GetProjectForLeaderAsync(projectId, ct);
+
+        var project = await _uow.Repository<Project>().QueryNoTracking()
+                          .FirstOrDefaultAsync(p => p.ProjectId == projectId, ct)
+                      ?? throw new NotFoundException("Không tìm thấy project");
+        if (project.FinalStatus != null && FinalSubmissionStatuses.Locked.Contains(project.FinalStatus))
+            throw new ConflictException("Bài nộp đang chờ hoặc đã được xác nhận, không sửa file được");
+
+        return project;
+    }
+
+    /// <summary>Serializes final-content writes with SubmitFinal on the Project row, without holding locks during storage I/O.</summary>
+    private async Task<(ProjectDetailResponse Response, string? OldKey)> MutateFinalContentAsync(
+        Guid projectId, Action<Project> change, Func<Project, string?> previousKey, string lockedMessage,
+        Action<bool>? setCleanupAllowed, CancellationToken ct)
+    {
+        await using var transaction = await _uow.BeginTransactionAsync(ct);
+        var commitStarted = false;
+        try
+        {
+            var affected = await _uow.Repository<Project>().Query()
+                .Where(p => p.ProjectId == projectId &&
+                            (p.FinalStatus == null || !FinalSubmissionStatuses.Locked.Contains(p.FinalStatus)))
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.UpdatedAt, p => p.UpdatedAt), ct);
+            if (affected == 0)
+            {
+                if (!await _uow.Repository<Project>().QueryNoTracking().AnyAsync(p => p.ProjectId == projectId, ct))
+                    throw new NotFoundException("Không tìm thấy project");
+                throw new ConflictException(lockedMessage);
+            }
+
+            await GetProjectForLeaderAsync(projectId, ct);
+            var project = await _uow.Repository<Project>().Query().SingleAsync(p => p.ProjectId == projectId, ct);
+            var oldKey = previousKey(project);
+            change(project);
+            project.UpdatedAt = DateTime.UtcNow;
+            await _uow.SaveChangesAsync(ct);
+            var response = await GetProjectByIdAsync(projectId, ct);
+            commitStarted = true;
+            setCleanupAllowed?.Invoke(false);
+            await transaction.CommitAsync(ct);
+            return (response, oldKey);
+        }
+        catch (Exception ex)
+        {
+            if (!commitStarted || IsFinalContentTransactionAborted(ex))
+            {
+                try
+                {
+                    await transaction.RollbackAsync(CancellationToken.None);
+                    setCleanupAllowed?.Invoke(true);
+                }
+                catch (Exception rollbackError)
+                {
+                    setCleanupAllowed?.Invoke(false);
+                    _logger.LogError(rollbackError, "Could not confirm rollback for project {ProjectId}", projectId);
+                }
+            }
+            else
+            {
+                setCleanupAllowed?.Invoke(false);
+                _logger.LogError(ex, "Commit outcome requires verification for project {ProjectId}", projectId);
+            }
+
+            if (ex is DbUpdateConcurrencyException || IsFinalContentTransactionAborted(ex))
+                throw new ConflictException(StatusChangedMessage);
+            throw;
+        }
+    }
+
+    private static bool IsFinalContentTransactionAborted(Exception exception)
+    {
+        var postgres = exception as PostgresException ?? exception.InnerException as PostgresException;
+        return postgres?.SqlState is PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure;
+    }
+
+    /// <summary>Best-effort delete of a stored file; a failure is only logged so the request still succeeds.</summary>
+    private async Task TryDeleteStoredFileAsync(string key, bool isZip)
+    {
+        try
+        {
+            if (isZip)
+                await _fileStorage.DeleteZipAsync(key);
+            else
+                await _fileStorage.DeleteAsync(key);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not delete stored file {StorageKey}", key);
+        }
     }
 
     public async Task<ProjectDetailResponse> SubmitProjectAsync(
@@ -314,22 +538,11 @@ public class ProjectService : IProjectService
     {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
         var project = await GetProjectForLeaderAsync(projectId, ct);
+        var team = await TeamMutationLock.ReadAsync(_uow, project.TeamId!.Value, ct);
         if (!ProjectStatuses.Editable.Contains(project.Status))
             throw new ConflictException("Project đã được gửi duyệt hoặc đã được duyệt");
 
         var now = DateTime.UtcNow;
-        var borrowDate = ToVietnamDateUtc(request.BorrowDate!.Value);
-        var dueDate = ToVietnamDateUtc(request.DueDate!.Value);
-        if (borrowDate < ToVietnamDateUtc(now))
-            throw new BadRequestException("Ngày mượn không được trước hôm nay");
-
-        var maxBorrowDays = await SystemSettingValues.GetPositiveIntAsync(
-            _uow, SystemSettingKeys.BorrowMaxDays, "số ngày mượn tối đa", ct);
-        if (dueDate > borrowDate.AddDays(maxBorrowDays))
-            throw new BadRequestException($"Thời gian mượn tối đa {maxBorrowDays} ngày");
-
-        var pickupRoomId = await PickupRoom.GetActiveIdAsync(_uow, ct);
-
         var lecturerId = await _uow.Repository<Class>().QueryNoTracking()
             .Where(c => c.ClassId == project.ClassId && c.Instructor != null)
             .Select(c => (Guid?)c.Instructor!.UserId)
@@ -341,63 +554,71 @@ public class ProjectService : IProjectService
         var attempt = 1;
         while (true)
         {
-            await using var tx = await _uow.BeginTransactionAsync(ct);
-
-            var updated = await _uow.Repository<Project>().Query()
-                .Where(p => p.ProjectId == projectId && ProjectStatuses.Editable.Contains(p.Status))
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(p => p.Status, ProjectStatuses.Submitted)
-                    .SetProperty(p => p.SubmittedAt, now)
-                    .SetProperty(p => p.ReviewedBy, (Guid?)null)
-                    .SetProperty(p => p.ReviewedAt, (DateTime?)null)
-                    .SetProperty(p => p.ReviewComment, (string?)null)
-                    .SetProperty(p => p.UpdatedAt, now), ct);
-            if (updated == 0)
-                throw new ConflictException(StatusChangedMessage);
-
-            if (borrowRequest == null)
-            {
-                var lines = await LoadSubmitLinesAsync(projectId, ct);
-                await EnsureStockAsync(lines, ct);
-
-                borrowRequest = new BorrowRequest
-                {
-                    RequestCode = await GenerateRequestCodeAsync(now, ct),
-                    RequesterId = userId,
-                    ClassId = project.ClassId,
-                    ProjectId = projectId,
-                    Purpose = $"Mượn linh kiện cho project: {project.Title}",
-                    Status = BorrowRequestStatuses.Pending,
-                    RequestDate = now,
-                    BorrowDate = borrowDate,
-                    DueDate = dueDate,
-                    RoomId = pickupRoomId,
-                };
-                foreach (var line in lines)
-                {
-                    borrowRequest.BorrowItems.Add(new BorrowItem
-                    {
-                        ComponentId = line.ComponentId,
-                        Quantity = line.Quantity,
-                        Status = BorrowItemStatuses.Pending,
-                    });
-                }
-                borrowRequest.BorrowApprovals.Add(new BorrowApproval
-                {
-                    StepNo = 1,
-                    ApproverRole = ApproverRoles.Lecturer,
-                    ApproverId = lecturerId.Value,
-                    Status = BorrowApprovalStatuses.Pending,
-                    CreatedAt = now,
-                });
-
-                await _uow.Repository<BorrowRequest>().AddAsync(borrowRequest, ct);
-            }
-
             try
             {
-                await _uow.SaveChangesAsync(ct);
-                await tx.CommitAsync(ct);
+                await TeamMutationLock.RunAsync(_uow, team, async token =>
+                {
+                    await GetProjectForLeaderAsync(projectId, token);
+
+                    var updated = await _uow.Repository<Project>().Query()
+                        .Where(p => p.ProjectId == projectId && ProjectStatuses.Editable.Contains(p.Status))
+                        .ExecuteUpdateAsync(s => s
+                            .SetProperty(p => p.Status, ProjectStatuses.Submitted)
+                            .SetProperty(p => p.SubmittedAt, now)
+                            .SetProperty(p => p.ReviewedBy, (Guid?)null)
+                            .SetProperty(p => p.ReviewedAt, (DateTime?)null)
+                            .SetProperty(p => p.ReviewComment, (string?)null)
+                            .SetProperty(p => p.UpdatedAt, now), token);
+                    if (updated == 0)
+                        throw new ConflictException(StatusChangedMessage);
+
+                    var lines = new List<SubmitLine>();
+                    if (borrowRequest == null)
+                        lines = await LoadSubmitLinesAsync(projectId, token);
+
+                    if (lines.Count > 0)
+                    {
+                        await EnsureStockAsync(lines, token);
+                        var roomId = await BorrowRoom.PickBestAsync(
+                            _uow, lines.Select(l => (l.ComponentId, l.Quantity)).ToList(), token);
+                        var dueDate = await BorrowDeadline.GetDueDateForNewRequestAsync(_uow, project.ClassId, token);
+
+                        borrowRequest = new BorrowRequest
+                        {
+                            RequestCode = await GenerateRequestCodeAsync(now, token),
+                            RequesterId = userId,
+                            ClassId = project.ClassId,
+                            ProjectId = projectId,
+                            Purpose = $"Mượn linh kiện cho project: {project.Title}",
+                            Status = BorrowRequestStatuses.Pending,
+                            RequestDate = now,
+                            BorrowDate = ToVietnamDateUtc(now),
+                            DueDate = dueDate,
+                            RoomId = roomId,
+                        };
+                        foreach (var line in lines)
+                        {
+                            borrowRequest.BorrowItems.Add(new BorrowItem
+                            {
+                                ComponentId = line.ComponentId,
+                                Quantity = line.Quantity,
+                                Status = BorrowItemStatuses.Pending,
+                            });
+                        }
+                        borrowRequest.BorrowApprovals.Add(new BorrowApproval
+                        {
+                            StepNo = 1,
+                            ApproverRole = ApproverRoles.Lecturer,
+                            ApproverId = lecturerId.Value,
+                            Status = BorrowApprovalStatuses.Pending,
+                            CreatedAt = now,
+                        });
+
+                        await _uow.Repository<BorrowRequest>().AddAsync(borrowRequest, token);
+                    }
+                    await _uow.SaveChangesAsync(token);
+                    return true;
+                }, ct);
                 break;
             }
             catch (DbUpdateException ex) when (ex.InnerException is PostgresException
@@ -406,15 +627,37 @@ public class ProjectService : IProjectService
                                                    ConstraintName: RequestCodeUniqueConstraint,
                                                } && attempt < MaxCodeAttempts)
             {
-                await tx.RollbackAsync(ct);
                 attempt++;
-                borrowRequest.RequestCode = await GenerateRequestCodeAsync(now, ct);
+                borrowRequest!.RequestCode = await GenerateRequestCodeAsync(now, ct);
             }
         }
 
-        await _notifier.SubmittedAsync(borrowRequest.BorrowRequestId, ct);
+        if (borrowRequest != null)
+        {
+            await _notifier.SubmittedAsync(borrowRequest.BorrowRequestId, ct);
+            await _changes.BorrowRequestChangedAsync(borrowRequest.BorrowRequestId);
+        }
+        else
+        {
+            await _projectNotifier.SubmittedAsync(projectId, ct);
+            await _changes.ProjectChangedAsync(projectId);
+        }
 
         return await GetProjectByIdAsync(projectId, ct);
+    }
+
+    public async Task<BorrowDeadlineResponse> GetBorrowDeadlineAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var project = await GetProjectForLeaderAsync(projectId, ct);
+        var deadline = await BorrowDeadline.GetAsync(_uow, project.ClassId, ct);
+
+        return new BorrowDeadlineResponse
+        {
+            DueDate = deadline.DueDate,
+            SemesterCode = deadline.SemesterCode,
+            DaysLeft = deadline.DaysLeft,
+            CanBorrow = deadline.CanBorrow,
+        };
     }
 
     public async Task<ProjectDetailResponse> SubmitSupplementaryBorrowAsync(
@@ -422,26 +665,18 @@ public class ProjectService : IProjectService
     {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
         var project = await GetProjectForLeaderAsync(projectId, ct);
+        var team = await TeamMutationLock.ReadAsync(_uow, project.TeamId!.Value, ct);
         if (project.Status != ProjectStatuses.Approved)
             throw new ConflictException("Chỉ mượn thêm được khi project đã được duyệt");
         if (project.FinalStatus != null && FinalSubmissionStatuses.Locked.Contains(project.FinalStatus))
             throw new ConflictException("Đã nộp bài cuối, không mượn thêm được");
 
         var now = DateTime.UtcNow;
-        var borrowDate = ToVietnamDateUtc(request.BorrowDate!.Value);
-        var dueDate = ToVietnamDateUtc(request.DueDate!.Value);
-        if (borrowDate < ToVietnamDateUtc(now))
-            throw new BadRequestException("Ngày mượn không được trước hôm nay");
-
-        var maxBorrowDays = await SystemSettingValues.GetPositiveIntAsync(
-            _uow, SystemSettingKeys.BorrowMaxDays, "số ngày mượn tối đa", ct);
-        if (dueDate > borrowDate.AddDays(maxBorrowDays))
-            throw new BadRequestException($"Thời gian mượn tối đa {maxBorrowDays} ngày");
-
         await EnsureComponentsUsableAsync(request.Components, ct);
         var lines = await LoadRequestLinesAsync(request.Components, ct);
 
-        var pickupRoomId = await PickupRoom.GetActiveIdAsync(_uow, ct);
+        var roomId = await SupplementaryRoomAsync(projectId, lines, ct);
+        var dueDate = await BorrowDeadline.GetDueDateForNewRequestAsync(_uow, project.ClassId, ct);
 
         var lecturerId = await _uow.Repository<Class>().QueryNoTracking()
             .Where(c => c.ClassId == project.ClassId && c.Instructor != null)
@@ -456,63 +691,65 @@ public class ProjectService : IProjectService
         var attempt = 1;
         while (true)
         {
-            await using var tx = await _uow.BeginTransactionAsync(ct);
-
-            var locked = await _uow.Repository<Project>().Query()
-                .Where(p => p.ProjectId == projectId
-                            && p.Status == ProjectStatuses.Approved
-                            && (p.FinalStatus == null || !FinalSubmissionStatuses.Locked.Contains(p.FinalStatus)))
-                .ExecuteUpdateAsync(s => s.SetProperty(p => p.UpdatedAt, now), ct);
-            if (locked == 0)
-                throw new ConflictException(StatusChangedMessage);
-
-            if (borrowRequest == null)
-            {
-                var hasPending = await _uow.Repository<BorrowRequest>().QueryNoTracking()
-                    .AnyAsync(r => r.ProjectId == projectId && r.Status == BorrowRequestStatuses.Pending, ct);
-                if (hasPending)
-                    throw new ConflictException("Nhóm đang có đơn mượn thêm chờ duyệt");
-
-                await EnsureStockAsync(lines, ct);
-
-                borrowRequest = new BorrowRequest
-                {
-                    RequestCode = await GenerateRequestCodeAsync(now, ct),
-                    RequesterId = userId,
-                    ClassId = project.ClassId,
-                    ProjectId = projectId,
-                    Purpose = purpose,
-                    Status = BorrowRequestStatuses.Pending,
-                    RequestDate = now,
-                    BorrowDate = borrowDate,
-                    DueDate = dueDate,
-                    RoomId = pickupRoomId,
-                };
-                foreach (var line in lines)
-                {
-                    borrowRequest.BorrowItems.Add(new BorrowItem
-                    {
-                        ComponentId = line.ComponentId,
-                        Quantity = line.Quantity,
-                        Status = BorrowItemStatuses.Pending,
-                    });
-                }
-                borrowRequest.BorrowApprovals.Add(new BorrowApproval
-                {
-                    StepNo = 1,
-                    ApproverRole = ApproverRoles.Lecturer,
-                    ApproverId = lecturerId.Value,
-                    Status = BorrowApprovalStatuses.Pending,
-                    CreatedAt = now,
-                });
-
-                await _uow.Repository<BorrowRequest>().AddAsync(borrowRequest, ct);
-            }
-
             try
             {
-                await _uow.SaveChangesAsync(ct);
-                await tx.CommitAsync(ct);
+                await TeamMutationLock.RunAsync(_uow, team, async token =>
+                {
+                    await GetProjectForLeaderAsync(projectId, token);
+
+                    var locked = await _uow.Repository<Project>().Query()
+                        .Where(p => p.ProjectId == projectId
+                                    && p.Status == ProjectStatuses.Approved
+                                    && (p.FinalStatus == null || !FinalSubmissionStatuses.Locked.Contains(p.FinalStatus)))
+                        .ExecuteUpdateAsync(s => s.SetProperty(p => p.UpdatedAt, now), token);
+                    if (locked == 0)
+                        throw new ConflictException(StatusChangedMessage);
+
+                    if (borrowRequest == null)
+                    {
+                        var hasPending = await _uow.Repository<BorrowRequest>().QueryNoTracking()
+                            .AnyAsync(r => r.ProjectId == projectId && r.Status == BorrowRequestStatuses.Pending, token);
+                        if (hasPending)
+                            throw new ConflictException("Nhóm đang có đơn mượn thêm chờ duyệt");
+
+                        await EnsureStockAsync(lines, token);
+
+                        borrowRequest = new BorrowRequest
+                        {
+                            RequestCode = await GenerateRequestCodeAsync(now, token),
+                            RequesterId = userId,
+                            ClassId = project.ClassId,
+                            ProjectId = projectId,
+                            Purpose = purpose,
+                            Status = BorrowRequestStatuses.Pending,
+                            RequestDate = now,
+                            BorrowDate = ToVietnamDateUtc(now),
+                            DueDate = dueDate,
+                            RoomId = roomId,
+                        };
+                        foreach (var line in lines)
+                        {
+                            borrowRequest.BorrowItems.Add(new BorrowItem
+                            {
+                                ComponentId = line.ComponentId,
+                                Quantity = line.Quantity,
+                                Status = BorrowItemStatuses.Pending,
+                            });
+                        }
+                        borrowRequest.BorrowApprovals.Add(new BorrowApproval
+                        {
+                            StepNo = 1,
+                            ApproverRole = ApproverRoles.Lecturer,
+                            ApproverId = lecturerId.Value,
+                            Status = BorrowApprovalStatuses.Pending,
+                            CreatedAt = now,
+                        });
+
+                        await _uow.Repository<BorrowRequest>().AddAsync(borrowRequest, token);
+                    }
+                    await _uow.SaveChangesAsync(token);
+                    return true;
+                }, ct);
                 break;
             }
             catch (DbUpdateException ex) when (ex.InnerException is PostgresException
@@ -521,13 +758,13 @@ public class ProjectService : IProjectService
                                                    ConstraintName: RequestCodeUniqueConstraint,
                                                } && attempt < MaxCodeAttempts)
             {
-                await tx.RollbackAsync(ct);
                 attempt++;
-                borrowRequest.RequestCode = await GenerateRequestCodeAsync(now, ct);
+                borrowRequest!.RequestCode = await GenerateRequestCodeAsync(now, ct);
             }
         }
 
-        await _notifier.SubmittedAsync(borrowRequest.BorrowRequestId, ct);
+        await _notifier.SubmittedAsync(borrowRequest!.BorrowRequestId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequest.BorrowRequestId);
 
         return await GetProjectByIdAsync(projectId, ct);
     }
@@ -546,6 +783,8 @@ public class ProjectService : IProjectService
         if (cancelled == 0)
             throw new ConflictException("Không có đơn mượn thêm đang chờ duyệt hoặc giảng viên vừa xử lý xong");
 
+        await _changes.ProjectChangedAsync(projectId);
+
         return await GetProjectByIdAsync(projectId, ct);
     }
 
@@ -556,6 +795,8 @@ public class ProjectService : IProjectService
             throw new ConflictException("Chỉ nộp bài được khi project đã được duyệt");
         if (project.GithubUrl == null || project.SlideUrl == null || project.DemoVideoUrl == null)
             throw new BadRequestException("Cần nhập đủ link GitHub, slide và video demo trước khi nộp");
+        if (project.ReportUrl == null)
+            throw new BadRequestException("Cần tải file báo cáo PDF trước khi nộp");
         if (project.FinalStatus != null && project.FinalStatus != FinalSubmissionStatuses.Returned)
             throw new ConflictException("Bài nộp đang chờ hoặc đã được xác nhận");
 
@@ -564,6 +805,7 @@ public class ProjectService : IProjectService
             .Where(p => p.ProjectId == projectId
                         && p.Status == ProjectStatuses.Approved
                         && p.GithubUrl != null && p.SlideUrl != null && p.DemoVideoUrl != null
+                        && p.ReportUrl != null
                         && (p.FinalStatus == null || p.FinalStatus == FinalSubmissionStatuses.Returned))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(p => p.FinalStatus, FinalSubmissionStatuses.Pending)
@@ -576,6 +818,7 @@ public class ProjectService : IProjectService
             throw new ConflictException(StatusChangedMessage);
 
         await _projectNotifier.FinalSubmittedAsync(projectId, ct);
+        await _changes.ProjectChangedAsync(projectId);
 
         return await GetProjectByIdAsync(projectId, ct);
     }
@@ -590,6 +833,9 @@ public class ProjectService : IProjectService
 
         if (!_currentUser.IsInRole(RoleNames.Admin))
             projects = projects.Where(p => p.Class != null && p.Class.Instructor != null && p.Class.Instructor.UserId == userId);
+
+        if (query.ClassId.HasValue)
+            projects = projects.Where(p => p.ClassId == query.ClassId.Value);
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
@@ -610,6 +856,8 @@ public class ProjectService : IProjectService
                 GithubUrl = p.GithubUrl,
                 SlideUrl = p.SlideUrl,
                 DemoVideoUrl = p.DemoVideoUrl,
+                ReportUrl = p.ReportUrl,
+                SourceCodeUrl = p.SourceCodeUrl,
                 FinalSubmittedAt = p.FinalSubmittedAt,
             });
 
@@ -634,11 +882,9 @@ public class ProjectService : IProjectService
 
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
-        var cancelled = await _uow.Repository<BorrowRequest>().Query()
+        await _uow.Repository<BorrowRequest>().Query()
             .Where(r => r.ProjectId == projectId && r.Status == BorrowRequestStatuses.Pending)
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, BorrowRequestStatuses.Cancelled), ct);
-        if (cancelled == 0)
-            throw new ConflictException(StatusChangedMessage);
 
         var updated = await _uow.Repository<Project>().Query()
             .Where(p => p.ProjectId == projectId && p.Status == ProjectStatuses.Submitted)
@@ -651,11 +897,14 @@ public class ProjectService : IProjectService
 
         await tx.CommitAsync(ct);
 
+        await _changes.ProjectChangedAsync(projectId);
+
         return await GetProjectByIdAsync(projectId, ct);
     }
 
     /// <summary>
     /// Admin sees every project; others see their team's, their classes', and the ones they approve.
+    /// A Draft is still the team's work in progress: only its team sees it, not the class lecturer or approvers.
     /// </summary>
     private IQueryable<Project> VisibleProjects()
     {
@@ -668,8 +917,9 @@ public class ProjectService : IProjectService
             (p.Team != null && (p.Team.Leader.UserId == userId
                                 || p.Team.TeamMembers.Any(tm => tm.Student.UserId == userId
                                                                 && tm.Status == TeamMemberStatuses.Accepted)))
-            || (p.Class != null && p.Class.Instructor != null && p.Class.Instructor.UserId == userId)
-            || p.BorrowRequests.Any(r => r.BorrowApprovals.Any(a => a.ApproverId == userId)));
+            || (p.Status != ProjectStatuses.Draft
+                && ((p.Class != null && p.Class.Instructor != null && p.Class.Instructor.UserId == userId)
+                    || p.BorrowRequests.Any(r => r.BorrowApprovals.Any(a => a.ApproverId == userId)))));
     }
 
     /// <summary>
@@ -711,6 +961,7 @@ public class ProjectService : IProjectService
             throw new ConflictException("Bài nộp đã được xử lý");
 
         await _projectNotifier.FinalReviewedAsync(projectId, ct);
+        await _changes.ProjectChangedAsync(projectId);
 
         return await GetProjectByIdAsync(projectId, ct);
     }
@@ -725,6 +976,29 @@ public class ProjectService : IProjectService
             throw new ForbiddenException("Chỉ sinh viên (nhóm trưởng) được thao tác với project");
 
         return studentId.Value;
+    }
+
+    /// <summary>
+    /// A supplementary request stays in the lab of the project's first request, so the team returns everything in one
+    /// place. A project that borrowed nothing so far gets the best lab, like a first request.
+    /// </summary>
+    private async Task<Guid> SupplementaryRoomAsync(Guid projectId, List<SubmitLine> lines, CancellationToken ct)
+    {
+        var first = await _uow.Repository<BorrowRequest>().QueryNoTracking()
+            .Where(r => r.ProjectId == projectId
+                        && r.Status != BorrowRequestStatuses.Cancelled
+                        && r.Status != BorrowRequestStatuses.Rejected)
+            .OrderBy(r => r.RequestDate)
+            .Select(r => new { r.RoomId, r.Room.Status })
+            .FirstOrDefaultAsync(ct);
+
+        if (first == null)
+            return await BorrowRoom.PickBestAsync(_uow, lines.Select(l => (l.ComponentId, l.Quantity)).ToList(), ct);
+
+        if (first.Status != LabRoomStatuses.Active)
+            throw new BadRequestException("Lab nhận đồ của project đã ngừng hoạt động, vui lòng báo Admin");
+
+        return first.RoomId;
     }
 
     /// <summary>The project, after checking that the current user leads its team and still studies in the class.</summary>
@@ -792,7 +1066,12 @@ public class ProjectService : IProjectService
                 pc.Component.IsActive, pc.Quantity))
             .ToListAsync(ct);
         if (lines.Count == 0)
-            throw new BadRequestException("Project chưa có linh kiện nào, không gửi duyệt được");
+        {
+            var hasSelfSupplied = await _uow.Repository<ProjectSelfSuppliedItem>().QueryNoTracking()
+                .AnyAsync(i => i.ProjectId == projectId, ct);
+            if (!hasSelfSupplied)
+                throw new BadRequestException("Project chưa có linh kiện nào, không gửi duyệt được");
+        }
 
         var inactive = lines.Where(l => !l.IsActive).Select(l => l.ComponentName).ToList();
         if (inactive.Count > 0)

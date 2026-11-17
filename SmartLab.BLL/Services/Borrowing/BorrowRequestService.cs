@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -12,6 +12,7 @@ using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.External.Storage;
 using SmartLab.BLL.Interfaces.Borrowing;
 using SmartLab.BLL.Interfaces.IssueReports;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.BLL.Mappings.Borrowing;
 using SmartLab.BLL.Services.Inventory;
 using SmartLab.DAL.Entities;
@@ -45,12 +46,13 @@ public class BorrowRequestService : IBorrowRequestService
     private readonly IStudentCardChecker _cardChecker;
     private readonly IBorrowNotifier _notifier;
     private readonly IIssueReportBorrowingIntegration _issueReports;
+    private readonly IChangeBroadcaster _changes;
     private readonly ILogger<BorrowRequestService> _logger;
 
     public BorrowRequestService(
         IUnitOfWork uow, ICurrentUserService currentUser, IFileStorage fileStorage,
         IStudentCardChecker cardChecker, IBorrowNotifier notifier,
-        IIssueReportBorrowingIntegration issueReports, ILogger<BorrowRequestService> logger)
+        IIssueReportBorrowingIntegration issueReports, IChangeBroadcaster changes, ILogger<BorrowRequestService> logger)
     {
         _uow = uow;
         _currentUser = currentUser;
@@ -58,6 +60,7 @@ public class BorrowRequestService : IBorrowRequestService
         _cardChecker = cardChecker;
         _notifier = notifier;
         _issueReports = issueReports;
+        _changes = changes;
         _logger = logger;
     }
 
@@ -84,8 +87,10 @@ public class BorrowRequestService : IBorrowRequestService
         if (!_currentUser.IsInRole(RoleNames.Admin))
         {
             var myRooms = MyRoomIds();
-            requests = requests.Where(r => myRooms.Contains(r.RoomId)
-                                           || r.BorrowItems.Any(i => i.SourceRoomId != null && myRooms.Contains(i.SourceRoomId.Value)));
+            requests = query.PickupOnly == true
+                ? requests.Where(r => myRooms.Contains(r.RoomId))
+                : requests.Where(r => myRooms.Contains(r.RoomId)
+                                      || r.BorrowItems.Any(i => i.SourceRoomId != null && myRooms.Contains(i.SourceRoomId.Value)));
         }
 
         return ToPagedResponses(Filter(requests, query), paging, ct);
@@ -120,7 +125,7 @@ public class BorrowRequestService : IBorrowRequestService
                        BorrowDate = r.BorrowDate,
                        DueDate = r.DueDate,
                        ReturnedAt = r.ReturnedAt,
-                       ItemCount = r.BorrowItems.Count,
+                       ItemCount = r.BorrowItems.Select(i => i.ComponentId).Distinct().Count(),
                        WaitingTransferCount = r.BorrowItems.Count(i => i.SourceRoomId != null && i.ReceivedAt == null),
                        Purpose = r.Purpose,
                        RejectReason = r.RejectReason,
@@ -139,6 +144,7 @@ public class BorrowRequestService : IBorrowRequestService
                                SourceRoomId = i.SourceRoomId,
                                SourceRoomCode = i.SourceRoom != null ? i.SourceRoom.RoomCode : null,
                                ReceivedAt = i.ReceivedAt,
+                               DispatchedAt = i.DispatchedAt,
                                ComponentItemId = i.ComponentItemId,
                                ItemCode = i.ComponentItem != null ? i.ComponentItem.ItemCode : null,
                                SerialNumber = i.ComponentItem != null ? i.ComponentItem.SerialNumber : null,
@@ -214,9 +220,10 @@ public class BorrowRequestService : IBorrowRequestService
                         && i.Status == BorrowItemStatuses.Pending
                         && TransferStatuses.Contains(i.BorrowRequest.Status));
 
-        if (!_currentUser.IsInRole(RoleNames.Admin))
+        var isAdmin = _currentUser.IsInRole(RoleNames.Admin);
+        var myRooms = MyRoomIds();
+        if (!isAdmin)
         {
-            var myRooms = MyRoomIds();
             lines = lines.Where(i => myRooms.Contains(i.SourceRoomId!.Value) || myRooms.Contains(i.BorrowRequest.RoomId));
         }
 
@@ -250,6 +257,9 @@ public class BorrowRequestService : IBorrowRequestService
                 PickupRoomCode = i.BorrowRequest.Room.RoomCode,
                 ApprovedAt = i.BorrowRequest.ApprovedAt,
                 BorrowDate = i.BorrowRequest.BorrowDate,
+                DispatchedAt = i.DispatchedAt,
+                CanDispatch = isAdmin || myRooms.Contains(i.SourceRoomId!.Value),
+                CanReceive = isAdmin || myRooms.Contains(i.BorrowRequest.RoomId),
             });
 
         return PagedResult<TransferLineResponse>.CreateAsync(result, paging, ct);
@@ -257,8 +267,8 @@ public class BorrowRequestService : IBorrowRequestService
 
     /// <summary>
     /// The pickup lab confirms one line arrived from its source lab: the units (or CONSUMABLE quantity, taken from the
-    /// source lab's fullest cabinets) move into a cabinet of the pickup lab, logged as Move. When the last line of an
-    /// Approved request arrives the request becomes Ready. A replacement line of a request being borrowed can then be
+    /// source lab's fullest cabinets) move into a cabinet of the pickup lab, logged as Move. The request stays Approved
+    /// until the lab accepts it (<see cref="LabAcceptAsync"/>). A replacement line of a request being borrowed can then be
     /// handed over with <see cref="IssueReplacementAsync"/>.
     /// </summary>
     public async Task<BorrowRequestDetailResponse> ReceiveTransferAsync(
@@ -346,24 +356,32 @@ public class BorrowRequestService : IBorrowRequestService
         {
             await tx.CommitAsync(ct);
             await _notifier.ReplacementArrivedAsync(borrowRequestId, line.BorrowItemId, ct);
+            await _changes.BorrowRequestChangedAsync(borrowRequestId);
             return await GetRequestByIdAsync(borrowRequestId, ct);
-        }
-
-        var waiting = await _uow.Repository<BorrowItem>().QueryNoTracking()
-            .AnyAsync(i => i.BorrowRequestId == borrowRequestId && i.ReceivedAt == null, ct);
-        if (!waiting)
-        {
-            await _uow.Repository<BorrowRequest>().Query()
-                .Where(r => r.BorrowRequestId == borrowRequestId)
-                .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, BorrowRequestStatuses.Ready), ct);
         }
 
         await tx.CommitAsync(ct);
 
-        if (!waiting)
-            await _notifier.ReadyAsync(borrowRequestId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
+    }
+
+    /// <summary>Reads a student card so staff can find the request. The photo is not stored and nothing is decided from it.</summary>
+    public async Task<StudentCardReadResponse> ReadStudentCardAsync(ReadStudentCardRequest request, CancellationToken ct = default)
+    {
+        using var buffer = new MemoryStream();
+        await request.File.CopyToAsync(buffer, ct);
+
+        var reading = await _cardChecker.ReadAsync(buffer.ToArray(), request.File.ContentType, ct);
+        var isCard = reading?.IsStudentCard == true;
+        return new StudentCardReadResponse
+        {
+            AiAvailable = reading != null,
+            IsStudentCard = isCard,
+            FullName = isCard ? reading!.FullName : null,
+            StudentCode = isCard && !string.IsNullOrWhiteSpace(reading!.StudentCode) ? NormalizeCode(reading.StudentCode) : null,
+        };
     }
 
     /// <summary>
@@ -598,6 +616,7 @@ public class BorrowRequestService : IBorrowRequestService
         await tx.CommitAsync(ct);
 
         await _notifier.IssuedAsync(borrowRequestId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
     }
@@ -751,6 +770,7 @@ public class BorrowRequestService : IBorrowRequestService
         await tx.CommitAsync(ct);
 
         await _notifier.ReturnedAsync(borrowRequestId, lineIds, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
     }
@@ -832,6 +852,7 @@ public class BorrowRequestService : IBorrowRequestService
         await tx.CommitAsync(ct);
 
         await _notifier.ReplacementAsync(borrowRequestId, line.BorrowItemId, replacement?.BorrowItemId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         var response = new ReplaceDamagedResponse
         {
@@ -920,6 +941,7 @@ public class BorrowRequestService : IBorrowRequestService
         await tx.CommitAsync(ct);
 
         await _notifier.ReplacementIssuedAsync(borrowRequestId, line.BorrowItemId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
     }
@@ -954,6 +976,70 @@ public class BorrowRequestService : IBorrowRequestService
         await tx.CommitAsync(ct);
 
         await _notifier.ReplacementCancelledAsync(borrowRequestId, componentName, notCarriedFrom, request.Reason.Trim(), userId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
+
+        return await GetRequestByIdAsync(borrowRequestId, ct);
+    }
+
+    /// <summary>
+    /// The source lab says it sent a line, so the pickup lab knows the goods are on the way. Only staff of the source lab.
+    /// Optional: the pickup lab can still confirm arrival without it, for instance when the source lab has no staff.
+    /// </summary>
+    public async Task<BorrowRequestDetailResponse> DispatchTransferAsync(
+        Guid borrowRequestId, DispatchTransferRequest request, CancellationToken ct = default)
+    {
+        await using var tx = await _uow.BeginTransactionAsync(ct);
+
+        await LockRequestAsync(borrowRequestId, TransferStatuses, "Đơn này không còn hàng chờ chuyển", ct);
+
+        var line = await _uow.Repository<BorrowItem>().Query()
+                       .FirstOrDefaultAsync(i => i.BorrowItemId == request.BorrowItemId && i.BorrowRequestId == borrowRequestId, ct)
+                   ?? throw new NotFoundException("Không tìm thấy dòng linh kiện trong đơn mượn");
+        if (line.SourceRoomId == null || line.Status != BorrowItemStatuses.Pending || line.ReceivedAt != null)
+            throw new ConflictException("Dòng linh kiện này không cần chuyển hoặc đã được nhận");
+        if (line.DispatchedAt != null)
+            throw new ConflictException("Dòng linh kiện này đã được gửi đi");
+
+        if (!_currentUser.IsInRole(RoleNames.Admin) && !await MyRoomIds().AnyAsync(id => id == line.SourceRoomId, ct))
+            throw new ForbiddenException("Chỉ nhân viên phụ trách lab chuyển hàng được xác nhận đã gửi");
+
+        line.DispatchedAt = DateTime.UtcNow;
+        await _uow.SaveChangesAsync(ct);
+
+        await tx.CommitAsync(ct);
+
+        await _notifier.TransferDispatchedAsync(borrowRequestId, line.BorrowItemId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
+
+        return await GetRequestByIdAsync(borrowRequestId, ct);
+    }
+
+    /// <summary>
+    /// The pickup lab checked the goods after the lecturer approved: Approved becomes Ready and the student is told to come.
+    /// All lines must have arrived first. If the goods are not usable, staff cancel the request instead (<see cref="CancelAsync"/>).
+    /// </summary>
+    public async Task<BorrowRequestDetailResponse> LabAcceptAsync(Guid borrowRequestId, CancellationToken ct = default)
+    {
+        await using var tx = await _uow.BeginTransactionAsync(ct);
+
+        await LockRequestAsync(borrowRequestId, new[] { BorrowRequestStatuses.Approved },
+            "Chỉ chấp nhận đơn đã được giảng viên duyệt", ct);
+        var header = await GetHeaderAsync(borrowRequestId, ct);
+        await EnsurePickupStaffAsync(header.RoomId, ct);
+
+        var waiting = await _uow.Repository<BorrowItem>().QueryNoTracking()
+            .AnyAsync(i => i.BorrowRequestId == borrowRequestId && i.ReceivedAt == null, ct);
+        if (waiting)
+            throw new ConflictException("Còn linh kiện đang chuyển về lab, hãy xác nhận đã nhận trước");
+
+        await _uow.Repository<BorrowRequest>().Query()
+            .Where(r => r.BorrowRequestId == borrowRequestId)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, BorrowRequestStatuses.Ready), ct);
+
+        await tx.CommitAsync(ct);
+
+        await _notifier.ReadyAsync(borrowRequestId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
     }
@@ -1027,6 +1113,7 @@ public class BorrowRequestService : IBorrowRequestService
         if (!byBorrower)
             await _notifier.CancelledByStaffAsync(borrowRequestId, ct);
         await _notifier.StaffCancelledAsync(borrowRequestId, userId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
     }
@@ -1076,9 +1163,11 @@ public class BorrowRequestService : IBorrowRequestService
         if (byRoom.TryGetValue(pickupRoomId, out var pickup) && pickup.GetValueOrDefault(componentId) > 0)
             return pickupRoomId;
 
+        var staffedRooms = await BorrowRoom.GetStaffedIdsAsync(_uow, ct);
         return byRoom
             .Where(r => r.Value.GetValueOrDefault(componentId) > 0)
-            .OrderByDescending(r => r.Value[componentId]).ThenBy(r => r.Key)
+            .OrderByDescending(r => staffedRooms.Contains(r.Key))
+            .ThenByDescending(r => r.Value[componentId]).ThenBy(r => r.Key)
             .Select(r => (Guid?)r.Key)
             .FirstOrDefault();
     }
@@ -1177,7 +1266,14 @@ public class BorrowRequestService : IBorrowRequestService
             var keyword = query.Search.Trim().ToLower();
             requests = requests.Where(r => r.RequestCode.ToLower().Contains(keyword)
                                            || r.Requester.FullName.ToLower().Contains(keyword)
-                                           || (r.Project != null && r.Project.Title.ToLower().Contains(keyword)));
+                                           || (r.Requester.StudentProfile != null
+                                               && r.Requester.StudentProfile.StudentCode.ToLower().Contains(keyword))
+                                           || (r.Project != null && r.Project.Title.ToLower().Contains(keyword))
+                                           || (r.Project != null && r.Project.Team != null
+                                               && (r.Project.Team.Leader.StudentCode.ToLower().Contains(keyword)
+                                                   || r.Project.Team.TeamMembers.Any(tm =>
+                                                       tm.Status == TeamMemberStatuses.Accepted
+                                                       && tm.Student.StudentCode.ToLower().Contains(keyword)))));
         }
 
         var status = BorrowRequestStatuses.Normalize(query.Status);
@@ -1225,7 +1321,7 @@ public class BorrowRequestService : IBorrowRequestService
                 BorrowDate = r.BorrowDate,
                 DueDate = r.DueDate,
                 ReturnedAt = r.ReturnedAt,
-                ItemCount = r.BorrowItems.Count,
+                ItemCount = r.BorrowItems.Select(i => i.ComponentId).Distinct().Count(),
                 WaitingTransferCount = r.BorrowItems.Count(i => i.SourceRoomId != null && i.ReceivedAt == null),
             });
 

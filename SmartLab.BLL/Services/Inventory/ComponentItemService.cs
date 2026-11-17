@@ -123,6 +123,11 @@ public class ComponentItemService : IComponentItemService
         var toCabinetId = request.ToCabinetId ?? request.FromCabinetId;
         var toStatus = request.ToStatus ?? request.FromStatus;
 
+        var cabinetOnly = toStatus == request.FromStatus
+                          && request.FromStatus == ComponentItemStatuses.Available
+                          && !request.ReceiptId.HasValue;
+        await RoomStock.EnsureMayMoveAsync(_uow, _currentUser, request.FromCabinetId, toCabinetId, cabinetOnly, ct);
+
         if (!await _uow.Repository<StorageCabinet>().QueryNoTracking()
                 .AnyAsync(c => c.CabinetId == toCabinetId && c.Status == CabinetStatuses.Active, ct))
             throw new BadRequestException("Tủ đích không tồn tại hoặc đã ngừng hoạt động");

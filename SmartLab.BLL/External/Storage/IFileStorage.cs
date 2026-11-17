@@ -7,6 +7,13 @@ public interface IFileStorage
     Task<StoredFile> UploadImageAsync(Stream content, string fileName, string folder, CancellationToken ct = default);
 
     /// <summary>
+    /// Uploads an image as <paramref name="folder"/>/<paramref name="publicId"/>, replacing any earlier file with that name,
+    /// so one owner (e.g. a user's avatar) never keeps more than one file. The returned URL changes on every upload.
+    /// </summary>
+    Task<StoredFile> UploadImageOverwriteAsync(
+        Stream content, string fileName, string folder, string publicId, CancellationToken ct = default);
+
+    /// <summary>
     /// Uploads a PDF under <paramref name="folder"/> with a unique name. It is stored as an image resource,
     /// so the returned URL opens the PDF and <see cref="GetPdfPreviewUrl"/> can render a page as an image.
     /// </summary>
@@ -17,4 +24,10 @@ public interface IFileStorage
 
     /// <summary>Deletes a file by the <see cref="StoredFile.Key"/> returned from upload. Missing files are ignored.</summary>
     Task DeleteAsync(string key, CancellationToken ct = default);
+
+    /// <summary>Uploads a ZIP under <paramref name="folder"/> with a unique name; the URL downloads the file.</summary>
+    Task<StoredFile> UploadZipAsync(Stream content, string fileName, string folder, CancellationToken ct = default);
+
+    /// <summary>Deletes a ZIP by the <see cref="StoredFile.Key"/> returned from <see cref="UploadZipAsync"/>. Missing files are ignored.</summary>
+    Task DeleteZipAsync(string key, CancellationToken ct = default);
 }

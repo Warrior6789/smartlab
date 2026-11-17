@@ -14,6 +14,11 @@ public class EmailOptions
     public string Password { get; set; } = string.Empty;
     public string FromName { get; set; } = "SmartLab";
 
+    /// <summary>When set, emails go through the Brevo HTTP API instead of SMTP; Username is then the sender address.</summary>
+    public string BrevoApiKey { get; set; } = string.Empty;
+
+    public bool UsesBrevo => !string.IsNullOrWhiteSpace(BrevoApiKey) && !string.IsNullOrWhiteSpace(Username);
+
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(Host) && !string.IsNullOrWhiteSpace(Username) && !string.IsNullOrWhiteSpace(Password);
 }
