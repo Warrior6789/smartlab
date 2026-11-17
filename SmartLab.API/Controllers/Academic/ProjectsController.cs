@@ -214,12 +214,6 @@ public class ProjectsController : ControllerBase
         return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã xóa file mã nguồn"));
     }
 
-    /// <summary>
-    /// Gửi duyệt: project thành Submitted và tạo luôn đơn mượn (Pending) từ danh sách linh kiện, nhận đồ ở lab nhận đồ chung.
-    /// Kiểm tra tồn trên tất cả lab (đã trừ các đơn đã duyệt chưa giao).
-    /// Người duyệt là giảng viên của lớp, kể cả khi có thiết bị HIGH_VALUE.
-    /// Project chỉ có đồ tự chuẩn bị (không mượn linh kiện lab) thì không tạo đơn mượn, không cần ngày mượn/ngày trả.
-    /// </summary>
     /// <summary>Hạn trả linh kiện của project: theo học kỳ của lớp, sinh viên không chọn ngày.</summary>
     [HttpGet("{id:guid}/borrow-deadline")]
     [Authorize(Policy = PermissionCodes.ProjectCreate)]
@@ -232,6 +226,13 @@ public class ProjectsController : ControllerBase
         return Ok(ApiResponse<BorrowDeadlineResponse>.Ok(deadline));
     }
 
+    /// <summary>
+    /// Gửi duyệt: project thành Submitted và tạo luôn đơn mượn (Pending) từ danh sách linh kiện, nhận đồ ở lab nhận đồ chung.
+    /// Kiểm tra tồn trên tất cả lab (đã trừ các đơn đã duyệt chưa giao).
+    /// Người duyệt là giảng viên của lớp, kể cả khi có thiết bị HIGH_VALUE.
+    /// Không nhập ngày: ngày mượn là hôm nay, hạn trả theo học kỳ của lớp. Body gửi <c>{}</c>.
+    /// Project chỉ có đồ tự chuẩn bị (không mượn linh kiện lab) thì không tạo đơn mượn.
+    /// </summary>
     [HttpPost("{id:guid}/submit")]
     [Authorize(Policy = PermissionCodes.ProjectCreate)]
     [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]

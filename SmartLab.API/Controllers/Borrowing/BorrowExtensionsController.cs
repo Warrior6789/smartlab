@@ -21,9 +21,8 @@ public class BorrowExtensionsController : ControllerBase
     }
 
     /// <summary>
-    /// Nhóm trưởng (người gửi đơn) xin gia hạn đơn đang mượn, phải xin trước khi quá hạn. Mỗi lần tối đa số ngày cấu hình
-    /// trong system_settings (BORROW_EXTENSION_MAX_DAYS),
-    /// mỗi đơn tối đa số lần được duyệt cấu hình trong BORROW_EXTENSION_MAX_TIMES, mỗi lúc chỉ 1 yêu cầu chờ duyệt. Gửi mail cho giảng viên của lớp.
+    /// Đã tắt: linh kiện được mượn theo học kỳ của lớp nên không còn gia hạn. API luôn trả 400
+    /// "Không còn gia hạn: linh kiện được mượn theo học kỳ của lớp". FE không hiện nút "Xin gia hạn".
     /// </summary>
     [HttpPost("~/api/borrow-requests/{id:guid}/extensions")]
     [Authorize(Policy = PermissionCodes.BorrowCreate)]

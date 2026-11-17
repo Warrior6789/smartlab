@@ -5,9 +5,11 @@ public class SupplementaryBorrowRequest
     /// <summary>Why the team needs more components; the lecturer reads it before approving.</summary>
     public string Reason { get; set; } = string.Empty;
 
-    [Obsolete("Ignored: the due date comes from the semester of the class.")]
+    /// <summary>Ignored by the backend; kept so older clients that still send it are not rejected.</summary>
+    [Obsolete("Ignored: the borrow date is the day the request is sent.")]
     public DateTime? BorrowDate { get; set; }
 
+    /// <summary>Ignored by the backend; kept so older clients that still send it are not rejected.</summary>
     [Obsolete("Ignored: the due date comes from the semester of the class.")]
     public DateTime? DueDate { get; set; }
 
