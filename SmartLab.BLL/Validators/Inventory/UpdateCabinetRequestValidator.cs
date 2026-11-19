@@ -17,6 +17,9 @@ public class UpdateCabinetRequestValidator : AbstractValidator<UpdateCabinetRequ
 
         RuleFor(x => x.Location)
             .MaximumLength(255).WithMessage("Vị trí tối đa 255 ký tự");
+        RuleFor(x => x.TrackingType)
+            .Must(t => t == null || ComponentTrackingTypes.All.Contains(t))
+            .WithMessage("Loại tủ phải là CONSUMABLE, REUSABLE hoặc HIGH_VALUE");
 
         RuleFor(x => x.Status)
             .Must(s => s == CabinetStatuses.Active || s == CabinetStatuses.Inactive)

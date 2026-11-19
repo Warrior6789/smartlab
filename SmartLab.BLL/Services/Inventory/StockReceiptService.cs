@@ -171,7 +171,7 @@ public class StockReceiptService : IStockReceiptService
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
 
         var components = await LoadComponentsAsync(request, ct);
-        await EnsureCabinetsActiveAsync(request, ct);
+        await EnsureCabinetsUsableAsync(request, components, ct);
         await ValidateUnitsAsync(request, components, ct);
 
         var supplierName = request.SupplierName.Trim();
@@ -561,13 +561,32 @@ public class StockReceiptService : IStockReceiptService
         return components;
     }
 
-    private async Task EnsureCabinetsActiveAsync(CreateStockReceiptRequest request, CancellationToken ct)
+    /// <summary>
+    /// Every cabinet must be active, all of them in one lab (a receipt is the goods one lab received), and a cabinet kept
+    /// for one kind of component (TrackingType) only takes that kind.
+    /// </summary>
+    private async Task EnsureCabinetsUsableAsync(
+        CreateStockReceiptRequest request, Dictionary<Guid, Component> components, CancellationToken ct)
     {
         var cabinetIds = request.Items.Select(i => i.CabinetId).Distinct().ToList();
-        var activeCabinetCount = await _uow.Repository<StorageCabinet>().QueryNoTracking()
-            .CountAsync(c => cabinetIds.Contains(c.CabinetId) && c.Status == CabinetStatuses.Active, ct);
-        if (activeCabinetCount != cabinetIds.Count)
+        var cabinets = await _uow.Repository<StorageCabinet>().QueryNoTracking()
+            .Where(c => cabinetIds.Contains(c.CabinetId) && c.Status == CabinetStatuses.Active)
+            .Select(c => new { c.CabinetId, c.CabinetCode, c.RoomId, c.TrackingType })
+            .ToDictionaryAsync(c => c.CabinetId, ct);
+        if (cabinets.Count != cabinetIds.Count)
             throw new BadRequestException("Có tủ không tồn tại hoặc đã ngừng hoạt động");
+
+        if (cabinets.Values.Select(c => c.RoomId).Distinct().Count() > 1)
+            throw new BadRequestException("Mỗi phiếu nhập chỉ nhập cho một lab, hàng của lab khác hãy lập phiếu khác");
+
+        foreach (var line in request.Items)
+        {
+            var cabinet = cabinets[line.CabinetId];
+            var component = components[line.ComponentId];
+            if (cabinet.TrackingType != null && cabinet.TrackingType != component.TrackingType)
+                throw new BadRequestException(
+                    $"{component.ComponentCode} là loại {component.TrackingType}, không cất được vào tủ {cabinet.CabinetCode} (dành cho {cabinet.TrackingType})");
+        }
     }
 
     /// <summary>Adds the request lines (and their units) to the receipt. The caller writes the inventory_transactions rows.</summary>

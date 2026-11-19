@@ -60,6 +60,7 @@ public class CabinetService : ICabinetService
                               RoomName = c.Room.RoomName,
                               Location = c.Location,
                               Status = c.Status,
+                              TrackingType = c.TrackingType,
                               UnitCount = c.ComponentItems.Count(i => i.Status != ComponentItemStatuses.Lost
                                                                       && i.Status != ComponentItemStatuses.Retired),
                               ConsumableQuantity = c.ConsumableStocks.Sum(st => st.Quantity),
@@ -118,6 +119,7 @@ public class CabinetService : ICabinetService
             CabinetName = request.CabinetName.Trim(),
             RoomId = request.RoomId,
             Location = string.IsNullOrWhiteSpace(request.Location) ? null : request.Location.Trim(),
+            TrackingType = request.TrackingType,
             Status = CabinetStatuses.Active,
         };
 
@@ -161,6 +163,8 @@ public class CabinetService : ICabinetService
         cabinet.RoomId = request.RoomId;
         cabinet.Location = string.IsNullOrWhiteSpace(request.Location) ? null : request.Location.Trim();
         cabinet.Status = request.Status;
+        if (request.TrackingType != null)
+            cabinet.TrackingType = request.TrackingType;
 
         await _uow.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
@@ -230,6 +234,7 @@ public class CabinetService : ICabinetService
             RoomName = c.Room.RoomName,
             Location = c.Location,
             Status = c.Status,
+            TrackingType = c.TrackingType,
             UnitCount = c.ComponentItems.Count(i => i.Status != ComponentItemStatuses.Lost
                                                     && i.Status != ComponentItemStatuses.Retired),
             ConsumableQuantity = c.ConsumableStocks.Sum(st => st.Quantity),

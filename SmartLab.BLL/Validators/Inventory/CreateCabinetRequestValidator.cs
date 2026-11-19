@@ -1,4 +1,5 @@
 using FluentValidation;
+using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Inventory;
 
 namespace SmartLab.BLL.Validators.Inventory;
@@ -16,5 +17,8 @@ public class CreateCabinetRequestValidator : AbstractValidator<CreateCabinetRequ
 
         RuleFor(x => x.Location)
             .MaximumLength(255).WithMessage("Vị trí tối đa 255 ký tự");
+        RuleFor(x => x.TrackingType)
+            .Must(t => t == null || ComponentTrackingTypes.All.Contains(t))
+            .WithMessage("Loại tủ phải là CONSUMABLE, REUSABLE hoặc HIGH_VALUE");
     }
 }

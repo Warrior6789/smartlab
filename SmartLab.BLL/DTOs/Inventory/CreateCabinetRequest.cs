@@ -6,4 +6,10 @@ public class CreateCabinetRequest
     public string CabinetName { get; set; } = string.Empty;
     public Guid RoomId { get; set; }
     public string? Location { get; set; }
+
+    /// <summary>
+    /// Kind of component the cabinet is for (CONSUMABLE | REUSABLE | HIGH_VALUE). A stock receipt fills each line with the
+    /// cabinet of its lab for the same kind; null = any kind.
+    /// </summary>
+    public string? TrackingType { get; set; }
 }
