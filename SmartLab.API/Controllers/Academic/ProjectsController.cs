@@ -331,7 +331,7 @@ public class ProjectsController : ControllerBase
         return Ok(ApiResponse<PagedResult<PendingFinalSubmissionResponse>>.Ok(result));
     }
 
-    /// <summary>Giảng viên của lớp (Admin làm thay được) xác nhận bài nộp cuối, nhận xét không bắt buộc.</summary>
+    /// <summary>Chỉ giảng viên của lớp xác nhận bài nộp cuối (Admin không làm thay), nhận xét không bắt buộc.</summary>
     [HttpPost("{id:guid}/final-submission/approve")]
     [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
@@ -344,7 +344,7 @@ public class ProjectsController : ControllerBase
         return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã xác nhận bài nộp"));
     }
 
-    /// <summary>Giảng viên trả bài (bắt buộc ghi nhận xét): nhóm sửa link rồi nộp lại.</summary>
+    /// <summary>Chỉ giảng viên của lớp trả bài (bắt buộc ghi nhận xét): nhóm sửa link rồi nộp lại.</summary>
     [HttpPost("{id:guid}/final-submission/reject")]
     [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]

@@ -15,11 +15,15 @@ namespace SmartLab.API.Controllers.IssueReports;
 [Produces("application/json")]
 public class IssueReportsController : ControllerBase
 {
+    /// <summary>
+    /// Students do not report damage themselves: they bring the unit to the lab, where staff check it, set its state and
+    /// take the photo.
+    /// </summary>
     private const string CreateRoles =
-        RoleNames.Student + "," + RoleNames.LabStaff + "," + RoleNames.InventoryManager + "," + RoleNames.Admin;
+        RoleNames.LabStaff + "," + RoleNames.InventoryManager + "," + RoleNames.Admin;
 
     private const string ReadRoles =
-        CreateRoles + "," + RoleNames.Lecturer;
+        CreateRoles + "," + RoleNames.Student + "," + RoleNames.Lecturer;
 
     private const string ResolveRoles =
         RoleNames.LabStaff + "," + RoleNames.Admin;
@@ -31,7 +35,10 @@ public class IssueReportsController : ControllerBase
         _issueReportService = issueReportService;
     }
 
-    /// <summary>Báo một thiết bị REUSABLE/HIGH_VALUE bị hỏng, cháy hoặc mất.</summary>
+    /// <summary>
+    /// Nhân viên lab (hoặc Quản lý kho, Admin) ghi nhận một thiết bị REUSABLE/HIGH_VALUE bị hỏng, cháy hoặc mất, kèm ảnh.
+    /// Sinh viên không tự báo: mang thiết bị tới lab để nhân viên kiểm tra; sinh viên vẫn xem được báo cáo liên quan tới mình.
+    /// </summary>
     [HttpPost]
     [Authorize(Roles = CreateRoles)]
     [Consumes("multipart/form-data")]

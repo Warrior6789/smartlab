@@ -925,7 +925,8 @@ public class ProjectService : IProjectService
     }
 
     /// <summary>
-    /// The lecturer of the project's class (or an Admin standing in) decides a Pending final submission. The UPDATE only
+    /// Only the lecturer of the project's class decides a Pending final submission (an Admin cannot stand in: grading the
+    /// final work is the lecturer's job). The UPDATE only
     /// matches while it is still Pending, so when two reviewers race only the first one wins.
     /// </summary>
     private async Task<ProjectDetailResponse> ReviewFinalAsync(
@@ -945,7 +946,7 @@ public class ProjectService : IProjectService
                           .FirstOrDefaultAsync(ct)
                       ?? throw new NotFoundException("Không tìm thấy project");
 
-        if (project.LecturerUserId != userId && !_currentUser.IsInRole(RoleNames.Admin))
+        if (project.LecturerUserId != userId)
             throw new ForbiddenException("Chỉ giảng viên của lớp được xác nhận bài nộp này");
         if (project.FinalStatus != FinalSubmissionStatuses.Pending)
             throw new ConflictException("Bài nộp đã được xử lý hoặc chưa được nộp");
