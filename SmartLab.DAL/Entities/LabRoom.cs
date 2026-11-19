@@ -21,6 +21,8 @@ public partial class LabRoom
 
     public virtual ICollection<BorrowRequest> BorrowRequests { get; set; } = new List<BorrowRequest>();
 
+    public virtual ICollection<Course> Courses { get; set; } = new List<Course>();
+
     public virtual ICollection<LabRoomStaff> LabRoomStaffs { get; set; } = new List<LabRoomStaff>();
 
     public virtual ICollection<StorageCabinet> StorageCabinets { get; set; } = new List<StorageCabinet>();

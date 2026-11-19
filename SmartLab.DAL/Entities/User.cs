@@ -47,7 +47,9 @@ public partial class User
 
     public virtual InstructorProfile? InstructorProfile { get; set; }
 
-    public virtual ICollection<InventoryAudit> InventoryAudits { get; set; } = new List<InventoryAudit>();
+    public virtual ICollection<InventoryAudit> InventoryAuditAuditors { get; set; } = new List<InventoryAudit>();
+
+    public virtual ICollection<InventoryAudit> InventoryAuditReviewedByNavigations { get; set; } = new List<InventoryAudit>();
 
     public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
 

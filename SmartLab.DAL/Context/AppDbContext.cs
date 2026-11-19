@@ -48,6 +48,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<InventoryAudit> InventoryAudits { get; set; }
 
+    public virtual DbSet<InventoryAuditCount> InventoryAuditCounts { get; set; }
+
     public virtual DbSet<InventoryTransaction> InventoryTransactions { get; set; }
 
     public virtual DbSet<IssueReport> IssueReports { get; set; }
@@ -417,7 +419,15 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.MaxStudents)
                 .HasDefaultValue(30)
                 .HasColumnName("max_students");
+            entity.Property(e => e.MaxTeamSize).HasColumnName("max_team_size");
+            entity.Property(e => e.MinTeamSize).HasColumnName("min_team_size");
             entity.Property(e => e.SemesterId).HasColumnName("semester_id");
+            entity.Property(e => e.TeamFormationDeadline).HasColumnName("team_formation_deadline");
+            entity.Property(e => e.TeamFormationOpenedAt).HasColumnName("team_formation_opened_at");
+            entity.Property(e => e.TeamFormationStatus)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'NotStarted'::character varying")
+                .HasColumnName("team_formation_status");
 
             entity.HasOne(d => d.Course).WithMany(p => p.Classes)
                 .HasForeignKey(d => d.CourseId)
@@ -746,6 +756,8 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.CourseCode, "courses_course_code_key").IsUnique();
 
+            entity.HasIndex(e => e.RoomId, "ix_courses_room_id");
+
             entity.Property(e => e.CourseId)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("course_id");
@@ -760,6 +772,13 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.IsActive)
                 .HasDefaultValue(true)
                 .HasColumnName("is_active");
+            entity.Property(e => e.RoomId)
+                .HasComment("Lab that serves the course: projects of its classes borrow only from this lab")
+                .HasColumnName("room_id");
+
+            entity.HasOne(d => d.Room).WithMany(p => p.Courses)
+                .HasForeignKey(d => d.RoomId)
+                .HasConstraintName("courses_room_id_fkey");
         });
 
         modelBuilder.Entity<InstructorProfile>(entity =>
@@ -803,12 +822,18 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.AuditorId).HasColumnName("auditor_id");
             entity.Property(e => e.CabinetId).HasColumnName("cabinet_id");
             entity.Property(e => e.Note).HasColumnName("note");
+            entity.Property(e => e.ReviewNote)
+                .HasComment("Why the reviewer sent the count back (recount), or a note on approval")
+                .HasColumnName("review_note");
+            entity.Property(e => e.ReviewedAt).HasColumnName("reviewed_at");
+            entity.Property(e => e.ReviewedBy).HasColumnName("reviewed_by");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'InProgress'::character varying")
                 .HasColumnName("status");
+            entity.Property(e => e.SubmittedAt).HasColumnName("submitted_at");
 
-            entity.HasOne(d => d.Auditor).WithMany(p => p.InventoryAudits)
+            entity.HasOne(d => d.Auditor).WithMany(p => p.InventoryAuditAuditors)
                 .HasForeignKey(d => d.AuditorId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("inventory_audits_auditor_id_fkey");
@@ -817,6 +842,49 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.CabinetId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("inventory_audits_cabinet_id_fkey");
+
+            entity.HasOne(d => d.ReviewedByNavigation).WithMany(p => p.InventoryAuditReviewedByNavigations)
+                .HasForeignKey(d => d.ReviewedBy)
+                .HasConstraintName("inventory_audits_reviewed_by_fkey");
+
+            entity.HasMany(d => d.Items).WithMany(p => p.Audits)
+                .UsingEntity<Dictionary<string, object>>(
+                    "InventoryAuditMissingItem",
+                    r => r.HasOne<ComponentItem>().WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.ClientSetNull)
+                        .HasConstraintName("inventory_audit_missing_items_item_id_fkey"),
+                    l => l.HasOne<InventoryAudit>().WithMany()
+                        .HasForeignKey("AuditId")
+                        .HasConstraintName("inventory_audit_missing_items_audit_id_fkey"),
+                    j =>
+                    {
+                        j.HasKey("AuditId", "ItemId").HasName("inventory_audit_missing_items_pkey");
+                        j.ToTable("inventory_audit_missing_items", tb => tb.HasComment("Units reported missing in a submitted count; they become Lost only when the count is approved"));
+                        j.IndexerProperty<Guid>("AuditId").HasColumnName("audit_id");
+                        j.IndexerProperty<Guid>("ItemId").HasColumnName("item_id");
+                    });
+        });
+
+        modelBuilder.Entity<InventoryAuditCount>(entity =>
+        {
+            entity.HasKey(e => new { e.AuditId, e.ComponentId }).HasName("inventory_audit_counts_pkey");
+
+            entity.ToTable("inventory_audit_counts", tb => tb.HasComment("Consumable counts submitted for review; system_quantity is the stock when the count was submitted"));
+
+            entity.Property(e => e.AuditId).HasColumnName("audit_id");
+            entity.Property(e => e.ComponentId).HasColumnName("component_id");
+            entity.Property(e => e.CountedQuantity).HasColumnName("counted_quantity");
+            entity.Property(e => e.SystemQuantity).HasColumnName("system_quantity");
+
+            entity.HasOne(d => d.Audit).WithMany(p => p.InventoryAuditCounts)
+                .HasForeignKey(d => d.AuditId)
+                .HasConstraintName("inventory_audit_counts_audit_id_fkey");
+
+            entity.HasOne(d => d.Component).WithMany(p => p.InventoryAuditCounts)
+                .HasForeignKey(d => d.ComponentId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("inventory_audit_counts_component_id_fkey");
         });
 
         modelBuilder.Entity<InventoryTransaction>(entity =>
@@ -1393,6 +1461,10 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Active'::character varying")
                 .HasColumnName("status");
+            entity.Property(e => e.TrackingType)
+                .HasMaxLength(20)
+                .HasComment("Kind of component the cabinet is for; a stock receipt puts each line into the cabinet of its lab with the same tracking type. NULL = any kind")
+                .HasColumnName("tracking_type");
 
             entity.HasOne(d => d.Room).WithMany(p => p.StorageCabinets)
                 .HasForeignKey(d => d.RoomId)

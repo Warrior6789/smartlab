@@ -17,9 +17,26 @@ public partial class InventoryAudit
 
     public string? Note { get; set; }
 
+    public DateTime? SubmittedAt { get; set; }
+
+    public Guid? ReviewedBy { get; set; }
+
+    public DateTime? ReviewedAt { get; set; }
+
+    /// <summary>
+    /// Why the reviewer sent the count back (recount), or a note on approval
+    /// </summary>
+    public string? ReviewNote { get; set; }
+
     public virtual User Auditor { get; set; } = null!;
 
     public virtual StorageCabinet Cabinet { get; set; } = null!;
 
+    public virtual ICollection<InventoryAuditCount> InventoryAuditCounts { get; set; } = new List<InventoryAuditCount>();
+
     public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
+
+    public virtual User? ReviewedByNavigation { get; set; }
+
+    public virtual ICollection<ComponentItem> Items { get; set; } = new List<ComponentItem>();
 }

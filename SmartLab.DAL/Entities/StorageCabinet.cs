@@ -17,6 +17,11 @@ public partial class StorageCabinet
 
     public Guid RoomId { get; set; }
 
+    /// <summary>
+    /// Kind of component the cabinet is for; a stock receipt puts each line into the cabinet of its lab with the same tracking type. NULL = any kind
+    /// </summary>
+    public string? TrackingType { get; set; }
+
     public virtual ICollection<ComponentItem> ComponentItems { get; set; } = new List<ComponentItem>();
 
     public virtual ICollection<ConsumableStock> ConsumableStocks { get; set; } = new List<ConsumableStock>();

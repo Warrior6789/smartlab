@@ -19,6 +19,16 @@ public partial class Class
 
     public DateTime CreatedAt { get; set; }
 
+    public int? MinTeamSize { get; set; }
+
+    public int? MaxTeamSize { get; set; }
+
+    public string TeamFormationStatus { get; set; } = null!;
+
+    public DateTime? TeamFormationOpenedAt { get; set; }
+
+    public DateTime? TeamFormationDeadline { get; set; }
+
     public virtual ICollection<BorrowRequest> BorrowRequests { get; set; } = new List<BorrowRequest>();
 
     public virtual ICollection<ClassStudent> ClassStudents { get; set; } = new List<ClassStudent>();
