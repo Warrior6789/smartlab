@@ -90,19 +90,6 @@ public class ClassesController : ControllerBase
         var result = await _rosterService.ImportStudentsAsync(id, request, ct);
         return Ok(ApiResponse<ImportRosterResult>.Ok(result, "Import hoàn tất"));
     }
-    /// <summary>Danh sách sinh viên của lớp. Admin hoặc giảng viên phụ trách chính lớp đó.</summary>
-    [HttpGet("{classId:guid}/students")]
-    [ProducesResponseType(typeof(ApiResponse<PagedResult<ClassStudentResponse>>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetStudents(
-        Guid classId, [FromQuery] ClassStudentQueryParams query, [FromQuery] PageParams paging, CancellationToken ct)
-    {
-        var result = await _rosterService.GetStudentsAsync(classId, query, paging, ct);
-        return Ok(ApiResponse<PagedResult<ClassStudentResponse>>.Ok(result));
-    }
-
     /// <summary>Thêm 1 sinh viên vào lớp; chưa có tài khoản thì tạo và gửi mật khẩu qua email như roster import.</summary>
     [HttpPost("{classId:guid}/students")]
     [Authorize(Policy = PermissionCodes.AcademicManage)]

@@ -170,28 +170,6 @@ public class ClassRosterService : IClassRosterService
         return result;
     }
 
-    public async Task<PagedResult<ClassStudentResponse>> GetStudentsAsync(
-        Guid classId, ClassStudentQueryParams query, PageParams paging, CancellationToken ct = default)
-    {
-        await EnsureCanViewRosterAsync(classId, ct);
-
-        var enrollments = _uow.Repository<ClassStudent>().QueryNoTracking()
-            .Where(cs => cs.ClassId == classId);
-
-        var status = ClassStudentStatuses.Normalize(query.Status);
-        if (status != null)
-            enrollments = enrollments.Where(cs => cs.Status == status);
-
-        var search = query.Search?.Trim().ToLower();
-        if (!string.IsNullOrEmpty(search))
-            enrollments = enrollments.Where(cs => cs.Student.StudentCode.ToLower().Contains(search)
-                                               || cs.Student.User.FullName.ToLower().Contains(search)
-                                               || cs.Student.User.Email.ToLower().Contains(search));
-
-        return await PagedResult<ClassStudentResponse>.CreateAsync(
-            ToResponses(enrollments.OrderBy(cs => cs.Student.StudentCode)), paging, ct);
-    }
-
     public async Task<ClassStudentResponse> AddStudentAsync(
         Guid classId, AddClassStudentRequest request, CancellationToken ct = default)
     {
@@ -420,23 +398,6 @@ public class ClassRosterService : IClassRosterService
             .Where(c => c.ClassId == classId)
             .ExecuteUpdateAsync(s => s.SetProperty(c => c.MaxStudents, c => c.MaxStudents), ct);
 
-    /// <summary>Admins (ACADEMIC_MANAGE) see every class; a lecturer only the class they are in charge of.</summary>
-    private async Task EnsureCanViewRosterAsync(Guid classId, CancellationToken ct)
-    {
-        var instructorUserId = await _uow.Repository<Class>().QueryNoTracking()
-            .Where(c => c.ClassId == classId)
-            .Select(c => new { UserId = c.Instructor != null ? (Guid?)c.Instructor.UserId : null })
-            .FirstOrDefaultAsync(ct)
-            ?? throw new NotFoundException("Lớp học", classId);
-
-        if (_currentUser.HasPermission(PermissionCodes.AcademicManage))
-            return;
-
-        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
-        if (instructorUserId.UserId != userId)
-            throw new ForbiddenException("Chỉ quản trị viên hoặc giảng viên phụ trách lớp mới xem được danh sách sinh viên");
-    }
-
     private static IQueryable<ClassStudentResponse> ToResponses(IQueryable<ClassStudent> enrollments)
         => enrollments
             .Select(cs => new ClassStudentResponse
@@ -446,6 +407,9 @@ public class ClassRosterService : IClassRosterService
                 StudentCode = cs.Student.StudentCode,
                 FullName = cs.Student.User.FullName,
                 Email = cs.Student.User.Email,
+                AvatarUrl = cs.Student.User.AvatarUrl,
+                Major = cs.Student.Major,
+                Cohort = cs.Student.Cohort,
                 Status = cs.Status,
                 EnrolledAt = cs.EnrolledAt,
                 TeamId = cs.Student.TeamMembers
@@ -456,7 +420,9 @@ public class ClassRosterService : IClassRosterService
                     .Where(tm => tm.Status == TeamMemberStatuses.Accepted && tm.Team.ClassId == cs.ClassId)
                     .Select(tm => tm.Team.TeamName)
                     .FirstOrDefault(),
-                IsLeader = cs.Student.Teams.Any(t => t.ClassId == cs.ClassId),
+                IsTeamLeader = cs.Student.TeamMembers
+                    .Any(tm => tm.Status == TeamMemberStatuses.Accepted && tm.Team.ClassId == cs.ClassId
+                               && tm.Team.LeaderId == cs.StudentId),
             });
 
     private async Task<ClassStudentResponse> GetClassStudentAsync(Guid classId, Guid studentProfileId, CancellationToken ct)

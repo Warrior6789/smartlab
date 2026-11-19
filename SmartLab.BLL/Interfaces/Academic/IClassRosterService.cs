@@ -18,12 +18,6 @@ public interface IClassRosterService
     /// </summary>
     Task<AssignInstructorResponse> AssignInstructorAsync(AssignInstructorRequest request, CancellationToken ct = default);
 
-    /// <summary>
-    /// Danh sách sinh viên của lớp (phân trang, tìm theo mã/tên/email, lọc trạng thái).
-    /// Admin (ACADEMIC_MANAGE) hoặc giảng viên phụ trách lớp mới xem được.
-    /// </summary>
-    Task<PagedResult<ClassStudentResponse>> GetStudentsAsync(Guid classId, ClassStudentQueryParams query, PageParams paging, CancellationToken ct = default);
-
     /// <summary>Thêm 1 sinh viên vào lớp, cùng quy tắc với một dòng của roster import.</summary>
     Task<ClassStudentResponse> AddStudentAsync(Guid classId, AddClassStudentRequest request, CancellationToken ct = default);
 
