@@ -11,4 +11,10 @@ public static class SystemSettingKeys
 
     /// <summary>Vietnam hour (0-23) from which the daily due / overdue reminders are sent.</summary>
     public const string BorrowReminderHour = "BORROW_REMINDER_HOUR";
+
+    /// <summary>Highest max_students a class can have (1 to ClassRules.AbsoluteMaxStudents; 35 when missing).</summary>
+    public const string ClassMaxStudentsLimit = "CLASS_MAX_STUDENTS_LIMIT";
+
+    /// <summary>max_students of a new class when the request leaves it empty (1 to the limit; 30 when missing).</summary>
+    public const string ClassDefaultMaxStudents = "CLASS_DEFAULT_MAX_STUDENTS";
 }

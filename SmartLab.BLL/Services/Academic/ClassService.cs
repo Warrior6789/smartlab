@@ -64,13 +64,24 @@ public class ClassService : IClassService
         if (duplicate)
             throw new ConflictException($"Mã lớp '{request.ClassCode}' đã tồn tại trong kỳ học này.");
 
+        int maxStudents;
+        if (request.MaxStudents.HasValue)
+        {
+            maxStudents = request.MaxStudents.Value;
+            await ClassSizeRules.EnsureWithinLimitAsync(_uow, maxStudents, ct);
+        }
+        else
+        {
+            maxStudents = await ClassSizeRules.GetDefaultMaxStudentsAsync(_uow, ct);
+        }
+
         var entity = new Class
         {
             ClassCode = request.ClassCode.Trim(),
             CourseId = request.CourseId,
             SemesterId = request.SemesterId,
             InstructorId = request.InstructorId,
-            MaxStudents = request.MaxStudents ?? 30,
+            MaxStudents = maxStudents,
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -217,6 +228,9 @@ public class ClassService : IClassService
         var studying = entity.ClassStudents.Count(cs => cs.Status == ClassStudentStatuses.Studying);
         if (request.MaxStudents < studying)
             throw new BadRequestException($"Lớp đang có {studying} sinh viên đang học, sĩ số tối đa không được nhỏ hơn.");
+
+        if (request.MaxStudents != entity.MaxStudents)
+            await ClassSizeRules.EnsureWithinLimitAsync(_uow, request.MaxStudents, ct);
 
         entity.ClassCode = request.ClassCode.Trim();
         entity.CourseId = request.CourseId;          // Lỗi 9a: bổ sung dòng bị thiếu

@@ -11,8 +11,8 @@ public class CreateClassRequestValidator : AbstractValidator<CreateClassRequest>
         RuleFor(x => x.CourseId).NotEmpty();
         RuleFor(x => x.SemesterId).NotEmpty();
         RuleFor(x => x.MaxStudents!.Value)
-            .InclusiveBetween(ClassRules.MinStudents, ClassRules.MaxStudentsLimit)
+            .InclusiveBetween(ClassRules.MinStudents, ClassRules.AbsoluteMaxStudents)
             .When(x => x.MaxStudents.HasValue)
-            .WithMessage($"Sĩ số phải từ {ClassRules.MinStudents} đến {ClassRules.MaxStudentsLimit}.");
+            .WithMessage($"Sĩ số phải từ {ClassRules.MinStudents} đến {ClassRules.AbsoluteMaxStudents}.");
     }
 }

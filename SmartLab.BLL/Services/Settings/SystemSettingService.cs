@@ -5,6 +5,7 @@ using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Settings;
 using SmartLab.BLL.Interfaces.AuditLogs;
 using SmartLab.BLL.Interfaces.Settings;
+using SmartLab.BLL.Services.Academic;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
 
@@ -19,6 +20,8 @@ public class SystemSettingService : ISystemSettingService
     {
         [SystemSettingKeys.BorrowDaysBeforeSemesterEnd] = "Hạn trả linh kiện sớm hơn ngày kết thúc học kỳ bao nhiêu ngày",
         [SystemSettingKeys.BorrowReminderHour] = "Giờ (0-23, giờ Việt Nam) gửi email nhắc hạn trả mỗi ngày",
+        [SystemSettingKeys.ClassMaxStudentsLimit] = "Sĩ số tối đa được phép đặt cho một lớp",
+        [SystemSettingKeys.ClassDefaultMaxStudents] = "Sĩ số mặc định khi tạo lớp mà không nhập sĩ số",
     };
 
     private readonly IUnitOfWork _uow;
@@ -108,6 +111,21 @@ public class SystemSettingService : ISystemSettingService
         {
             if (number < 0 || number > MaxDaysOrTimes)
                 throw new BadRequestException($"Giá trị phải từ 0 đến {MaxDaysOrTimes}");
+        }
+        else if (key == SystemSettingKeys.ClassMaxStudentsLimit)
+        {
+            if (number < ClassRules.MinStudents || number > ClassRules.AbsoluteMaxStudents)
+                throw new BadRequestException($"Sĩ số tối đa phải từ {ClassRules.MinStudents} đến {ClassRules.AbsoluteMaxStudents}");
+
+            var defaultSize = await ClassSizeRules.GetDefaultMaxStudentsAsync(_uow, ct);
+            if (number < defaultSize)
+                throw new BadRequestException($"Sĩ số tối đa không được nhỏ hơn sĩ số mặc định ({defaultSize}). Hãy giảm sĩ số mặc định trước");
+        }
+        else if (key == SystemSettingKeys.ClassDefaultMaxStudents)
+        {
+            var limit = await ClassSizeRules.GetMaxStudentsLimitAsync(_uow, ct);
+            if (number < ClassRules.MinStudents || number > limit)
+                throw new BadRequestException($"Sĩ số mặc định phải từ {ClassRules.MinStudents} đến {limit} (sĩ số tối đa hiện tại)");
         }
         else if (number < 1 || number > MaxDaysOrTimes)
         {
