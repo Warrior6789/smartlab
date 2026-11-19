@@ -21,11 +21,12 @@ using SmartLab.DAL.UnitOfWork;
 namespace SmartLab.BLL.Services.Borrowing;
 
 /// <summary>
-/// Borrowing after the lecturer approved (see ProjectReviewService): lines from other labs are carried to the common
-/// pickup lab and received there (Approved → Ready), the student picks everything up with a photo of the components and
-/// the student card (Ready → Borrowing), and returns at the pickup lab, possibly in several times (→ Returned).
-/// A unit that breaks during the loan can be swapped: the broken one is retired and a Pending replacement line is added
-/// to the same request, taken from the pickup lab or carried over from another lab, then handed over on its own.
+/// Borrowing after the lecturer approved (see ProjectReviewService): every line comes from the request's own lab (labs
+/// never pass components to each other), its staff check the goods (Approved → Ready), the student picks everything up
+/// with a photo of the components and the student card (Ready → Borrowing), and returns at that lab, possibly in several
+/// times (→ Returned). A unit that breaks during the loan can be swapped: the broken one is retired and a Pending
+/// replacement line is added to the same request when the lab has a free unit, then handed over on its own.
+/// The dispatch / receive endpoints only matter for requests approved before labs stopped passing components.
 /// Every change first locks the request row (a no-op UPDATE ... WHERE status = ...), so two staff cannot act on the same
 /// request at once. Lock order is always request → labs.
 /// </summary>
@@ -289,7 +290,7 @@ public class BorrowRequestService : IBorrowRequestService
                        .FirstOrDefaultAsync(i => i.BorrowItemId == request.BorrowItemId && i.BorrowRequestId == borrowRequestId, ct)
                    ?? throw new NotFoundException("Không tìm thấy dòng linh kiện trong đơn mượn");
         if (line.Status != BorrowItemStatuses.Pending || line.ReceivedAt != null || line.SourceRoomId == null)
-            throw new ConflictException("Dòng linh kiện này đã được nhận ở lab nhận đồ");
+            throw new ConflictException("Dòng linh kiện này đã được nhận ở lab của đơn");
         var sourceRoomId = line.SourceRoomId.Value;
 
         var cabinetOk = await _uow.Repository<StorageCabinet>().QueryNoTracking()
@@ -297,7 +298,7 @@ public class BorrowRequestService : IBorrowRequestService
                            && c.RoomId == header.RoomId
                            && c.Status == CabinetStatuses.Active, ct);
         if (!cabinetOk)
-            throw new BadRequestException("Tủ cất phải là tủ đang hoạt động của lab nhận đồ");
+            throw new BadRequestException("Tủ cất phải là tủ đang hoạt động thuộc lab của đơn");
 
         await RoomStock.LockRoomsAsync(_uow, new[] { sourceRoomId, header.RoomId }, ct);
 
@@ -411,7 +412,7 @@ public class BorrowRequestService : IBorrowRequestService
         var replacementToIssue = BorrowedStatuses.Contains(info.Status) && info.ReplacementReady;
         if (photoType == HandoverPhotoTypes.Issue && info.Status != BorrowRequestStatuses.Ready && !replacementToIssue)
             throw new ConflictException(
-                "Chỉ chụp ảnh giao đồ khi đơn đã đủ hàng ở lab nhận đồ (Ready) hoặc có món thay thế đã về lab nhận đồ");
+                "Chỉ chụp ảnh giao đồ khi đơn đã đủ hàng ở lab của đơn (Ready) hoặc có món thay thế đã về lab của đơn");
         if (photoType == HandoverPhotoTypes.Return && !BorrowedStatuses.Contains(info.Status))
             throw new ConflictException("Chỉ chụp ảnh nhận trả khi đơn đang mượn");
 
@@ -489,7 +490,7 @@ public class BorrowRequestService : IBorrowRequestService
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
         await LockRequestAsync(borrowRequestId, new[] { BorrowRequestStatuses.Ready },
-            "Chỉ giao đồ cho đơn đã đủ hàng ở lab nhận đồ (Ready)", ct);
+            "Chỉ giao đồ cho đơn đã đủ hàng ở lab của đơn (Ready)", ct);
         var header = await GetHeaderAsync(borrowRequestId, ct);
         await EnsurePickupStaffAsync(header.RoomId, ct);
 
@@ -543,7 +544,7 @@ public class BorrowRequestService : IBorrowRequestService
         foreach (var line in perUnitLines)
         {
             errors.AddRange(CheckUnits(units, unitsByLine[line.BorrowItemId], line.ComponentId,
-                ComponentItemStatuses.Available, header.RoomId, "không nằm ở lab nhận đồ"));
+                ComponentItemStatuses.Available, header.RoomId, "không nằm ở lab của đơn"));
         }
         if (errors.Count > 0)
             throw new BadRequestException("Có con không giao được", new Dictionary<string, string[]> { ["units"] = errors.ToArray() });
@@ -686,7 +687,7 @@ public class BorrowRequestService : IBorrowRequestService
                                                && c.RoomId == header.RoomId
                                                && c.Status == CabinetStatuses.Active, ct);
             if (!cabinetOk)
-                throw new BadRequestException("Phải chọn tủ đang hoạt động của lab nhận đồ để cất vật tư tiêu hao trả về");
+                throw new BadRequestException("Phải chọn tủ đang hoạt động thuộc lab của đơn để cất vật tư tiêu hao trả về");
         }
 
         var unitIds = lines.Where(l => l.ComponentItemId != null).Select(l => l.ComponentItemId!.Value).ToList();
@@ -891,7 +892,7 @@ public class BorrowRequestService : IBorrowRequestService
 
         var line = await FindReplacementAsync(borrowRequestId, request.BorrowItemId, ct);
         if (line.ReceivedAt == null)
-            throw new ConflictException("Món thay thế chưa được chuyển về lab nhận đồ");
+            throw new ConflictException("Món thay thế chưa được chuyển về lab của đơn");
 
         var photo = await _uow.Repository<BorrowHandoverPhoto>().Query()
                         .FirstOrDefaultAsync(p => p.PhotoId == request.PhotoId
@@ -913,7 +914,7 @@ public class BorrowRequestService : IBorrowRequestService
         var itemIds = new List<Guid> { request.ItemId };
         var units = await LoadUnitsAsync(itemIds, ct);
         var errors = CheckUnits(units, itemIds, line.ComponentId, ComponentItemStatuses.Available, header.RoomId,
-            "không nằm ở lab nhận đồ");
+            "không nằm ở lab của đơn");
         if (errors.Count > 0)
             throw new BadRequestException("Con này không giao được", new Dictionary<string, string[]> { ["itemId"] = errors.ToArray() });
 
@@ -1065,7 +1066,7 @@ public class BorrowRequestService : IBorrowRequestService
 
         var byBorrower = info.RequesterId == userId;
         if (!byBorrower && !await IsPickupStaffAsync(info.RoomId, ct))
-            throw new ForbiddenException("Chỉ người mượn hoặc nhân viên lab nhận đồ được hủy đơn này");
+            throw new ForbiddenException("Chỉ người mượn hoặc nhân viên lab của đơn được hủy đơn này");
 
         var reason = CleanText(request.Reason);
         if (!byBorrower && reason == null)
@@ -1153,8 +1154,8 @@ public class BorrowRequestService : IBorrowRequestService
     }
 
     /// <summary>
-    /// Lab to take a replacement unit from: the pickup lab when it has a free one, otherwise the lab with the most free
-    /// (ties by lab id); null when no lab has one. Free means not reserved (see RoomStock). Labs must already be locked.
+    /// The request's lab when it has a free unit of the component; null otherwise (the student goes without, since labs
+    /// never pass components to each other). Free means not reserved (see RoomStock). The lab must already be locked.
     /// </summary>
     private async Task<Guid?> PickReplacementRoomAsync(Guid componentId, Guid pickupRoomId, CancellationToken ct)
     {
@@ -1163,13 +1164,7 @@ public class BorrowRequestService : IBorrowRequestService
         if (byRoom.TryGetValue(pickupRoomId, out var pickup) && pickup.GetValueOrDefault(componentId) > 0)
             return pickupRoomId;
 
-        var staffedRooms = await BorrowRoom.GetStaffedIdsAsync(_uow, ct);
-        return byRoom
-            .Where(r => r.Value.GetValueOrDefault(componentId) > 0)
-            .OrderByDescending(r => staffedRooms.Contains(r.Key))
-            .ThenByDescending(r => r.Value[componentId]).ThenBy(r => r.Key)
-            .Select(r => (Guid?)r.Key)
-            .FirstOrDefault();
+        return null;
     }
 
     /// <summary>A Pending replacement line of the request (tracked, with its component); otherwise 404 / 409.</summary>
@@ -1212,7 +1207,7 @@ public class BorrowRequestService : IBorrowRequestService
     private async Task EnsurePickupStaffAsync(Guid roomId, CancellationToken ct)
     {
         if (!await IsPickupStaffAsync(roomId, ct))
-            throw new ForbiddenException("Chỉ nhân viên phụ trách lab nhận đồ được thao tác với đơn này");
+            throw new ForbiddenException("Chỉ nhân viên phụ trách lab của đơn được thao tác với đơn này");
     }
 
     private async Task<bool> IsPickupStaffAsync(Guid roomId, CancellationToken ct)

@@ -20,6 +20,8 @@ public class CourseService : ICourseService
         // Lỗi 6: chuẩn hóa một lần, dùng cho cả check và lưu
         var code = request.CourseCode.Trim().ToUpperInvariant();
 
+        await EnsureRoomUsableAsync(request.RoomId, ct);
+
         var exists = await _uow.Repository<Course>().QueryNoTracking()
             .AnyAsync(c => c.CourseCode == code, ct);
         if (exists)
@@ -32,6 +34,7 @@ public class CourseService : ICourseService
             Credits = request.Credits,
             Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
             IsActive = request.IsActive,
+            RoomId = request.RoomId,
         };
 
         await _uow.Repository<Course>().AddAsync(course, ct);
@@ -73,6 +76,9 @@ public class CourseService : ICourseService
         course.Credits = request.Credits;
         course.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
         course.IsActive = request.IsActive;
+        if (request.RoomId != course.RoomId)
+            await EnsureRoomUsableAsync(request.RoomId, ct);
+        course.RoomId = request.RoomId;
 
         await _uow.SaveChangesAsync(ct);
         return ClassSetupMappings.ToResponse(course);
@@ -90,5 +96,16 @@ public class CourseService : ICourseService
 
         _uow.Repository<Course>().Remove(course);
         await _uow.SaveChangesAsync(ct);
+    }
+
+    private async Task EnsureRoomUsableAsync(Guid? roomId, CancellationToken ct)
+    {
+        if (roomId == null)
+            return;
+
+        var active = await _uow.Repository<LabRoom>().QueryNoTracking()
+            .AnyAsync(r => r.RoomId == roomId.Value && r.Status == Constants.LabRoomStatuses.Active, ct);
+        if (!active)
+            throw new BadRequestException("Lab không tồn tại hoặc đã ngừng hoạt động");
     }
 }

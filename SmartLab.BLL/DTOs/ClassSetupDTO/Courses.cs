@@ -6,6 +6,9 @@ public class CreateCourseRequest
     public int Credits { get; set; }
     public string? Description { get; set; }
     public bool IsActive { get; set; } = true;
+
+    /// <summary>Lab serving the course: projects of its classes borrow only there. Null = not assigned yet (submitting is blocked).</summary>
+    public Guid? RoomId { get; set; }
 }
 
 public class UpdateCourseRequest
@@ -14,6 +17,9 @@ public class UpdateCourseRequest
     public int Credits { get; set; }
     public string? Description { get; set; }
     public bool IsActive { get; set; }
+
+    /// <summary>Lab serving the course; null removes it.</summary>
+    public Guid? RoomId { get; set; }
 }
 
 public class CourseResponse
@@ -24,4 +30,6 @@ public class CourseResponse
     public int Credits { get; set; }
     public string? Description { get; set; }
     public bool IsActive { get; set; }
+
+    public Guid? RoomId { get; set; }
 }

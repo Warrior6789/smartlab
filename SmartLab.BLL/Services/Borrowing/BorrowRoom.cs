@@ -8,8 +8,9 @@ using SmartLab.DAL.UnitOfWork;
 namespace SmartLab.BLL.Services.Borrowing;
 
 /// <summary>
-/// Chooses the lab a borrow request belongs to: the lab where students pick up and return the components.
-/// Students do not choose it. What that lab lacks is transferred from the other labs after approval.
+/// Chooses the lab a project borrows from: the lab with the most of what it needs. Students do not choose it.
+/// Labs never pass components to each other, so whatever that lab lacks the team buys itself (self-supplied items).
+/// The staff of that lab prepare, hand over and take back everything of the request.
 /// </summary>
 internal static class BorrowRoom
 {
@@ -25,21 +26,12 @@ internal static class BorrowRoom
         return ids.ToHashSet();
     }
 
-    /// <summary>The best lab for these lines, with stock read now. See the overload for how it is chosen.</summary>
-    public static async Task<Guid> PickBestAsync(
-        IUnitOfWork uow, IReadOnlyCollection<(Guid ComponentId, int Quantity)> lines, CancellationToken ct)
-    {
-        var ids = lines.Select(l => l.ComponentId).Distinct().ToList();
-        var available = await RoomStock.GetAvailableByRoomAsync(uow, ids, ct);
-        return await PickBestAsync(uow, lines, available, ct);
-    }
-
     /// <summary>
     /// Only active labs with an active Lab Staff can hand over components. Among them: the lab that can fill the most lines
     /// on its own, then the one that can give the most of what the lines need, then by lab code so the result is stable.
-    /// 400 when no lab can take borrow requests.
+    /// Null when no lab can take borrow requests. Only the AI suggestion uses it, when the class (so the course lab) is unknown.
     /// </summary>
-    public static async Task<Guid> PickBestAsync(
+    public static async Task<Guid?> PickBestOrNullAsync(
         IUnitOfWork uow, IReadOnlyCollection<(Guid ComponentId, int Quantity)> lines,
         IReadOnlyDictionary<Guid, Dictionary<Guid, int>> availableByRoom, CancellationToken ct)
     {
@@ -48,7 +40,7 @@ internal static class BorrowRoom
             .Select(r => new { r.RoomId, r.RoomCode })
             .ToListAsync(ct);
         if (rooms.Count == 0)
-            throw new BadRequestException("Chưa có lab nào đang hoạt động và có Lab Staff, vui lòng báo Admin");
+            return null;
 
         var needed = lines.GroupBy(l => l.ComponentId).Select(g => (ComponentId: g.Key, Quantity: g.Sum(l => l.Quantity))).ToList();
 

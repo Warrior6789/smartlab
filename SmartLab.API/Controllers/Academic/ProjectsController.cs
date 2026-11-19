@@ -41,8 +41,11 @@ public class ProjectsController : ControllerBase
 
     /// <summary>
     /// Giảng viên của lớp duyệt (Admin duyệt thay được), kể cả đơn có HIGH_VALUE.
-    /// Duyệt xong thì project thành Approved; hệ thống chia mỗi dòng lấy từ lab nào (ưu tiên lab nhận đồ).
-    /// Đơn mượn thành Approved (chờ mang hàng từ lab khác về), hoặc Ready nếu mọi thứ đã có sẵn ở lab nhận đồ.
+    /// Có thể duyệt kèm giảm số lượng: <c>adjustments</c> = [{ componentId, quantity }] (chỉ được giảm, 0 = bỏ món đó,
+    /// phải còn ít nhất 1 món) và bắt buộc ghi <c>comment</c> lý do; danh sách linh kiện của project cũng đổi theo.
+    /// Muốn tăng số lượng thì nhóm rút đơn và gửi lại.
+    /// Duyệt xong thì project thành Approved; mọi dòng lấy ở lab của môn học (các lab không chuyển đồ cho nhau), lab thiếu thì báo 400.
+    /// Đơn mượn thành Approved, chờ nhân viên lab đó chấp nhận (lab-accept) để thành Ready.
     /// Với đơn mượn thêm (isSupplementary = true trong danh sách chờ duyệt) chỉ đơn mượn được duyệt, project giữ nguyên.
     /// Project không có đơn mượn (borrowRequestId = null, chỉ dùng đồ tự chuẩn bị) thì chỉ project chuyển Approved.
     /// </summary>
@@ -114,8 +117,10 @@ public class ProjectsController : ControllerBase
     }
 
     /// <summary>
-    /// AI đọc mô tả project và gợi ý linh kiện, chia 3 nhóm: mượn được (tính tồn của mọi lab), kho có nhưng không đủ,
-    /// và món tự mua (kho không có). Không lưu gì: nhóm trưởng chọn món rồi lưu bằng PUT /api/projects/{id}.
+    /// AI đọc mô tả project và gợi ý linh kiện; AI chỉ gợi ý, nhóm tự chốt. Gửi <c>classId</c> thì kiểm tồn ở lab của môn
+    /// học (lab đơn sẽ đi tới); không gửi thì chọn lab có nhiều món cần nhất. Trả về lab và 3 nhóm theo tồn của lab đó:
+    /// mượn được, lab có nhưng không đủ, và món tự mua (ngoài danh mục, hoặc lab đó không có dù lab khác có).
+    /// Không lưu gì: nhóm trưởng chọn món, chỉnh số lượng rồi lưu bằng PUT /api/projects/{id}.
     /// Mỗi tài khoản tối đa 10 lần / giờ (quá thì 429).
     /// </summary>
     [HttpPost("suggest-components")]
@@ -227,10 +232,12 @@ public class ProjectsController : ControllerBase
     }
 
     /// <summary>
-    /// Gửi duyệt: project thành Submitted và tạo luôn đơn mượn (Pending) từ danh sách linh kiện, nhận đồ ở lab nhận đồ chung.
-    /// Kiểm tra tồn trên tất cả lab (đã trừ các đơn đã duyệt chưa giao).
+    /// Gửi duyệt: project thành Submitted và tạo luôn đơn mượn (Pending) từ danh sách linh kiện, ở lab của môn học
+    /// (Admin gán lab cho môn; môn chưa có lab thì 400). Lab đó phải đủ mọi dòng (đã trừ các đơn đã duyệt chưa giao); các lab
+    /// không chuyển đồ cho nhau nên thiếu thì 400, nhóm giảm số lượng hoặc đưa món thiếu vào danh sách tự mua.
     /// Người duyệt là giảng viên của lớp, kể cả khi có thiết bị HIGH_VALUE.
-    /// Không nhập ngày: ngày mượn là hôm nay, hạn trả theo học kỳ của lớp. Body gửi <c>{}</c>.
+    /// Ngày mượn (<c>borrowDate</c>, ví dụ "2026-11-25") nhóm tự chọn: từ hôm nay đến trước hạn trả, bỏ trống = hôm nay.
+    /// Hạn trả luôn theo ngày kết thúc học kỳ Admin cài đặt (trừ BORROW_DAYS_BEFORE_SEMESTER_END ngày).
     /// Project chỉ có đồ tự chuẩn bị (không mượn linh kiện lab) thì không tạo đơn mượn.
     /// </summary>
     [HttpPost("{id:guid}/submit")]
@@ -265,6 +272,7 @@ public class ProjectsController : ControllerBase
     /// Nhóm trưởng xin mượn thêm linh kiện cho project đã Approved (bắt buộc ghi lý do): tạo đơn mượn bổ sung Pending
     /// chờ giảng viên của lớp duyệt bằng POST /api/projects/{id}/approve hoặc /reject; project vẫn giữ Approved.
     /// Mỗi lúc chỉ 1 đơn bổ sung chờ duyệt; đã nộp bài cuối thì không mượn thêm được. Sau khi duyệt, đơn chạy như đơn mượn thường.
+    /// Đơn đi tới lab của môn học; <c>borrowDate</c> chọn như lúc gửi duyệt (từ hôm nay đến trước hạn trả, bỏ trống = hôm nay).
     /// </summary>
     [HttpPost("{id:guid}/supplementary-borrow")]
     [Authorize(Policy = PermissionCodes.ProjectCreate)]

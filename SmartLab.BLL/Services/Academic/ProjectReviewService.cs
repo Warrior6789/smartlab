@@ -173,13 +173,22 @@ public class ProjectReviewService : IProjectReviewService
         var now = DateTime.UtcNow;
 
         if (!await HasPendingBorrowAsync(projectId, ct))
+        {
+            if (request.Adjustments.Count > 0)
+                throw new BadRequestException("Project không mượn linh kiện lab nên không có số lượng để điều chỉnh");
             return await ReviewWithoutBorrowAsync(projectId, ProjectStatuses.Approved, userId, comment, now, ct);
+        }
 
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
         var step = await LockAndGetCurrentStepAsync(projectId, userId, ct);
 
-        await DecideStepAsync(step.ApprovalId, BorrowApprovalStatuses.Approved, userId, comment, now, ct);
+        var adjusted = await ApplyAdjustmentsAsync(projectId, step, request.Adjustments, ct);
+        if (adjusted != null)
+            comment = $"{comment} (Điều chỉnh: {adjusted})";
+
+        await DecideStepAsync(step.ApprovalId, BorrowApprovalStatuses.Approved, userId,
+            Shorten(comment, ApprovalCommentMaxLength), now, ct);
 
         if (step.IsLast)
         {
@@ -193,7 +202,8 @@ public class ProjectReviewService : IProjectReviewService
                     .SetProperty(r => r.ApprovedAt, now), ct);
 
             if (!step.IsSupplementary)
-                await ReviewProjectAsync(projectId, ProjectStatuses.Approved, userId, comment, now, ct);
+                await ReviewProjectAsync(projectId, ProjectStatuses.Approved, userId,
+                    Shorten(comment, ReviewCommentMaxLength), now, ct);
         }
 
         await tx.CommitAsync(ct);
@@ -241,6 +251,78 @@ public class ProjectReviewService : IProjectReviewService
         return await _projectService.GetProjectByIdAsync(projectId, ct);
     }
 
+    /// <summary>borrow_approvals.comment and projects.review_comment column sizes.</summary>
+    private const int ApprovalCommentMaxLength = 255;
+    private const int ReviewCommentMaxLength = 500;
+
+    private static string? Shorten(string? text, int maxLength)
+    {
+        if (text == null || text.Length <= maxLength)
+            return text;
+        return text.Substring(0, maxLength - 1) + "…";
+    }
+
+    /// <summary>
+    /// Lowers the quantities the lecturer changed (0 removes the line) before stock is checked, so a lab that cannot lend
+    /// the full amount can still lend the lowered one. A first request also updates the project's component list, so the
+    /// project shows what was approved. Returns a short "name a→b" summary for the team, or null when nothing changed.
+    /// </summary>
+    private async Task<string?> ApplyAdjustmentsAsync(
+        Guid projectId, CurrentStep step, List<ApproveQuantityAdjustmentRequest> adjustments, CancellationToken ct)
+    {
+        if (adjustments.Count == 0)
+            return null;
+
+        var lines = await _uow.Repository<BorrowItem>().Query()
+            .Include(i => i.Component)
+            .Where(i => i.BorrowRequestId == step.BorrowRequestId)
+            .ToListAsync(ct);
+        var projectLines = new List<ProjectComponent>();
+        if (!step.IsSupplementary)
+        {
+            projectLines = await _uow.Repository<ProjectComponent>().Query()
+                .Where(pc => pc.ProjectId == projectId)
+                .ToListAsync(ct);
+        }
+
+        var changes = new List<string>();
+        foreach (var adjustment in adjustments)
+        {
+            var line = lines.FirstOrDefault(l => l.ComponentId == adjustment.ComponentId)
+                       ?? throw new BadRequestException("Có linh kiện điều chỉnh không nằm trong đơn mượn");
+            if (adjustment.Quantity > line.Quantity)
+                throw new BadRequestException(
+                    $"{line.Component.ComponentName}: chỉ được giảm số lượng (nhóm xin {line.Quantity}). Muốn tăng thì nhóm rút đơn và gửi lại.");
+            if (adjustment.Quantity == line.Quantity)
+                continue;
+
+            changes.Add($"{line.Component.ComponentName} {line.Quantity}→{adjustment.Quantity}");
+
+            var projectLine = projectLines.FirstOrDefault(pc => pc.ComponentId == adjustment.ComponentId);
+            if (adjustment.Quantity == 0)
+            {
+                _uow.Repository<BorrowItem>().Remove(line);
+                lines.Remove(line);
+                if (projectLine != null)
+                    _uow.Repository<ProjectComponent>().Remove(projectLine);
+            }
+            else
+            {
+                line.Quantity = adjustment.Quantity;
+                if (projectLine != null)
+                    projectLine.Quantity = adjustment.Quantity;
+            }
+        }
+
+        if (lines.Count == 0)
+            throw new BadRequestException("Không thể bỏ hết linh kiện của đơn, hãy từ chối project thay vì duyệt");
+        if (changes.Count == 0)
+            return null;
+
+        await _uow.SaveChangesAsync(ct);
+        return string.Join(", ", changes);
+    }
+
     private Task<bool> HasPendingBorrowAsync(Guid projectId, CancellationToken ct)
         => _uow.Repository<BorrowRequest>().QueryNoTracking()
             .AnyAsync(r => r.ProjectId == projectId && r.Status == BorrowRequestStatuses.Pending, ct);
@@ -284,11 +366,10 @@ public class ProjectReviewService : IProjectReviewService
 
     /// <summary>
     /// Approving reserves stock, so the checks of submitting run again (things may have changed since): every component is
-    /// still in use, and all labs together can still lend every line. A first request also gets its lab chosen again from
-    /// the stock of now, because nothing was reserved while it was pending; a supplementary request stays in its lab, which
-    /// must still be active. Then each line gets its source lab: the pickup lab first, the rest from the labs with the most
-    /// left (a line may be split over several labs). Lines taken from the pickup lab count as received. Every lab is locked
-    /// first, so two approvals cannot both take the last units. Rejecting is always allowed.
+    /// still in use, and the lab of the class's course alone can still lend every line (the request moves to that lab if
+    /// the Admin changed the course's lab meanwhile). Labs never pass components to each other: every line comes from that
+    /// lab and counts as received there, so its staff can accept the request right away. Every lab is locked first, so two
+    /// approvals cannot both take the last units. Rejecting is always allowed.
     /// </summary>
     private async Task AllocateSourcesAsync(CurrentStep step, Guid userId, DateTime now, CancellationToken ct)
     {
@@ -308,110 +389,48 @@ public class ProjectReviewService : IProjectReviewService
         var ids = lines.Select(l => l.ComponentId).Distinct().ToList();
         var availableByRoom = await RoomStock.GetAvailableByRoomAsync(_uow, ids, ct);
 
-        var pickupRoomId = step.RoomId;
-        if (step.IsSupplementary)
+        var classId = await _uow.Repository<BorrowRequest>().QueryNoTracking()
+            .Where(r => r.BorrowRequestId == step.BorrowRequestId)
+            .Select(r => r.ClassId)
+            .FirstAsync(ct);
+        var pickupRoomId = await CourseRoom.GetForClassAsync(_uow, classId, ct);
+        if (pickupRoomId != step.RoomId)
         {
-            var pickupActive = await _uow.Repository<LabRoom>().QueryNoTracking()
-                .AnyAsync(r => r.RoomId == pickupRoomId && r.Status == LabRoomStatuses.Active, ct);
-            if (!pickupActive)
-                throw new BadRequestException("Lab nhận đồ của đơn mượn đã ngừng hoạt động, vui lòng báo Admin.");
-        }
-        else
-        {
-            var needed = lines.Select(l => (l.ComponentId, l.Quantity)).ToList();
-            pickupRoomId = await BorrowRoom.PickBestAsync(_uow, needed, availableByRoom, ct);
-            if (pickupRoomId != step.RoomId)
-            {
-                await _uow.Repository<BorrowRequest>().Query()
-                    .Where(r => r.BorrowRequestId == step.BorrowRequestId)
-                    .ExecuteUpdateAsync(s => s.SetProperty(r => r.RoomId, pickupRoomId), ct);
-            }
+            await _uow.Repository<BorrowRequest>().Query()
+                .Where(r => r.BorrowRequestId == step.BorrowRequestId)
+                .ExecuteUpdateAsync(s => s.SetProperty(r => r.RoomId, pickupRoomId), ct);
         }
 
-        var staffedRooms = await BorrowRoom.GetStaffedIdsAsync(_uow, ct);
-
-        var plans = new List<(BorrowItem Line, List<(Guid RoomId, int Quantity)> Parts)>();
+        var roomStock = availableByRoom.GetValueOrDefault(pickupRoomId) ?? new Dictionary<Guid, int>();
         var shortages = new List<string>();
         foreach (var line in lines)
         {
-            var parts = TakeFromRooms(availableByRoom, staffedRooms, pickupRoomId, line.ComponentId, line.Quantity);
-            var taken = parts.Sum(p => p.Quantity);
-            if (taken < line.Quantity)
-                shortages.Add($"{line.Component.ComponentName} (cần {line.Quantity}, còn {taken})");
+            var left = roomStock.GetValueOrDefault(line.ComponentId);
+            if (left < line.Quantity)
+                shortages.Add($"{line.Component.ComponentName} (cần {line.Quantity}, lab còn {left})");
 
-            plans.Add((line, parts));
+            roomStock[line.ComponentId] = Math.Max(0, left - line.Quantity);
         }
 
         if (shortages.Count > 0)
-            throw new BadRequestException(
-                $"Kho không còn đủ linh kiện (đã trừ các đơn đã duyệt chưa cấp): {string.Join("; ", shortages)}. " +
-                "Hãy từ chối để nhóm giảm số lượng hoặc đổi linh kiện.");
-
-        var borrowItems = _uow.Repository<BorrowItem>();
-        foreach (var (line, parts) in plans)
         {
-            for (var index = 0; index < parts.Count; index++)
-            {
-                var (roomId, quantity) = parts[index];
+            var roomCode = await _uow.Repository<LabRoom>().QueryNoTracking()
+                .Where(r => r.RoomId == pickupRoomId)
+                .Select(r => r.RoomCode)
+                .FirstAsync(ct);
+            throw new BadRequestException(
+                $"Lab {roomCode} không còn đủ linh kiện (đã trừ các đơn đã duyệt chưa cấp): {string.Join("; ", shortages)}. " +
+                "Các lab không chuyển đồ cho nhau: hãy giảm số lượng khi duyệt, hoặc từ chối để nhóm đưa món thiếu vào danh sách tự mua.");
+        }
 
-                var target = line;
-                if (index > 0)
-                {
-                    target = new BorrowItem
-                    {
-                        BorrowRequestId = line.BorrowRequestId,
-                        ComponentId = line.ComponentId,
-                        Status = BorrowItemStatuses.Pending,
-                    };
-                    await borrowItems.AddAsync(target, ct);
-                }
-
-                target.Quantity = quantity;
-                target.SourceRoomId = roomId;
-                if (roomId == pickupRoomId)
-                {
-                    target.ReceivedAt = now;
-                    target.ReceivedBy = userId;
-                }
-            }
+        foreach (var line in lines)
+        {
+            line.SourceRoomId = pickupRoomId;
+            line.ReceivedAt = now;
+            line.ReceivedBy = userId;
         }
 
         await _uow.SaveChangesAsync(ct);
-    }
-
-    /// <summary>
-    /// Takes up to <paramref name="quantity"/> of a component: the pickup lab first, then labs with Lab Staff to carry it
-    /// over, then the labs with the most left (ties by lab id so the result is stable). A lab without staff is the last
-    /// resort. Taken amounts are removed from <paramref name="availableByRoom"/>.
-    /// </summary>
-    private static List<(Guid RoomId, int Quantity)> TakeFromRooms(
-        Dictionary<Guid, Dictionary<Guid, int>> availableByRoom, HashSet<Guid> staffedRooms, Guid pickupRoomId,
-        Guid componentId, int quantity)
-    {
-        var order = availableByRoom
-            .Where(r => r.Key != pickupRoomId && r.Value.GetValueOrDefault(componentId) > 0)
-            .OrderByDescending(r => staffedRooms.Contains(r.Key))
-            .ThenByDescending(r => r.Value[componentId]).ThenBy(r => r.Key)
-            .Select(r => r.Key)
-            .ToList();
-        if (availableByRoom.TryGetValue(pickupRoomId, out var pickup) && pickup.GetValueOrDefault(componentId) > 0)
-            order.Insert(0, pickupRoomId);
-
-        var parts = new List<(Guid RoomId, int Quantity)>();
-        var left = quantity;
-        foreach (var roomId in order)
-        {
-            if (left == 0)
-                break;
-
-            var room = availableByRoom[roomId];
-            var take = Math.Min(left, room[componentId]);
-            room[componentId] -= take;
-            left -= take;
-            parts.Add((roomId, take));
-        }
-
-        return parts;
     }
 
     /// <summary>

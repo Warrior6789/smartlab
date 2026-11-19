@@ -46,9 +46,9 @@ public class BorrowRequestsController : ControllerBase
     }
 
     /// <summary>
-    /// Các dòng linh kiện đang chờ mang từ lab khác về lab nhận đồ (đơn Approved, hoặc món thay thế của đơn đang mượn).
-    /// Nhân viên thấy dòng có lab chuyển hàng
-    /// hoặc lab nhận đồ là lab mình phụ trách.
+    /// Các dòng linh kiện đang chờ mang từ lab khác về lab của đơn. Các lab không còn chuyển đồ cho nhau nên đơn mới không
+    /// có dòng nào ở đây; chỉ còn để xử lý đơn duyệt trước khi đổi quy tắc.
+    /// Nhân viên thấy dòng có lab chuyển hàng hoặc lab của đơn là lab mình phụ trách.
     /// </summary>
     [HttpGet("transfers")]
     [Authorize(Policy = PermissionCodes.BorrowIssue)]
@@ -76,6 +76,7 @@ public class BorrowRequestsController : ControllerBase
     }
 
     /// <summary>
+    /// Chỉ dùng cho đơn duyệt trước khi các lab ngừng chuyển đồ cho nhau.
     /// Nhân viên lab nhận đồ xác nhận đã nhận 1 dòng mang từ lab khác về: hàng theo từng con thì quét đúng các con nhận được,
     /// vật tư tiêu hao thì nhận đủ số lượng. Hàng chuyển vào tủ đã chọn. Nhận đủ mọi dòng thì đơn thành Ready. Món thay thế
     /// của đơn đang mượn cũng nhận ở đây, sau đó giao bằng replacements/issue.
@@ -167,8 +168,8 @@ public class BorrowRequestsController : ControllerBase
     /// <summary>
     /// Đổi 1 con bị hỏng trong lúc mượn (đơn đang mượn), cần ảnh nhận trả chụp con hỏng. Con hỏng được ghi nhận Damaged
     /// (loại khỏi kho, báo cáo sự cố Open của nó chuyển Confirmed). Hệ thống thêm 1 dòng món thay thế cùng loại vào đơn:
-    /// lấy ở lab nhận đồ nếu còn (giao được ngay), không thì lấy ở lab khác còn nhiều nhất (chờ chuyển về như hàng chờ chuyển).
-    /// Không lab nào còn thì không có món thay thế (replacementBorrowItemId = null), sinh viên chịu thiếu.
+    /// chỉ lấy ở lab của đơn nếu còn (giao được ngay). Lab đó hết thì không có món thay thế (replacementBorrowItemId = null),
+    /// sinh viên chịu thiếu, vì các lab không chuyển đồ cho nhau.
     /// </summary>
     [HttpPost("{id:guid}/replace-damaged")]
     [Authorize(Policy = PermissionCodes.BorrowIssue)]
@@ -217,7 +218,7 @@ public class BorrowRequestsController : ControllerBase
         return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Đã hủy món thay thế"));
     }
 
-    /// <summary>Lab chuyển hàng báo đã gửi một dòng linh kiện sang lab nhận đồ.</summary>
+    /// <summary>Lab chuyển hàng báo đã gửi một dòng linh kiện sang lab nhận đồ (chỉ còn cho đơn duyệt trước khi các lab ngừng chuyển đồ).</summary>
     [HttpPost("{id:guid}/dispatch")]
     [Authorize(Policy = PermissionCodes.BorrowIssue)]
     [ProducesResponseType(typeof(ApiResponse<BorrowRequestDetailResponse>), StatusCodes.Status200OK)]
@@ -230,7 +231,7 @@ public class BorrowRequestsController : ControllerBase
         return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Đã báo gửi hàng"));
     }
 
-    /// <summary>Lab nhận đồ đã kiểm tra hàng: đơn Approved sang Ready và báo sinh viên đến nhận.</summary>
+    /// <summary>Nhân viên lab của đơn đã chuẩn bị và kiểm tra hàng: đơn Approved sang Ready và báo sinh viên đến nhận.</summary>
     [HttpPost("{id:guid}/lab-accept")]
     [Authorize(Policy = PermissionCodes.BorrowIssue)]
     [ProducesResponseType(typeof(ApiResponse<BorrowRequestDetailResponse>), StatusCodes.Status200OK)]

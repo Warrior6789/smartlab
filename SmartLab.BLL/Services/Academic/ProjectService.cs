@@ -578,10 +578,10 @@ public class ProjectService : IProjectService
 
                     if (lines.Count > 0)
                     {
-                        await EnsureStockAsync(lines, token);
-                        var roomId = await BorrowRoom.PickBestAsync(
-                            _uow, lines.Select(l => (l.ComponentId, l.Quantity)).ToList(), token);
+                        var roomId = await CourseRoom.GetForClassAsync(_uow, project.ClassId, token);
+                        await EnsureRoomStockAsync(roomId, lines, token);
                         var dueDate = await BorrowDeadline.GetDueDateForNewRequestAsync(_uow, project.ClassId, token);
+                        var borrowDate = ResolveBorrowDate(request.BorrowDate, now, dueDate);
 
                         borrowRequest = new BorrowRequest
                         {
@@ -592,7 +592,7 @@ public class ProjectService : IProjectService
                             Purpose = $"Mượn linh kiện cho project: {project.Title}",
                             Status = BorrowRequestStatuses.Pending,
                             RequestDate = now,
-                            BorrowDate = ToVietnamDateUtc(now),
+                            BorrowDate = borrowDate,
                             DueDate = dueDate,
                             RoomId = roomId,
                         };
@@ -675,8 +675,9 @@ public class ProjectService : IProjectService
         await EnsureComponentsUsableAsync(request.Components, ct);
         var lines = await LoadRequestLinesAsync(request.Components, ct);
 
-        var roomId = await SupplementaryRoomAsync(projectId, lines, ct);
+        var roomId = await CourseRoom.GetForClassAsync(_uow, project.ClassId, ct);
         var dueDate = await BorrowDeadline.GetDueDateForNewRequestAsync(_uow, project.ClassId, ct);
+        var borrowDate = ResolveBorrowDate(request.BorrowDate, now, dueDate);
 
         var lecturerId = await _uow.Repository<Class>().QueryNoTracking()
             .Where(c => c.ClassId == project.ClassId && c.Instructor != null)
@@ -712,7 +713,7 @@ public class ProjectService : IProjectService
                         if (hasPending)
                             throw new ConflictException("Nhóm đang có đơn mượn thêm chờ duyệt");
 
-                        await EnsureStockAsync(lines, token);
+                        await EnsureRoomStockAsync(roomId, lines, token);
 
                         borrowRequest = new BorrowRequest
                         {
@@ -723,7 +724,7 @@ public class ProjectService : IProjectService
                             Purpose = purpose,
                             Status = BorrowRequestStatuses.Pending,
                             RequestDate = now,
-                            BorrowDate = ToVietnamDateUtc(now),
+                            BorrowDate = borrowDate,
                             DueDate = dueDate,
                             RoomId = roomId,
                         };
@@ -979,26 +980,23 @@ public class ProjectService : IProjectService
     }
 
     /// <summary>
-    /// A supplementary request stays in the lab of the project's first request, so the team returns everything in one
-    /// place. A project that borrowed nothing so far gets the best lab, like a first request.
+    /// The day the team wants to pick the components up (a Vietnam calendar date): today when not given. It cannot be in
+    /// the past or after the last day to return (<paramref name="dueDate"/>, from the semester the Admin set up).
     /// </summary>
-    private async Task<Guid> SupplementaryRoomAsync(Guid projectId, List<SubmitLine> lines, CancellationToken ct)
+    private static DateTime ResolveBorrowDate(DateTime? requested, DateTime now, DateTime dueDate)
     {
-        var first = await _uow.Repository<BorrowRequest>().QueryNoTracking()
-            .Where(r => r.ProjectId == projectId
-                        && r.Status != BorrowRequestStatuses.Cancelled
-                        && r.Status != BorrowRequestStatuses.Rejected)
-            .OrderBy(r => r.RequestDate)
-            .Select(r => new { r.RoomId, r.Room.Status })
-            .FirstOrDefaultAsync(ct);
+        var today = ToVietnamDateUtc(now);
+        if (requested == null)
+            return today;
 
-        if (first == null)
-            return await BorrowRoom.PickBestAsync(_uow, lines.Select(l => (l.ComponentId, l.Quantity)).ToList(), ct);
+        var borrowDate = ToVietnamDateUtc(requested.Value);
+        if (borrowDate < today)
+            throw new BadRequestException("Ngày mượn không được ở trong quá khứ");
+        if (borrowDate > dueDate)
+            throw new BadRequestException(
+                $"Ngày mượn phải trước hạn trả của học kỳ ({(dueDate + VietnamUtcOffset):dd/MM/yyyy})");
 
-        if (first.Status != LabRoomStatuses.Active)
-            throw new BadRequestException("Lab nhận đồ của project đã ngừng hoạt động, vui lòng báo Admin");
-
-        return first.RoomId;
+        return borrowDate;
     }
 
     /// <summary>The project, after checking that the current user leads its team and still studies in the class.</summary>
@@ -1097,24 +1095,34 @@ public class ProjectService : IProjectService
     }
 
     /// <summary>
-    /// All labs together must be able to lend each component now: their stock minus what Approved / Ready requests
-    /// already reserve (see <see cref="RoomStock"/>). Which lab gives what is decided when the lecturer approves.
+    /// The project's lab alone must be able to lend each component now: its stock minus what Approved / Ready requests
+    /// already reserve there (see <see cref="RoomStock"/>). Labs do not pass components to each other, so what the lab
+    /// lacks must go to the self-supplied list instead.
     /// </summary>
-    private async Task EnsureStockAsync(List<SubmitLine> lines, CancellationToken ct)
+    private async Task EnsureRoomStockAsync(Guid roomId, List<SubmitLine> lines, CancellationToken ct)
     {
         var ids = lines.Select(l => l.ComponentId).ToList();
-        var available = await RoomStock.GetTotalAvailableAsync(_uow, ids, ct);
+        var availableByRoom = await RoomStock.GetAvailableByRoomAsync(_uow, ids, ct);
+        var available = availableByRoom.GetValueOrDefault(roomId) ?? new Dictionary<Guid, int>();
 
         var shortages = new List<string>();
         foreach (var line in lines)
         {
             var left = available.GetValueOrDefault(line.ComponentId);
             if (left < line.Quantity)
-                shortages.Add($"{line.ComponentName} (cần {line.Quantity}, còn {left})");
+                shortages.Add($"{line.ComponentName} (cần {line.Quantity}, lab còn {left})");
         }
 
-        if (shortages.Count > 0)
-            throw new BadRequestException($"Kho không đủ linh kiện: {string.Join("; ", shortages)}");
+        if (shortages.Count == 0)
+            return;
+
+        var roomCode = await _uow.Repository<LabRoom>().QueryNoTracking()
+            .Where(r => r.RoomId == roomId)
+            .Select(r => r.RoomCode)
+            .FirstAsync(ct);
+        throw new BadRequestException(
+            $"Lab {roomCode} không đủ linh kiện: {string.Join("; ", shortages)}. " +
+            "Các lab không chuyển đồ cho nhau, hãy giảm số lượng hoặc đưa món thiếu vào danh sách tự mua.");
     }
 
     /// <summary>PM-yyyyMMdd-nnn by Vietnam date: highest number of the day + 1.</summary>

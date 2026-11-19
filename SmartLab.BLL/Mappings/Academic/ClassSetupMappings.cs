@@ -24,6 +24,7 @@ public static class ClassSetupMappings
         Credits = c.Credits,
         Description = c.Description,
         IsActive = c.IsActive,
+        RoomId = c.RoomId,
     };
 
     /// <summary>
