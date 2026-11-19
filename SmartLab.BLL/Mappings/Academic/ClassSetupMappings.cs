@@ -43,5 +43,9 @@ public static class ClassSetupMappings
         MaxStudents = c.MaxStudents,
         CurrentStudents = c.ClassStudents.Count(cs => cs.Status == ClassStudentStatuses.Studying),
         CreatedAt = c.CreatedAt,
+        TeamFormationStatus = c.TeamFormationStatus,
+        MinTeamSize = c.MinTeamSize,
+        MaxTeamSize = c.MaxTeamSize,
+        TeamFormationDeadline = c.TeamFormationDeadline,
     };
 }

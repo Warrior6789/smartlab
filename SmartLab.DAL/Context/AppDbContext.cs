@@ -417,7 +417,15 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.MaxStudents)
                 .HasDefaultValue(30)
                 .HasColumnName("max_students");
+            entity.Property(e => e.MaxTeamSize).HasColumnName("max_team_size");
+            entity.Property(e => e.MinTeamSize).HasColumnName("min_team_size");
             entity.Property(e => e.SemesterId).HasColumnName("semester_id");
+            entity.Property(e => e.TeamFormationDeadline).HasColumnName("team_formation_deadline");
+            entity.Property(e => e.TeamFormationOpenedAt).HasColumnName("team_formation_opened_at");
+            entity.Property(e => e.TeamFormationStatus)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'NotStarted'::character varying")
+                .HasColumnName("team_formation_status");
 
             entity.HasOne(d => d.Course).WithMany(p => p.Classes)
                 .HasForeignKey(d => d.CourseId)
