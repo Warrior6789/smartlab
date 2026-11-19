@@ -508,6 +508,10 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(100)
                 .HasColumnName("manufacturer");
             entity.Property(e => e.MinStock).HasColumnName("min_stock");
+            entity.Property(e => e.ShortCode)
+                .HasMaxLength(30)
+                .HasComment("Short search code made from the name, like drug abbreviations (e.g. CBNDDA-DHT22); generated when the component is created, editable")
+                .HasColumnName("short_code");
             entity.Property(e => e.TrackingType)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'REUSABLE'::character varying")

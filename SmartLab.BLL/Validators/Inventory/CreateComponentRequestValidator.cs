@@ -17,6 +17,11 @@ public class CreateComponentRequestValidator : AbstractValidator<CreateComponent
             .NotEmpty().WithMessage("Tên linh kiện là bắt buộc")
             .MaximumLength(150).WithMessage("Tên linh kiện tối đa 150 ký tự");
 
+        RuleFor(x => x.ShortCode)
+            .MaximumLength(30).WithMessage("Mã viết tắt tối đa 30 ký tự")
+            .Matches("^[A-Za-z0-9.-]*$").When(x => !string.IsNullOrWhiteSpace(x.ShortCode))
+            .WithMessage("Mã viết tắt chỉ gồm chữ không dấu, số, dấu chấm và gạch ngang");
+
         RuleFor(x => x.Manufacturer)
             .MaximumLength(100).WithMessage("Hãng sản xuất tối đa 100 ký tự");
 

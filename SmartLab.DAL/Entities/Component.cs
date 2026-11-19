@@ -33,6 +33,11 @@ public partial class Component
 
     public string Unit { get; set; } = null!;
 
+    /// <summary>
+    /// Short search code made from the name, like drug abbreviations (e.g. CBNDDA-DHT22); generated when the component is created, editable
+    /// </summary>
+    public string? ShortCode { get; set; }
+
     public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
 
     public virtual ComponentCategory Category { get; set; } = null!;

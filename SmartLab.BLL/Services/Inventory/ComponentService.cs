@@ -48,6 +48,7 @@ public class ComponentService : IComponentService
             var keyword = query.Search.Trim().ToLower();
             components = components.Where(c => c.ComponentCode.ToLower().Contains(keyword)
                                             || c.ComponentName.ToLower().Contains(keyword)
+                                            || (c.ShortCode != null && c.ShortCode.ToLower().Contains(keyword))
                                             || (c.Manufacturer != null && c.Manufacturer.ToLower().Contains(keyword)));
         }
 
@@ -78,6 +79,7 @@ public class ComponentService : IComponentService
             {
                 ComponentId = c.ComponentId,
                 ComponentCode = c.ComponentCode,
+                ShortCode = c.ShortCode,
                 ComponentName = c.ComponentName,
                 CategoryId = c.CategoryId,
                 CategoryName = c.Category.CategoryName,
@@ -117,6 +119,7 @@ public class ComponentService : IComponentService
                             {
                                 ComponentId = c.ComponentId,
                                 ComponentCode = c.ComponentCode,
+                                ShortCode = c.ShortCode,
                                 ComponentName = c.ComponentName,
                                 CategoryId = c.CategoryId,
                                 CategoryName = c.Category.CategoryName,
@@ -219,6 +222,19 @@ public class ComponentService : IComponentService
         return component;
     }
 
+    /// <summary>The short code the user typed (upper-cased), or one made from the name (see ComponentShortCode).</summary>
+    private async Task<string?> ShortCodeForAsync(string? requested, string name, Guid categoryId, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(requested))
+            return requested.Trim().ToUpperInvariant();
+
+        var categoryName = await _uow.Repository<ComponentCategory>().QueryNoTracking()
+            .Where(c => c.CategoryId == categoryId)
+            .Select(c => c.CategoryName)
+            .FirstOrDefaultAsync(ct);
+        return ComponentShortCode.Generate(name, categoryName);
+    }
+
     public async Task<ComponentDetailResponse> CreateComponentAsync(CreateComponentRequest request, CancellationToken ct = default)
     {
         var components = _uow.Repository<Component>();
@@ -234,6 +250,7 @@ public class ComponentService : IComponentService
             CategoryId = request.CategoryId,
             ComponentCode = await GenerateComponentCodeAsync(ct),
             ComponentName = name,
+            ShortCode = await ShortCodeForAsync(request.ShortCode, name, request.CategoryId, ct),
             Manufacturer = string.IsNullOrWhiteSpace(request.Manufacturer) ? null : request.Manufacturer.Trim(),
             Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
             DatasheetUrl = string.IsNullOrWhiteSpace(request.DatasheetUrl) ? null : request.DatasheetUrl.Trim(),
@@ -292,6 +309,8 @@ public class ComponentService : IComponentService
         var name = request.ComponentName.Trim();
         await EnsureNameNotTakenAsync(name, componentId, ct);
 
+        if (!string.IsNullOrWhiteSpace(request.ShortCode) || component.ComponentName != name || component.ShortCode == null)
+            component.ShortCode = await ShortCodeForAsync(request.ShortCode, name, request.CategoryId, ct);
         component.CategoryId = request.CategoryId;
         component.ComponentName = name;
         component.Manufacturer = string.IsNullOrWhiteSpace(request.Manufacturer) ? null : request.Manufacturer.Trim();

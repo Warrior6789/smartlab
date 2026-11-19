@@ -26,6 +26,14 @@ public class StockReceiptLineRequestValidator : AbstractValidator<StockReceiptLi
             .GreaterThanOrEqualTo(0).WithMessage("Đơn giá không được âm")
             .PrecisionScale(18, 2, true).WithMessage("Đơn giá tối đa 2 chữ số thập phân");
 
+        RuleFor(x => x.UnitPrice)
+            .GreaterThan(0).When(x => !x.IsGift)
+            .WithMessage("Hàng mua phải có đơn giá lớn hơn 0; hàng cho tặng / tài trợ thì đánh dấu isGift");
+
+        RuleFor(x => x.UnitPrice)
+            .Equal(0).When(x => x.IsGift)
+            .WithMessage("Hàng cho tặng / tài trợ có đơn giá 0");
+
         RuleFor(x => x.Units)
             .NotNull().WithMessage("Danh sách máy không được null");
 

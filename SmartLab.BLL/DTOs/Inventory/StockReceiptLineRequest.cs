@@ -15,6 +15,9 @@ public class StockReceiptLineRequest
 
     public decimal UnitPrice { get; set; }
 
+    /// <summary>Donated / sponsored goods: the unit price must then be 0. Bought goods (false) must have a price above 0.</summary>
+    public bool IsGift { get; set; }
+
     /// <summary>One entry per unit; required only for HIGH_VALUE components, ignored otherwise.</summary>
     public List<HighValueUnitRequest> Units { get; set; } = new();
 }

@@ -5,6 +5,9 @@ public class ComponentResponse
     public Guid ComponentId { get; set; }
     public string ComponentCode { get; set; } = string.Empty;
     public string ComponentName { get; set; } = string.Empty;
+
+    /// <summary>Short search code made from the name, like drug abbreviations (e.g. CBNDDA-DHT22).</summary>
+    public string? ShortCode { get; set; }
     public Guid CategoryId { get; set; }
     public string CategoryName { get; set; } = string.Empty;
     public string? Manufacturer { get; set; }

@@ -183,12 +183,15 @@ public class StockReceiptService : IStockReceiptService
         if (request.ReceivedAt.HasValue)
             receivedAt = ToReceivedAt(request.ReceivedAt.Value, now);
 
+        var invoiceDate = ToInvoiceDate(request.InvoiceDate, now);
+        EnsureInvoiceBeforeReceipt(invoiceDate, receivedAt);
+
         var receipt = new StockReceipt
         {
             ReceiptCode = await GenerateReceiptCodeAsync(now, ct),
             SupplierName = supplierName,
             InvoiceNumber = invoiceNumber,
-            InvoiceDate = ToInvoiceDate(request.InvoiceDate, now),
+            InvoiceDate = invoiceDate,
             Status = StockReceiptStatuses.Completed,
             ReceivedAt = receivedAt,
             CreatedAt = now,
@@ -289,9 +292,11 @@ public class StockReceiptService : IStockReceiptService
         receipt.UpdatedAt = now;
         receipt.UpdatedBy = userId;
 
+        var receivedAt = ToReceivedAt(request.ReceivedAt!.Value, now);
+        EnsureInvoiceBeforeReceipt(receipt.InvoiceDate, receivedAt);
+
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
-        var receivedAt = ToReceivedAt(request.ReceivedAt!.Value, now);
         if (receivedAt != receipt.ReceivedAt)
         {
             receipt.ReceivedAt = receivedAt;
@@ -318,6 +323,21 @@ public class StockReceiptService : IStockReceiptService
         if (invoiceDate > now.Add(VietnamUtcOffset).Date)
             throw new BadRequestException("Ngày hóa đơn không được ở tương lai");
         return DateTime.SpecifyKind(invoiceDate, DateTimeKind.Utc);
+    }
+
+    /// <summary>
+    /// The supplier invoices before (or the day) the goods arrive: an invoice date after the receiving day (both as
+    /// Vietnam calendar days) means one of the two dates was typed wrong.
+    /// </summary>
+    private static void EnsureInvoiceBeforeReceipt(DateTime? invoiceDate, DateTime receivedAt)
+    {
+        if (!invoiceDate.HasValue)
+            return;
+
+        var receivedDay = receivedAt.Add(VietnamUtcOffset).Date;
+        if (invoiceDate.Value.Date > receivedDay)
+            throw new BadRequestException(
+                $"Ngày hóa đơn ({invoiceDate.Value:dd/MM/yyyy}) không được sau ngày nhập kho ({receivedDay:dd/MM/yyyy})");
     }
 
     private static string? CleanInvoiceNumber(string? invoiceNumber)

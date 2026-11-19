@@ -2,7 +2,7 @@ namespace SmartLab.BLL.DTOs.Inventory;
 
 public class ComponentQueryParams
 {
-    /// <summary>Matches component code, name or manufacturer (case-insensitive).</summary>
+    /// <summary>Matches component code, name, short code (e.g. CBNDDA-DHT22) or manufacturer (case-insensitive).</summary>
     public string? Search { get; set; }
     public Guid? CategoryId { get; set; }
     public bool? IsActive { get; set; }

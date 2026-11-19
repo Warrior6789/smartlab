@@ -9,6 +9,9 @@ public class UpdateComponentRequest
     public Guid CategoryId { get; set; }
     public string ComponentName { get; set; } = string.Empty;
     public string? Manufacturer { get; set; }
+
+    /// <summary>Short search code (e.g. CBNDDA-DHT22). Empty = made again from the name when the name changes (or when there is none yet).</summary>
+    public string? ShortCode { get; set; }
     public string? Description { get; set; }
     public string? DatasheetUrl { get; set; }
     public bool? IsActive { get; set; }
