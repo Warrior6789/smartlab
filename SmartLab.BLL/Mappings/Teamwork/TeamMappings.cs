@@ -6,14 +6,30 @@ namespace SmartLab.BLL.Mappings.Teamwork;
 
 public static class TeamMappings
 {
-    public static TeamResponse ToResponse(Team team) => new()
+    public static TeamResponse ToResponse(Team team)
+    {
+        var accepted = team.TeamMembers.Count(tm => tm.Status == TeamMemberStatuses.Accepted);
+        var pending = team.TeamMembers.Count(tm => tm.Status == TeamMemberStatuses.Pending);
+        var cls = team.Class;
+        var response = ToResponseCore(team);
+        response.TeamFormationStatus = cls.TeamFormationStatus;
+        response.MinTeamSize = cls.MinTeamSize;
+        response.MaxTeamSize = cls.MaxTeamSize;
+        response.MemberCount = accepted;
+        response.IsFull = cls.MaxTeamSize is { } max && accepted + pending >= max;
+        response.IsReadyForProject = pending == 0 &&
+                                     cls.TeamFormationStatus == TeamFormationStatuses.Locked &&
+                                     (cls.MinTeamSize is not { } min || accepted >= min);
+        return response;
+    }
+
+    private static TeamResponse ToResponseCore(Team team) => new()
     {
         TeamId = team.TeamId,
         ClassId = team.ClassId,
         ClassCode = team.Class.ClassCode,
         TeamName = team.TeamName,
         LeaderId = team.LeaderId,
-        IsReadyForProject = !team.TeamMembers.Any(tm => tm.Status == TeamMemberStatuses.Pending),
         CreatedAt = team.CreatedAt,
         UpdatedAt = team.UpdatedAt,
         Members = team.TeamMembers

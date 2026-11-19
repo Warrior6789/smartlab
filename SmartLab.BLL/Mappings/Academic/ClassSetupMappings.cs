@@ -1,6 +1,6 @@
 ﻿using SmartLab.BLL.DTOs.ClassSetupDTO;
 using SmartLab.DAL.Entities;
-
+using SmartLab.BLL.Constants;
 namespace SmartLab.BLL.Mappings.Academic;
 
 public static class ClassSetupMappings
@@ -42,7 +42,11 @@ public static class ClassSetupMappings
         InstructorId = c.InstructorId,
         InstructorName = c.Instructor?.User?.FullName,
         MaxStudents = c.MaxStudents,
-        CurrentStudents = c.ClassStudents.Count,
+        CurrentStudents = c.ClassStudents.Count(cs => cs.Status == ClassStudentStatuses.Studying),
         CreatedAt = c.CreatedAt,
+        TeamFormationStatus = c.TeamFormationStatus,
+        MinTeamSize = c.MinTeamSize,
+        MaxTeamSize = c.MaxTeamSize,
+        TeamFormationDeadline = c.TeamFormationDeadline,
     };
 }

@@ -31,4 +31,8 @@ public class ClassResponse
     public int MaxStudents { get; set; }
     public int CurrentStudents { get; set; }
     public DateTime CreatedAt { get; set; }
+    public string TeamFormationStatus { get; set; } = null!;
+    public int? MinTeamSize { get; set; }
+    public int? MaxTeamSize { get; set; }
+    public DateTime? TeamFormationDeadline { get; set; }
 }

@@ -41,6 +41,7 @@ public class TeamService : ITeamService
                 await GetCurrentStudentAsync(token);
                 await EnsureActiveEnrollmentAsync(classId, student.StudentProfileId, token);
                 EnsureStudentAssociationLocked(studentLocked);
+                await TeamFormationGate.EnsureOpenForStudentsAsync(_uow, classId, token);
 
                 if (await HasActiveTeamAssociationAsync(classId, student.StudentProfileId, null, token))
                     throw new ConflictException("Bạn đã là thành viên, đang có lời mời hoặc đang là trưởng nhóm khác trong lớp này");
@@ -212,6 +213,10 @@ public class TeamService : ITeamService
                 if (await HasActiveTeamAssociationAsync(team.ClassId, request.StudentProfileId, teamId, ct, includePending: false))
                     throw new ConflictException("Sinh viên đã là thành viên hoặc đang là trưởng nhóm khác trong lớp này");
                 EnsureStudentAssociationLocked(studentLocked);
+                var cls = await TeamFormationGate.EnsureOpenForStudentsAsync(_uow, team.ClassId, ct);
+                TeamFormationGate.EnsureRoom(cls,
+                    team.TeamMembers.Count(m => m.Status is TeamMemberStatuses.Accepted or TeamMemberStatuses.Pending),
+                    "Nhóm đã đủ {0} thành viên (tính cả lời mời đang chờ)");
 
                 if (existing is null)
                     await _uow.Repository<TeamMember>().AddAsync(new TeamMember
@@ -302,6 +307,10 @@ public class TeamService : ITeamService
                 if (await HasActiveTeamAssociationAsync(team.ClassId, student.StudentProfileId, teamId, ct, includePending: false))
                     throw new ConflictException("Bạn đã là thành viên hoặc đang là trưởng nhóm khác trong lớp này");
                 EnsureStudentAssociationLocked(studentLocked);
+                var cls = await TeamFormationGate.EnsureOpenForStudentsAsync(_uow, team.ClassId, ct);
+                TeamFormationGate.EnsureRoom(cls,
+                    team.TeamMembers.Count(m => m.Status == TeamMemberStatuses.Accepted),
+                    "Nhóm đã đủ {0} thành viên");
                 var otherInvitations = _uow.Repository<TeamMember>().Query()
                     .Where(m => m.StudentId == student.StudentProfileId && m.Team.ClassId == team.ClassId
                                 && m.TeamId != teamId && m.Status == TeamMemberStatuses.Pending);
@@ -334,6 +343,7 @@ public class TeamService : ITeamService
                                                              && m.Status == TeamMemberStatuses.Accepted)
                 ?? throw new ForbiddenException("Bạn không phải thành viên đã được chấp nhận của nhóm này");
             await EnsureMembershipEditableAsync(teamId, ct);
+            await TeamFormationGate.EnsureOpenForStudentsAsync(_uow, team.ClassId, ct);
             _uow.Repository<TeamMember>().Remove(member);
         }, ct);
         await _changes.TeamChangedAsync(teamId, student.StudentProfileId);
@@ -353,6 +363,7 @@ public class TeamService : ITeamService
                                                              && m.Status == TeamMemberStatuses.Accepted)
                 ?? throw new NotFoundException("Không tìm thấy thành viên Accepted trong nhóm");
             await EnsureMembershipEditableAsync(teamId, ct);
+            await TeamFormationGate.EnsureOpenForStudentsAsync(_uow, team.ClassId, ct);
             _uow.Repository<TeamMember>().Remove(member);
         }, ct);
         await _changes.TeamChangedAsync(teamId, studentProfileId);
@@ -382,6 +393,9 @@ public class TeamService : ITeamService
                 throw new ConflictException("Dữ liệu trưởng nhóm hiện tại không nhất quán, vui lòng kiểm tra lại");
 
             await EnsureMembershipEditableAsync(teamId, ct);
+            // The lecturer and Admin may still change the leader after the lock; a student leader only while it is open.
+            if (!lecturer && !_currentUser.IsInRole(RoleNames.Admin))
+                await TeamFormationGate.EnsureOpenForStudentsAsync(_uow, team.ClassId, ct);
             team.LeaderId = target.StudentId;
         }, ct);
         await _changes.TeamChangedAsync(teamId);
