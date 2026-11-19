@@ -66,12 +66,20 @@ public static class DependencyInjection
         services.AddHostedService<EmailWorker>();
 
         services.Configure<GeminiOptions>(configuration.GetSection(GeminiOptions.SectionName));
-        services.AddHttpClient<IAiComponentAdvisor, GeminiComponentAdvisor>((provider, client) =>
+        services.AddHttpClient<GeminiComponentAdvisor>((provider, client) =>
         {
             var options = provider.GetRequiredService<IOptions<GeminiOptions>>().Value;
             client.BaseAddress = new Uri(options.BaseUrl);
             client.Timeout = Timeout.InfiniteTimeSpan;
         });
+        services.Configure<GroqOptions>(configuration.GetSection(GroqOptions.SectionName));
+        services.AddHttpClient<GroqComponentAdvisor>((provider, client) =>
+        {
+            var options = provider.GetRequiredService<IOptions<GroqOptions>>().Value;
+            client.BaseAddress = new Uri(options.BaseUrl);
+            client.Timeout = Timeout.InfiniteTimeSpan;
+        });
+        services.AddTransient<IAiComponentAdvisor, FallbackComponentAdvisor>();
         services.AddHttpClient<IStudentCardChecker, GeminiStudentCardChecker>((provider, client) =>
         {
             var options = provider.GetRequiredService<IOptions<GeminiOptions>>().Value;

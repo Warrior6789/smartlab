@@ -10,15 +10,15 @@ public class GeminiOptions
 
     public string ApiKey { get; set; } = string.Empty;
 
-    public string Model { get; set; } = "gemini-3.6-flash";
+    public string Model { get; set; } = "gemini-3.5-flash-lite";
 
     /// <summary>Comma-separated models tried in order when <see cref="Model"/> is overloaded, times out or fails.</summary>
-    public string FallbackModels { get; set; } = "gemini-3.5-flash-lite,gemini-3.1-flash-lite";
+    public string FallbackModels { get; set; } = "gemini-3.1-flash-lite,gemini-3.6-flash";
 
     public string BaseUrl { get; set; } = "https://generativelanguage.googleapis.com/v1beta/";
 
     /// <summary>Per model attempt.</summary>
-    public int TimeoutSeconds { get; set; } = 30;
+    public int TimeoutSeconds { get; set; } = 15;
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ApiKey);
 
