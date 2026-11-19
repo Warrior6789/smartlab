@@ -117,24 +117,30 @@ public class ClassRosterService : IClassRosterService
                 var major = row.Cell(4).GetString().Trim();
                 var cohort = row.Cell(5).GetString().Trim();
 
+                var line = new ImportRosterRowResult
+                {
+                    RowNumber = rowNo,
+                    StudentCode = studentCode,
+                    FullName = fullName,
+                    Email = email,
+                };
+                result.Rows.Add(line);
+
                 if (string.IsNullOrWhiteSpace(studentCode) || string.IsNullOrWhiteSpace(email))
                 {
-                    result.SkippedRows++;
-                    result.Errors.Add($"Dòng {rowNo}: Thiếu mã SV hoặc email.");
+                    SkipRow(result, line, "Thiếu mã SV hoặc email.");
                     continue;
                 }
 
                 if (!Regex.IsMatch(email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
                 {
-                    result.SkippedRows++;
-                    result.Errors.Add($"Dòng {rowNo}: Email '{email}' sai định dạng.");
+                    SkipRow(result, line, $"Email '{email}' sai định dạng.");
                     continue;
                 }
 
                 if (!seenCodes.Add(studentCode) || !seenEmails.Add(email))
                 {
-                    result.SkippedRows++;
-                    result.Errors.Add($"Dòng {rowNo}: MSSV hoặc email bị lặp trong file.");
+                    SkipRow(result, line, "MSSV hoặc email bị lặp trong file.");
                     continue;
                 }
 
@@ -147,8 +153,7 @@ public class ClassRosterService : IClassRosterService
 
                 if (outcome.Error != null)
                 {
-                    result.SkippedRows++;
-                    result.Errors.Add($"Dòng {rowNo}: {outcome.Error}");
+                    SkipRow(result, line, outcome.Error);
                     continue;
                 }
 
@@ -156,7 +161,18 @@ public class ClassRosterService : IClassRosterService
                 {
                     newAccounts.Add((outcome.User!, outcome.Password));
                     result.CreatedUsers++;
+                    line.Outcome = RosterRowOutcomes.NewAccount;
+                    line.Message = "Đã tạo tài khoản và gửi email đăng nhập";
                 }
+                else
+                {
+                    result.ExistingAccounts++;
+                    line.Outcome = RosterRowOutcomes.ExistingAccount;
+                    line.Message = "Đã có tài khoản, thêm vào lớp";
+                }
+
+                if (string.IsNullOrWhiteSpace(line.FullName))
+                    line.FullName = outcome.User!.FullName;
 
                 result.EnrolledStudents++;
             }
@@ -168,6 +184,14 @@ public class ClassRosterService : IClassRosterService
             await SendAccountEmailAsync(account, password, ct);
 
         return result;
+    }
+
+    private static void SkipRow(ImportRosterResult result, ImportRosterRowResult line, string message)
+    {
+        result.SkippedRows++;
+        result.Errors.Add($"Dòng {line.RowNumber}: {message}");
+        line.Outcome = RosterRowOutcomes.Failed;
+        line.Message = message;
     }
 
     public async Task<ClassStudentResponse> AddStudentAsync(
@@ -435,8 +459,22 @@ public class ClassRosterService : IClassRosterService
     {
         // 1. Validate lớp tồn tại
         var classEntity = await _uow.Repository<Class>().Query()
+            .Include(c => c.Instructor!).ThenInclude(i => i.User)
             .FirstOrDefaultAsync(c => c.ClassId == request.ClassId, ct)
             ?? throw new NotFoundException("Lớp học", request.ClassId);
+
+        var emailToAssign = request.Email.Trim().ToLowerInvariant();
+        var previous = classEntity.Instructor;
+        string? previousName = null;
+        if (previous != null && previous.User.Email != emailToAssign)
+        {
+            previousName = previous.User.FullName;
+            if (!request.ReplaceExisting)
+                throw new ConflictException(
+                    $"Lớp {classEntity.ClassCode} đang do giảng viên {previousName} ({previous.InstructorCode}) phụ trách. " +
+                    "Xác nhận thay giảng viên thì gửi lại với replaceExisting = true.");
+        }
+        var accountCreated = false;
 
         // 2. Lấy Lecturer role
         var lecturerRole = await _uow.Repository<Role>().QueryNoTracking()
@@ -454,6 +492,18 @@ public class ClassRosterService : IClassRosterService
 
         if (user == null)
         {
+            var code = request.InstructorCode.Trim().ToUpperInvariant();
+            var username = request.InstructorCode.Trim().ToLowerInvariant();
+            var owner = await _uow.Repository<User>().QueryNoTracking()
+                .Where(u => u.Username == username
+                            || (u.InstructorProfile != null && u.InstructorProfile.InstructorCode == code))
+                .Select(u => new { u.FullName, u.Email })
+                .FirstOrDefaultAsync(ct);
+            if (owner != null)
+                throw new BadRequestException(
+                    $"Mã giảng viên {code} đã thuộc {owner.FullName} ({owner.Email}). " +
+                    "Hãy chọn đúng giảng viên đó hoặc dùng mã khác.");
+
             var now = DateTime.UtcNow;
             // Lỗi 1: mật khẩu ngẫu nhiên cho GV mới
             var password = PasswordGenerator.Generate();
@@ -478,6 +528,7 @@ public class ClassRosterService : IClassRosterService
             await _uow.SaveChangesAsync(ct);
 
             instructorProfile = user.InstructorProfile!;
+            accountCreated = true;
 
             // Lỗi 1: gửi mail cho GV mới sau SaveChanges
             await SendAccountEmailAsync(user, password, ct);
@@ -506,6 +557,10 @@ public class ClassRosterService : IClassRosterService
             FullName = user.FullName,
             Email = user.Email,
             AcademicTitle = instructorProfile.AcademicTitle,
+            ClassId = classEntity.ClassId,
+            ClassCode = classEntity.ClassCode,
+            PreviousInstructorName = previousName,
+            AccountCreated = accountCreated,
         };
     }
 
