@@ -3,11 +3,11 @@ using SmartLab.BLL.DTOs.Inventory;
 
 namespace SmartLab.BLL.Validators.Inventory;
 
-public class CompleteInventoryAuditRequestValidator : AbstractValidator<CompleteInventoryAuditRequest>
+public class SubmitInventoryAuditRequestValidator : AbstractValidator<SubmitInventoryAuditRequest>
 {
     public const int MaxLines = 5000;
 
-    public CompleteInventoryAuditRequestValidator()
+    public SubmitInventoryAuditRequestValidator()
     {
         RuleFor(x => x.Consumables)
             .Cascade(CascadeMode.Stop)

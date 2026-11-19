@@ -11,8 +11,16 @@ using SmartLab.DAL.UnitOfWork;
 
 namespace SmartLab.BLL.Services.Inventory;
 
+/// <summary>
+/// Inventory count of one cabinet: lab staff of the cabinet's lab count it (InProgress) and submit the result
+/// (Submitted); an approver (INVENTORY_AUDIT_APPROVE, not the person who counted) accepts it (Completed: stock is
+/// adjusted, missing units become Lost, every change goes to inventory_transactions with the audit id) or sends it
+/// back for a recount (InProgress again). Stock is never touched before approval.
+/// </summary>
 public class InventoryAuditService : IInventoryAuditService
 {
+    private const string RecountHint = "Hãy yêu cầu đếm lại";
+
     private readonly IUnitOfWork _uow;
     private readonly ICurrentUserService _currentUser;
 
@@ -22,10 +30,18 @@ public class InventoryAuditService : IInventoryAuditService
         _currentUser = currentUser;
     }
 
+    private bool IsApprover => _currentUser.HasPermission(PermissionCodes.InventoryAuditApprove);
+
     public Task<PagedResult<InventoryAuditResponse>> GetAuditsAsync(
         InventoryAuditQueryParams query, PageParams paging, CancellationToken ct = default)
     {
         var audits = _uow.Repository<InventoryAudit>().QueryNoTracking();
+
+        if (!IsApprover)
+        {
+            var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+            audits = audits.Where(a => a.Cabinet.Room.LabRoomStaffs.Any(s => s.UserId == userId));
+        }
 
         if (query.CabinetId.HasValue)
             audits = audits.Where(a => a.CabinetId == query.CabinetId.Value);
@@ -52,6 +68,11 @@ public class InventoryAuditService : IInventoryAuditService
                 AuditDate = a.AuditDate,
                 Status = a.Status,
                 Note = a.Note,
+                SubmittedAt = a.SubmittedAt,
+                ReviewedById = a.ReviewedBy,
+                ReviewedByName = a.ReviewedByNavigation != null ? a.ReviewedByNavigation.FullName : null,
+                ReviewedAt = a.ReviewedAt,
+                ReviewNote = a.ReviewNote,
                 DifferenceCount = a.InventoryTransactions.Count,
             });
 
@@ -75,10 +96,17 @@ public class InventoryAuditService : IInventoryAuditService
                             AuditDate = a.AuditDate,
                             Status = a.Status,
                             Note = a.Note,
+                            SubmittedAt = a.SubmittedAt,
+                            ReviewedById = a.ReviewedBy,
+                            ReviewedByName = a.ReviewedByNavigation != null ? a.ReviewedByNavigation.FullName : null,
+                            ReviewedAt = a.ReviewedAt,
+                            ReviewNote = a.ReviewNote,
                             DifferenceCount = a.InventoryTransactions.Count,
                         })
                         .FirstOrDefaultAsync(ct)
                     ?? throw new NotFoundException("Không tìm thấy phiên kiểm kê");
+
+        await EnsureLabStaffOfCabinetAsync(audit.CabinetId, ct);
 
         if (audit.Status == InventoryAuditStatuses.InProgress)
         {
@@ -96,6 +124,38 @@ public class InventoryAuditService : IInventoryAuditService
 
             audit.Items = await _uow.Repository<ComponentItem>().QueryNoTracking()
                 .Where(i => i.CabinetId == audit.CabinetId && i.Status == ComponentItemStatuses.Available)
+                .OrderBy(i => i.Component.ComponentCode).ThenBy(i => i.ItemCode)
+                .Select(i => new AuditItemLineResponse
+                {
+                    ItemId = i.ItemId,
+                    ItemCode = i.ItemCode,
+                    SerialNumber = i.SerialNumber,
+                    ComponentId = i.ComponentId,
+                    ComponentCode = i.Component.ComponentCode,
+                    ComponentName = i.Component.ComponentName,
+                    Status = i.Status,
+                })
+                .ToListAsync(ct);
+        }
+        else if (audit.Status == InventoryAuditStatuses.Submitted)
+        {
+            audit.SubmittedCounts = await _uow.Repository<InventoryAuditCount>().QueryNoTracking()
+                .Where(c => c.AuditId == auditId)
+                .OrderBy(c => c.Component.ComponentCode)
+                .Select(c => new AuditSubmittedCountResponse
+                {
+                    ComponentId = c.ComponentId,
+                    ComponentCode = c.Component.ComponentCode,
+                    ComponentName = c.Component.ComponentName,
+                    SystemQuantity = c.SystemQuantity,
+                    CountedQuantity = c.CountedQuantity,
+                    Difference = c.CountedQuantity - c.SystemQuantity,
+                })
+                .ToListAsync(ct);
+
+            audit.MissingItems = await _uow.Repository<InventoryAudit>().QueryNoTracking()
+                .Where(a => a.AuditId == auditId)
+                .SelectMany(a => a.Items)
                 .OrderBy(i => i.Component.ComponentCode).ThenBy(i => i.ItemCode)
                 .Select(i => new AuditItemLineResponse
                 {
@@ -136,6 +196,8 @@ public class InventoryAuditService : IInventoryAuditService
         if (cabinetStatus != CabinetStatuses.Active)
             throw new BadRequestException("Tủ đã ngừng hoạt động");
 
+        await EnsureLabStaffOfCabinetAsync(request.CabinetId, ct);
+
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
         await _uow.Repository<StorageCabinet>().Query()
@@ -143,9 +205,11 @@ public class InventoryAuditService : IInventoryAuditService
             .ExecuteUpdateAsync(s => s.SetProperty(c => c.Status, c => c.Status), ct);
 
         var audits = _uow.Repository<InventoryAudit>();
-        if (await audits.QueryNoTracking()
-                .AnyAsync(a => a.CabinetId == request.CabinetId && a.Status == InventoryAuditStatuses.InProgress, ct))
-            throw new ConflictException("Tủ này đang có phiên kiểm kê chưa hoàn tất");
+        var open = await audits.QueryNoTracking()
+            .AnyAsync(a => a.CabinetId == request.CabinetId
+                           && (a.Status == InventoryAuditStatuses.InProgress || a.Status == InventoryAuditStatuses.Submitted), ct);
+        if (open)
+            throw new ConflictException("Tủ này đang có phiên kiểm kê chưa xong (đang kiểm hoặc chờ duyệt)");
 
         var audit = new InventoryAudit
         {
@@ -163,18 +227,17 @@ public class InventoryAuditService : IInventoryAuditService
         return await GetAuditByIdAsync(audit.AuditId, ct);
     }
 
-    public async Task<InventoryAuditDetailResponse> CompleteAuditAsync(
-        Guid auditId, CompleteInventoryAuditRequest request, CancellationToken ct = default)
+    public async Task<InventoryAuditDetailResponse> SubmitAuditAsync(
+        Guid auditId, SubmitInventoryAuditRequest request, CancellationToken ct = default)
     {
-        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
-
         var audit = await _uow.Repository<InventoryAudit>().QueryNoTracking()
                         .Where(a => a.AuditId == auditId)
                         .Select(a => new { a.CabinetId, a.Status, a.Note })
                         .FirstOrDefaultAsync(ct)
                     ?? throw new NotFoundException("Không tìm thấy phiên kiểm kê");
+        await EnsureLabStaffOfCabinetAsync(audit.CabinetId, ct);
         if (audit.Status != InventoryAuditStatuses.InProgress)
-            throw new ConflictException("Phiên kiểm kê đã hoàn tất");
+            throw new ConflictException("Phiên kiểm kê không ở trạng thái đang kiểm");
 
         var countedIds = request.Consumables.Select(l => l.ComponentId).ToList();
         if (countedIds.Count > 0)
@@ -188,6 +251,7 @@ public class InventoryAuditService : IInventoryAuditService
                     $"Có {countedIds.Count - consumableIds.Count} dòng vật tư không phải linh kiện tiêu hao, linh kiện theo từng con hãy báo trong danh sách con bị mất");
         }
 
+        var missingIds = request.MissingItemIds;
         var now = DateTime.UtcNow;
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
@@ -195,56 +259,91 @@ public class InventoryAuditService : IInventoryAuditService
         if (!string.IsNullOrWhiteSpace(request.Note))
             note = request.Note.Trim();
 
-        var closed = await _uow.Repository<InventoryAudit>().Query()
+        var submitted = await _uow.Repository<InventoryAudit>().Query()
             .Where(a => a.AuditId == auditId && a.Status == InventoryAuditStatuses.InProgress)
             .ExecuteUpdateAsync(s => s
-                .SetProperty(a => a.Status, InventoryAuditStatuses.Completed)
+                .SetProperty(a => a.Status, InventoryAuditStatuses.Submitted)
+                .SetProperty(a => a.SubmittedAt, now)
                 .SetProperty(a => a.Note, note), ct);
-        if (closed == 0)
-            throw new ConflictException("Phiên kiểm kê vừa được hoàn tất hoặc hủy bởi người khác");
+        if (submitted == 0)
+            throw new ConflictException("Phiên kiểm kê vừa được gửi hoặc hủy bởi người khác");
 
-        var transactions = _uow.Repository<InventoryTransaction>();
-        await AdjustConsumablesAsync(auditId, audit.CabinetId, request.Consumables, userId, now, ct);
+        var tracked = await _uow.Repository<InventoryAudit>().Query()
+            .Include(a => a.Items)
+            .FirstAsync(a => a.AuditId == auditId, ct);
+        tracked.Items.Clear();
+        await _uow.Repository<InventoryAuditCount>().Query()
+            .Where(c => c.AuditId == auditId)
+            .ExecuteDeleteAsync(ct);
 
-        if (request.MissingItemIds.Count > 0)
+        if (missingIds.Count > 0)
         {
-            var missingIds = request.MissingItemIds;
-            var items = await _uow.Repository<ComponentItem>().QueryNoTracking()
+            var items = await _uow.Repository<ComponentItem>().Query()
                 .Where(i => missingIds.Contains(i.ItemId)
                             && i.CabinetId == audit.CabinetId
                             && i.Status == ComponentItemStatuses.Available)
-                .Select(i => new { i.ItemId, i.ComponentId })
                 .ToListAsync(ct);
             if (items.Count < missingIds.Count)
                 throw new BadRequestException(
                     $"Có {missingIds.Count - items.Count} con không nằm trong tủ này hoặc không ở trạng thái {ComponentItemStatuses.Available}");
 
-            var lost = await _uow.Repository<ComponentItem>().Query()
-                .Where(i => missingIds.Contains(i.ItemId)
-                            && i.CabinetId == audit.CabinetId
-                            && i.Status == ComponentItemStatuses.Available)
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(i => i.Status, ComponentItemStatuses.Lost)
-                    .SetProperty(i => i.UpdatedAt, now), ct);
-            if (lost != missingIds.Count)
-                throw new ConflictException("Linh kiện vừa bị thay đổi bởi thao tác khác, vui lòng tải lại và kiểm tra lại");
-
             foreach (var item in items)
+                tracked.Items.Add(item);
+        }
+
+        if (countedIds.Count > 0)
+        {
+            var systemQuantities = await _uow.Repository<ConsumableStock>().QueryNoTracking()
+                .Where(st => st.CabinetId == audit.CabinetId && countedIds.Contains(st.ComponentId))
+                .ToDictionaryAsync(st => st.ComponentId, st => st.Quantity, ct);
+
+            foreach (var count in request.Consumables)
             {
-                await transactions.AddAsync(new InventoryTransaction
+                tracked.InventoryAuditCounts.Add(new InventoryAuditCount
                 {
-                    Type = InventoryTransactionTypes.Retire,
-                    ComponentId = item.ComponentId,
-                    CabinetId = audit.CabinetId,
-                    ItemId = item.ItemId,
-                    QuantityChange = -1,
-                    Reason = $"{ComponentItemStatuses.Lost}: kiểm kê không tìm thấy",
-                    AuditId = auditId,
-                    CreatedBy = userId,
-                    CreatedAt = now,
-                }, ct);
+                    ComponentId = count.ComponentId,
+                    SystemQuantity = systemQuantities.GetValueOrDefault(count.ComponentId),
+                    CountedQuantity = count.CountedQuantity,
+                });
             }
         }
+
+        await _uow.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+
+        return await GetAuditByIdAsync(auditId, ct);
+    }
+
+    public async Task<InventoryAuditDetailResponse> ApproveAuditAsync(
+        Guid auditId, ApproveInventoryAuditRequest request, CancellationToken ct = default)
+    {
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+
+        var audit = await _uow.Repository<InventoryAudit>().QueryNoTracking()
+                        .Where(a => a.AuditId == auditId)
+                        .Select(a => new { a.CabinetId, a.Status, a.AuditorId })
+                        .FirstOrDefaultAsync(ct)
+                    ?? throw new NotFoundException("Không tìm thấy phiên kiểm kê");
+        if (audit.Status != InventoryAuditStatuses.Submitted)
+            throw new ConflictException("Chỉ duyệt được phiên kiểm kê đang chờ duyệt");
+        if (audit.AuditorId == userId && !_currentUser.IsInRole(RoleNames.Admin))
+            throw new ForbiddenException("Người duyệt phải khác người đã kiểm kê tủ này");
+
+        var now = DateTime.UtcNow;
+        await using var tx = await _uow.BeginTransactionAsync(ct);
+
+        var approved = await _uow.Repository<InventoryAudit>().Query()
+            .Where(a => a.AuditId == auditId && a.Status == InventoryAuditStatuses.Submitted)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.Status, InventoryAuditStatuses.Completed)
+                .SetProperty(a => a.ReviewedBy, (Guid?)userId)
+                .SetProperty(a => a.ReviewedAt, (DateTime?)now)
+                .SetProperty(a => a.ReviewNote, string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim()), ct);
+        if (approved == 0)
+            throw new ConflictException("Phiên kiểm kê vừa được duyệt hoặc trả lại bởi người khác");
+
+        await ApplyConsumableCountsAsync(auditId, audit.CabinetId, userId, now, ct);
+        await MarkMissingItemsLostAsync(auditId, audit.CabinetId, userId, now, ct);
 
         try
         {
@@ -266,65 +365,115 @@ public class InventoryAuditService : IInventoryAuditService
         return detail;
     }
 
-    public async Task CancelAuditAsync(Guid auditId, CancellationToken ct = default)
+    public async Task<InventoryAuditDetailResponse> RequestRecountAsync(
+        Guid auditId, RecountInventoryAuditRequest request, CancellationToken ct = default)
     {
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+
         var status = await _uow.Repository<InventoryAudit>().QueryNoTracking()
                          .Where(a => a.AuditId == auditId)
                          .Select(a => a.Status)
                          .FirstOrDefaultAsync(ct)
                      ?? throw new NotFoundException("Không tìm thấy phiên kiểm kê");
-        if (status != InventoryAuditStatuses.InProgress)
-            throw new ConflictException("Phiên kiểm kê đã hoàn tất, không hủy được");
+        if (status != InventoryAuditStatuses.Submitted)
+            throw new ConflictException("Chỉ yêu cầu đếm lại được phiên kiểm kê đang chờ duyệt");
+
+        var now = DateTime.UtcNow;
+        await using var tx = await _uow.BeginTransactionAsync(ct);
+
+        var reopened = await _uow.Repository<InventoryAudit>().Query()
+            .Where(a => a.AuditId == auditId && a.Status == InventoryAuditStatuses.Submitted)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.Status, InventoryAuditStatuses.InProgress)
+                .SetProperty(a => a.ReviewedBy, (Guid?)userId)
+                .SetProperty(a => a.ReviewedAt, (DateTime?)now)
+                .SetProperty(a => a.ReviewNote, request.Reason.Trim()), ct);
+        if (reopened == 0)
+            throw new ConflictException("Phiên kiểm kê vừa được duyệt hoặc trả lại bởi người khác");
+
+        var tracked = await _uow.Repository<InventoryAudit>().Query()
+            .Include(a => a.Items)
+            .FirstAsync(a => a.AuditId == auditId, ct);
+        tracked.Items.Clear();
+        await _uow.Repository<InventoryAuditCount>().Query()
+            .Where(c => c.AuditId == auditId)
+            .ExecuteDeleteAsync(ct);
+
+        await _uow.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+
+        return await GetAuditByIdAsync(auditId, ct);
+    }
+
+    public async Task CancelAuditAsync(Guid auditId, CancellationToken ct = default)
+    {
+        var audit = await _uow.Repository<InventoryAudit>().QueryNoTracking()
+                        .Where(a => a.AuditId == auditId)
+                        .Select(a => new { a.CabinetId, a.Status })
+                        .FirstOrDefaultAsync(ct)
+                    ?? throw new NotFoundException("Không tìm thấy phiên kiểm kê");
+        await EnsureLabStaffOfCabinetAsync(audit.CabinetId, ct);
+        if (audit.Status != InventoryAuditStatuses.InProgress)
+            throw new ConflictException("Chỉ hủy được phiên đang kiểm (phiên chờ duyệt phải được duyệt hoặc yêu cầu đếm lại)");
 
         var deleted = await _uow.Repository<InventoryAudit>().Query()
             .Where(a => a.AuditId == auditId && a.Status == InventoryAuditStatuses.InProgress)
             .ExecuteDeleteAsync(ct);
         if (deleted == 0)
-            throw new ConflictException("Phiên kiểm kê vừa được hoàn tất bởi người khác");
+            throw new ConflictException("Phiên kiểm kê vừa được gửi hoặc hủy bởi người khác");
     }
 
     /// <summary>
-    /// Sets each counted CONSUMABLE to the counted quantity; only components whose quantity differs are written
-    /// (one Adjust line each). Must run inside the caller's transaction.
+    /// Approvers may work on every cabinet; other users (Lab Staff) only on cabinets of a lab they are assigned to.
     /// </summary>
-    private async Task AdjustConsumablesAsync(
-        Guid auditId, Guid cabinetId, IReadOnlyList<AuditConsumableCountRequest> counts, Guid userId, DateTime now, CancellationToken ct)
+    private async Task EnsureLabStaffOfCabinetAsync(Guid cabinetId, CancellationToken ct)
     {
-        if (counts.Count == 0)
+        if (IsApprover)
             return;
 
-        var countedIds = counts.Select(l => l.ComponentId).ToList();
-        var stocks = _uow.Repository<ConsumableStock>();
-        var systemQuantities = await stocks.QueryNoTracking()
-            .Where(st => st.CabinetId == cabinetId && countedIds.Contains(st.ComponentId))
-            .ToDictionaryAsync(st => st.ComponentId, st => st.Quantity, ct);
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+        var assigned = await _uow.Repository<StorageCabinet>().QueryNoTracking()
+            .AnyAsync(c => c.CabinetId == cabinetId && c.Room.LabRoomStaffs.Any(s => s.UserId == userId), ct);
+        if (!assigned)
+            throw new ForbiddenException("Chỉ nhân viên phụ trách lab của tủ này được kiểm kê tủ");
+    }
 
+    /// <summary>
+    /// Adds counted - system (both as at submit) to today's stock, so loans and returns made while the count waited for
+    /// approval stay correct. One Adjust line per component that differs. Must run inside the caller's transaction.
+    /// </summary>
+    private async Task ApplyConsumableCountsAsync(Guid auditId, Guid cabinetId, Guid userId, DateTime now, CancellationToken ct)
+    {
+        var counts = await _uow.Repository<InventoryAuditCount>().QueryNoTracking()
+            .Where(c => c.AuditId == auditId && c.CountedQuantity != c.SystemQuantity)
+            .ToListAsync(ct);
+
+        var stocks = _uow.Repository<ConsumableStock>();
         var transactions = _uow.Repository<InventoryTransaction>();
         foreach (var count in counts)
         {
-            var hasRow = systemQuantities.TryGetValue(count.ComponentId, out var oldQuantity);
-            if (oldQuantity == count.CountedQuantity)
-                continue;
+            var change = count.CountedQuantity - count.SystemQuantity;
+            var updated = await stocks.Query()
+                .Where(st => st.ComponentId == count.ComponentId
+                             && st.CabinetId == cabinetId
+                             && st.Quantity + change >= 0)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(st => st.Quantity, st => st.Quantity + change)
+                    .SetProperty(st => st.UpdatedAt, now), ct);
 
-            if (hasRow)
+            if (updated == 0)
             {
-                var updated = await stocks.Query()
-                    .Where(st => st.ComponentId == count.ComponentId
-                                 && st.CabinetId == cabinetId
-                                 && st.Quantity == oldQuantity)
-                    .ExecuteUpdateAsync(s => s
-                        .SetProperty(st => st.Quantity, count.CountedQuantity)
-                        .SetProperty(st => st.UpdatedAt, now), ct);
-                if (updated == 0)
-                    throw new ConflictException("Tồn kho vừa thay đổi bởi thao tác khác, vui lòng tải lại và kiểm tra lại");
-            }
-            else
-            {
+                var hasRow = await stocks.QueryNoTracking()
+                    .AnyAsync(st => st.ComponentId == count.ComponentId && st.CabinetId == cabinetId, ct);
+                if (hasRow || change < 0)
+                    throw new ConflictException(
+                        $"Tồn hiện tại không đủ để trừ phần thiếu của kiểm kê (đã có xuất kho sau khi đếm). {RecountHint}");
+
                 await stocks.AddAsync(new ConsumableStock
                 {
                     ComponentId = count.ComponentId,
                     CabinetId = cabinetId,
-                    Quantity = count.CountedQuantity,
+                    Quantity = change,
                     UpdatedAt = now,
                 }, ct);
             }
@@ -334,8 +483,52 @@ public class InventoryAuditService : IInventoryAuditService
                 Type = InventoryTransactionTypes.Adjust,
                 ComponentId = count.ComponentId,
                 CabinetId = cabinetId,
-                QuantityChange = count.CountedQuantity - oldQuantity,
-                Reason = $"Kiểm kê: hệ thống {oldQuantity}, đếm được {count.CountedQuantity}",
+                QuantityChange = change,
+                Reason = $"Kiểm kê: hệ thống {count.SystemQuantity}, đếm được {count.CountedQuantity}",
+                AuditId = auditId,
+                CreatedBy = userId,
+                CreatedAt = now,
+            }, ct);
+        }
+    }
+
+    /// <summary>
+    /// Units reported missing become Lost (one Retire line each). They must still be Available in the cabinet: one that
+    /// was handed out or moved after the count means it was not really missing, so the count must be redone.
+    /// </summary>
+    private async Task MarkMissingItemsLostAsync(Guid auditId, Guid cabinetId, Guid userId, DateTime now, CancellationToken ct)
+    {
+        var missing = await _uow.Repository<InventoryAudit>().QueryNoTracking()
+            .Where(a => a.AuditId == auditId)
+            .SelectMany(a => a.Items)
+            .Select(i => new { i.ItemId, i.ComponentId })
+            .ToListAsync(ct);
+        if (missing.Count == 0)
+            return;
+
+        var missingIds = missing.Select(m => m.ItemId).ToList();
+        var lost = await _uow.Repository<ComponentItem>().Query()
+            .Where(i => missingIds.Contains(i.ItemId)
+                        && i.CabinetId == cabinetId
+                        && i.Status == ComponentItemStatuses.Available)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(i => i.Status, ComponentItemStatuses.Lost)
+                .SetProperty(i => i.UpdatedAt, now), ct);
+        if (lost != missingIds.Count)
+            throw new ConflictException(
+                $"Có con báo thiếu đã được giao, chuyển tủ hoặc đổi trạng thái sau khi đếm. {RecountHint}");
+
+        var transactions = _uow.Repository<InventoryTransaction>();
+        foreach (var item in missing)
+        {
+            await transactions.AddAsync(new InventoryTransaction
+            {
+                Type = InventoryTransactionTypes.Retire,
+                ComponentId = item.ComponentId,
+                CabinetId = cabinetId,
+                ItemId = item.ItemId,
+                QuantityChange = -1,
+                Reason = $"{ComponentItemStatuses.Lost}: kiểm kê không tìm thấy",
                 AuditId = auditId,
                 CreatedBy = userId,
                 CreatedAt = now,
