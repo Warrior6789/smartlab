@@ -18,7 +18,7 @@ public class GroqOptions
 
     public string BaseUrl { get; set; } = "https://api.groq.com/openai/v1/";
 
-    public int TimeoutSeconds { get; set; } = 15;
+    public int TimeoutSeconds { get; set; } = 8;
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ApiKey);
 }

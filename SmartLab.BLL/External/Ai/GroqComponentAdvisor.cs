@@ -16,7 +16,7 @@ public class GroqComponentAdvisor : IAiComponentAdvisor
 {
     private const string UnavailableMessage = "Tính năng gợi ý linh kiện tạm thời không dùng được, vui lòng thử lại sau";
     private const string OverloadedMessage = "Dịch vụ AI đang quá tải, vui lòng thử lại sau ít phút";
-    private const int MaxOutputTokens = 4096;
+    private const int MaxOutputTokens = 2048;
 
     private const string JsonFormatRule =
         "\n- Chỉ trả về 1 object JSON đúng dạng sau, không thêm chữ nào khác: " +
@@ -112,6 +112,9 @@ public class GroqComponentAdvisor : IAiComponentAdvisor
             _logger.LogError("Groq returned no choices: {Body}", ComponentAdvicePrompt.Shorten(responseText));
             throw new ServiceUnavailableException(UnavailableMessage);
         }
+
+        if (root.TryGetProperty("usage", out var usage))
+            _logger.LogInformation("Groq usage: {Usage}", usage.GetRawText());
 
         var choice = choices[0];
         var finishReason = string.Empty;

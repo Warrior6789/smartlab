@@ -42,9 +42,13 @@ public static class ComponentAdvicePrompt
         prompt.AppendLine("CÒN TRONG KHO:");
         AppendCatalogLines(prompt, catalog.Where(i => i.Available > 0).ToList());
 
-        prompt.AppendLine();
-        prompt.AppendLine("KHO ĐÃ HẾT (vẫn chọn được khi cần đúng loại này):");
-        AppendCatalogLines(prompt, catalog.Where(i => i.Available <= 0).ToList());
+        var soldOut = catalog.Where(i => i.Available <= 0).ToList();
+        if (soldOut.Count > 0)
+        {
+            prompt.AppendLine();
+            prompt.AppendLine("KHO ĐÃ HẾT (vẫn chọn được khi cần đúng loại này):");
+            AppendCatalogLines(prompt, soldOut);
+        }
 
         prompt.AppendLine();
         prompt.AppendLine("<mo_ta>");

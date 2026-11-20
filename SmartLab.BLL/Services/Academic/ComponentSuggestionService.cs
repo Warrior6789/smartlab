@@ -58,7 +58,7 @@ public class ComponentSuggestionService : IComponentSuggestionService
             Description = c.Description,
             Unit = c.Unit,
             Available = c.Available,
-        }).ToList();
+        }).Where(c => courseRoomId == null || c.Available > 0).ToList();
 
         var advice = await _advisor.AdviseAsync(request.Description.Trim(), aiCatalog, ct);
 
