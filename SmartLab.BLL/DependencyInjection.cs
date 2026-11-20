@@ -17,6 +17,7 @@ using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.BLL.Interfaces.Inventory;
 using SmartLab.BLL.Interfaces.IssueReports;
 using SmartLab.BLL.Interfaces.Notifications;
+using SmartLab.BLL.Interfaces.Public;
 using SmartLab.BLL.Interfaces.Reports;
 using SmartLab.BLL.Interfaces.Settings;
 using SmartLab.BLL.Interfaces.Teamwork;
@@ -28,6 +29,7 @@ using SmartLab.BLL.Services.Identity;
 using SmartLab.BLL.Services.Inventory;
 using SmartLab.BLL.Services.IssueReports;
 using SmartLab.BLL.Services.Notifications;
+using SmartLab.BLL.Services.Public;
 using SmartLab.BLL.Services.Reports;
 using SmartLab.BLL.Services.Settings;
 using SmartLab.BLL.Services.Teamwork;
@@ -143,6 +145,7 @@ public static class DependencyInjection
         services.AddScoped<IChangeBroadcaster, ChangeBroadcaster>();
 
         services.AddScoped<IReportService, ReportService>();
+        services.AddScoped<IPublicStatsService, PublicStatsService>();
 
         services.AddHostedService<AdminSeeder>();
 
