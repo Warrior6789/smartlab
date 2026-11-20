@@ -238,7 +238,7 @@ public class ProjectService : IProjectService
             await EnsureStudyingAsync(current.ClassId, studentId, token);
             if (await _uow.Repository<TeamMember>().QueryNoTracking()
                     .AnyAsync(m => m.TeamId == teamId && m.Status == TeamMemberStatuses.Pending, token))
-                throw new ConflictException("Nhóm vẫn còn lời mời Pending, hãy xử lý hết trước khi đăng ký đề tài");
+                throw new ConflictException("Nhóm vẫn còn lời mời đang chờ trả lời, hãy hủy hoặc chờ các bạn trả lời trước khi đăng ký đề tài");
             await TeamFormationGate.EnsureReadyForProjectAsync(_uow, current.ClassId, teamId, token);
             try
             {
