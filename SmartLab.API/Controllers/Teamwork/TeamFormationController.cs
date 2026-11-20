@@ -9,7 +9,8 @@ using SmartLab.BLL.Interfaces.Teamwork;
 namespace SmartLab.API.Controllers.Teamwork;
 
 /// <summary>
-/// Chia nhóm của lớp: giảng viên đặt số thành viên → mở cho sinh viên tự chọn → chốt nhóm → xếp sinh viên còn lại.
+/// Chia nhóm của lớp: sinh viên tự lập nhóm (tới hạn chót nếu có); giảng viên đặt số thành viên, hạn chót và xếp / chuyển
+/// sinh viên vào nhóm chưa có đề tài bất cứ lúc nào.
 /// Chỉ giảng viên phụ trách lớp hoặc người quản lý học vụ (Admin) được thay đổi.
 /// </summary>
 [ApiController]
@@ -48,26 +49,6 @@ public class TeamFormationController : ControllerBase
         Guid id, [FromBody] UpdateTeamFormationSettingsRequest request, CancellationToken ct)
         => Ok(ApiResponse<TeamFormationResponse>.Ok(
             await _service.UpdateSettingsAsync(id, request, ct), "Cập nhật cấu hình chia nhóm thành công"));
-
-    /// <summary>Bắt đầu (hoặc mở lại) cho sinh viên tự chọn nhóm.</summary>
-    [HttpPost("open")]
-    [Authorize(Roles = Managers)]
-    [ProducesResponseType(typeof(ApiResponse<TeamFormationResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> Open(Guid id, CancellationToken ct)
-        => Ok(ApiResponse<TeamFormationResponse>.Ok(await _service.OpenAsync(id, ct), "Đã mở chia nhóm"));
-
-    /// <summary>Chốt nhóm: sinh viên không đổi nhóm được nữa, mọi lời mời đang chờ bị từ chối.</summary>
-    [HttpPost("lock")]
-    [Authorize(Roles = Managers)]
-    [ProducesResponseType(typeof(ApiResponse<TeamFormationResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> Lock(Guid id, CancellationToken ct)
-        => Ok(ApiResponse<TeamFormationResponse>.Ok(await _service.LockAsync(id, ct), "Đã chốt nhóm"));
 
     /// <summary>Đề xuất tự động xếp sinh viên chưa có nhóm (không lưu). Gửi lại qua POST assignments sau khi xem/sửa.</summary>
     [HttpGet("auto-assign/preview")]

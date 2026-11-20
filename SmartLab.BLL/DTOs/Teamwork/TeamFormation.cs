@@ -55,7 +55,7 @@ public class TeamFormationStudentItem
 }
 
 /// <summary>
-/// Lecturer places students without a team (class must be Locked): into existing teams and/or into new teams.
+/// Lecturer places students without a team, at any time: into existing teams without a project and/or into new teams.
 /// Used for manual placement and to apply the auto-assign preview after the lecturer reviewed it.
 /// </summary>
 public class ApplyTeamAssignmentsRequest
@@ -80,7 +80,7 @@ public class NewTeamAssignment
     public List<Guid> StudentProfileIds { get; set; } = new();
 }
 
-/// <summary>Lecturer moves a student who already has a team into another team (class must be Locked).</summary>
+/// <summary>Lecturer moves a student who already has a team into another team; neither team may have a project.</summary>
 public class MoveTeamMemberRequest
 {
     public Guid StudentProfileId { get; set; }

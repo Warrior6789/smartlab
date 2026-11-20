@@ -7,7 +7,7 @@ public class TeamResponse
     public string ClassCode { get; set; } = string.Empty;
     public string TeamName { get; set; } = string.Empty;
     public Guid LeaderId { get; set; }
-    /// <summary>Class team formation is Locked, no Pending invitation and at least MinTeamSize Accepted members.</summary>
+    /// <summary>No Pending invitation and at least MinTeamSize Accepted members (when the lecturer set one).</summary>
     public bool IsReadyForProject { get; set; }
     public string TeamFormationStatus { get; set; } = string.Empty;
     public int? MinTeamSize { get; set; }

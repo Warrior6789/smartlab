@@ -14,7 +14,7 @@ namespace SmartLab.BLL.Services.Teamwork;
 public class TeamFormationService : ITeamFormationService
 {
     private const string ChangedMessage = "Lớp vừa thay đổi, vui lòng tải lại";
-    private const string NotLockedMessage = "Chỉ xếp nhóm được sau khi lớp đã chốt nhóm";
+    private const string NoSizeMessage = "Hãy đặt số thành viên tối thiểu và tối đa của nhóm trước khi xếp nhóm";
     private const string ExceedMaxKey = "allowExceedMax";
 
     private readonly IUnitOfWork _uow;
@@ -54,20 +54,16 @@ public class TeamFormationService : ITeamFormationService
         {
             var cls = await LockClassAsync(classId, token);
 
-            if (cls.TeamFormationStatus == TeamFormationStatuses.Open)
-            {
-                // Students are mid-selection: a team that already has (or is inviting) more people may not become invalid.
-                var largest = await _uow.Repository<TeamMember>().QueryNoTracking()
-                    .Where(m => m.Team.ClassId == classId &&
-                                (m.Status == TeamMemberStatuses.Accepted || m.Status == TeamMemberStatuses.Pending))
-                    .GroupBy(m => m.TeamId)
-                    .Select(g => g.Count())
-                    .OrderByDescending(n => n)
-                    .FirstOrDefaultAsync(token);
-                if (request.MaxTeamSize < largest)
-                    throw new ConflictException(
-                        $"Đang có nhóm {largest} thành viên (tính cả lời mời đang chờ), số tối đa không được nhỏ hơn {largest}");
-            }
+            var largest = await _uow.Repository<TeamMember>().QueryNoTracking()
+                .Where(m => m.Team.ClassId == classId &&
+                            (m.Status == TeamMemberStatuses.Accepted || m.Status == TeamMemberStatuses.Pending))
+                .GroupBy(m => m.TeamId)
+                .Select(g => g.Count())
+                .OrderByDescending(n => n)
+                .FirstOrDefaultAsync(token);
+            if (request.MaxTeamSize < largest)
+                throw new ConflictException(
+                    $"Đang có nhóm {largest} thành viên (tính cả lời mời đang chờ), số tối đa không được nhỏ hơn {largest}");
 
             cls.MinTeamSize = request.MinTeamSize;
             cls.MaxTeamSize = request.MaxTeamSize;
@@ -79,75 +75,11 @@ public class TeamFormationService : ITeamFormationService
         return await BuildResponseAsync(classId, includeDetails: true, ct);
     }
 
-    public async Task<TeamFormationResponse> OpenAsync(Guid classId, CancellationToken ct = default)
-    {
-        await EnsureManagerAsync(classId, ct);
-        var classCode = await RunInTransactionAsync(async token =>
-        {
-            var cls = await LockClassAsync(classId, token);
-            if (cls.TeamFormationStatus == TeamFormationStatuses.Open)
-                throw new ConflictException("Lớp đang mở chia nhóm");
-            if (cls.MinTeamSize is null || cls.MaxTeamSize is null)
-                throw new BadRequestException("Hãy thiết lập số thành viên tối thiểu và tối đa của nhóm trước khi mở chia nhóm");
-            if (cls.TeamFormationDeadline is { } deadline && deadline <= DateTime.UtcNow)
-                throw new BadRequestException("Hạn chót chia nhóm đã qua, hãy cập nhật hạn chót mới hoặc bỏ hạn chót");
-
-            var semesterActive = await _uow.Repository<Semester>().QueryNoTracking()
-                .AnyAsync(s => s.SemesterId == cls.SemesterId && s.IsActive, token);
-            if (!semesterActive)
-                throw new ConflictException("Học kỳ của lớp không còn hoạt động");
-
-            cls.TeamFormationStatus = TeamFormationStatuses.Open;
-            cls.TeamFormationOpenedAt = DateTime.UtcNow;
-            await _uow.SaveChangesAsync(token);
-            return cls.ClassCode;
-        }, ct);
-
-        await NotifyStudyingStudentsAsync(classId,
-            $"SmartLab - Lớp {classCode} đã mở chia nhóm, hãy tạo nhóm hoặc nhận lời mời vào nhóm");
-        return await BuildResponseAsync(classId, includeDetails: true, ct);
-    }
-
-    public async Task<TeamFormationResponse> LockAsync(Guid classId, CancellationToken ct = default)
-    {
-        await EnsureManagerAsync(classId, ct);
-        var (classCode, touchedTeams) = await RunInTransactionAsync(async token =>
-        {
-            var cls = await LockClassAsync(classId, token);
-            if (cls.TeamFormationStatus == TeamFormationStatuses.Locked)
-                throw new ConflictException("Lớp đã chốt nhóm");
-            if (cls.MinTeamSize is null || cls.MaxTeamSize is null)
-                throw new BadRequestException("Hãy thiết lập số thành viên tối thiểu và tối đa của nhóm trước khi chốt nhóm");
-
-            // No invitation stays pending after the lock: teams consist of Accepted members only.
-            var now = DateTime.UtcNow;
-            var pending = _uow.Repository<TeamMember>().Query()
-                .Where(m => m.Team.ClassId == classId && m.Status == TeamMemberStatuses.Pending);
-            var teamIds = await pending.Select(m => m.TeamId).Distinct().ToListAsync(token);
-            await pending.ExecuteUpdateAsync(s => s
-                .SetProperty(m => m.Status, TeamMemberStatuses.Rejected)
-                .SetProperty(m => m.RespondedAt, now), token);
-            await _uow.Repository<Team>().Query()
-                .Where(t => teamIds.Contains(t.TeamId))
-                .ExecuteUpdateAsync(s => s.SetProperty(t => t.UpdatedAt, now), token);
-
-            cls.TeamFormationStatus = TeamFormationStatuses.Locked;
-            await _uow.SaveChangesAsync(token);
-            return (cls.ClassCode, teamIds);
-        }, ct);
-
-        foreach (var teamId in touchedTeams)
-            await _changes.TeamChangedAsync(teamId);
-        await NotifyStudyingStudentsAsync(classId,
-            $"SmartLab - Lớp {classCode} đã chốt danh sách nhóm, giảng viên sẽ xếp nhóm cho sinh viên chưa có nhóm");
-        return await BuildResponseAsync(classId, includeDetails: true, ct);
-    }
-
     public async Task<AutoAssignPreviewResponse> PreviewAutoAssignAsync(Guid classId, CancellationToken ct = default)
     {
         var cls = await EnsureManagerAsync(classId, ct);
-        if (cls.TeamFormationStatus != TeamFormationStatuses.Locked)
-            throw new ConflictException(NotLockedMessage);
+        if (cls.MinTeamSize is null || cls.MaxTeamSize is null)
+            throw new BadRequestException(NoSizeMessage);
         int min = cls.MinTeamSize!.Value, max = cls.MaxTeamSize!.Value;
 
         var teams = await _uow.Repository<Team>().QueryNoTracking()
@@ -233,7 +165,9 @@ public class TeamFormationService : ITeamFormationService
 
         var (changedTeams, placed) = await RunInTransactionAsync(async token =>
         {
-            var cls = await TeamFormationGate.EnsureLockedAsync(_uow, classId, NotLockedMessage, token);
+            var cls = await TeamFormationGate.HoldClassAsync(_uow, classId, token);
+            if (cls.MinTeamSize is null || cls.MaxTeamSize is null)
+                throw new BadRequestException(NoSizeMessage);
             var max = cls.MaxTeamSize!.Value;
             var now = DateTime.UtcNow;
 
@@ -335,7 +269,9 @@ public class TeamFormationService : ITeamFormationService
 
         var (sourceTeamId, sourceDeleted) = await RunInTransactionAsync(async token =>
         {
-            var cls = await TeamFormationGate.EnsureLockedAsync(_uow, classId, NotLockedMessage, token);
+            var cls = await TeamFormationGate.HoldClassAsync(_uow, classId, token);
+            if (cls.MinTeamSize is null || cls.MaxTeamSize is null)
+                throw new BadRequestException(NoSizeMessage);
             var max = cls.MaxTeamSize!.Value;
             var now = DateTime.UtcNow;
 
@@ -416,9 +352,19 @@ public class TeamFormationService : ITeamFormationService
                                                                          m.Status == TeamMemberStatuses.Accepted)))
             .OrderBy(cs => cs.Student.StudentCode);
 
-    /// <summary>Re-uses the student's old (Rejected) row in that team if any: (team_id, student_id) is the primary key.</summary>
+    /// <summary>
+    /// Re-uses the student's old (Rejected) row in that team if any: (team_id, student_id) is the primary key.
+    /// Pending invitations of the student to other teams of the class are rejected, so the student ends up in one team only.
+    /// </summary>
     private async Task AddAcceptedMemberAsync(Team team, Guid studentId, DateTime now, CancellationToken ct)
     {
+        await _uow.Repository<TeamMember>().Query()
+            .Where(m => m.StudentId == studentId && m.TeamId != team.TeamId && m.Team.ClassId == team.ClassId &&
+                        m.Status == TeamMemberStatuses.Pending)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(m => m.Status, TeamMemberStatuses.Rejected)
+                .SetProperty(m => m.RespondedAt, now), ct);
+
         var existing = team.TeamMembers.FirstOrDefault(m => m.StudentId == studentId);
         if (existing != null)
         {
@@ -503,8 +449,7 @@ public class TeamFormationService : ITeamFormationService
             MaxTeamSize = cls.MaxTeamSize,
             OpenedAt = cls.TeamFormationOpenedAt,
             Deadline = cls.TeamFormationDeadline,
-            StudentsCanChangeTeams = cls.TeamFormationStatus == TeamFormationStatuses.Open &&
-                                     (cls.TeamFormationDeadline == null || cls.TeamFormationDeadline > DateTime.UtcNow),
+            StudentsCanChangeTeams = (cls.TeamFormationDeadline == null || cls.TeamFormationDeadline > DateTime.UtcNow),
             StudyingStudents = studying,
             TeamCount = teams.Count,
             UnassignedCount = unassigned.Count,
@@ -578,16 +523,6 @@ public class TeamFormationService : ITeamFormationService
         {
             throw new ConflictException("Tên nhóm đã tồn tại hoặc thông tin thành viên bị trùng");
         }
-    }
-
-    private async Task NotifyStudyingStudentsAsync(Guid classId, string subject)
-    {
-        var userIds = await _uow.Repository<ClassStudent>().QueryNoTracking()
-            .Where(cs => cs.ClassId == classId && cs.Status == ClassStudentStatuses.Studying)
-            .Select(cs => cs.Student.UserId)
-            .ToListAsync();
-        foreach (var userId in userIds)
-            await _notifications.SendAsync(userId, subject, null, null);
     }
 
     private async Task NotifyPlacedAsync(IEnumerable<(Guid StudentId, Guid TeamId)> placed)

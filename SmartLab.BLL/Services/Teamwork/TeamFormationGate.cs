@@ -7,50 +7,37 @@ using SmartLab.DAL.UnitOfWork;
 namespace SmartLab.BLL.Services.Teamwork;
 
 /// <summary>
-/// Checks the team formation phase of a class. Each check is a conditional no-op UPDATE on the class row, so it also holds
-/// that row until the caller's transaction ends: a student change, a lecturer placement, a project registration and a
-/// status change (open/lock) of the same class cannot interleave. Call only inside a transaction.
+/// Team rules of a class. Each check runs a no-op UPDATE on the class row, so it holds that row until the caller's
+/// transaction ends: a student change, a lecturer placement and a project registration of the same class cannot
+/// interleave. Call only inside a transaction.
 /// </summary>
 internal static class TeamFormationGate
 {
-    /// <summary>Student self-service (create, invite, accept, leave, remove): class Open and deadline not passed.</summary>
+    /// <summary>Student self-service (create, invite, accept, leave, remove): the deadline, if any, has not passed.</summary>
     public static async Task<Class> EnsureOpenForStudentsAsync(IUnitOfWork uow, Guid classId, CancellationToken ct)
     {
-        var now = DateTime.UtcNow;
-        var locked = await uow.Repository<Class>().Query()
-            .Where(c => c.ClassId == classId && c.TeamFormationStatus == TeamFormationStatuses.Open &&
-                        (c.TeamFormationDeadline == null || c.TeamFormationDeadline > now))
-            .ExecuteUpdateAsync(s => s.SetProperty(c => c.TeamFormationStatus, c => c.TeamFormationStatus), ct);
-
-        var cls = await ReadAsync(uow, classId, ct);
-        if (locked == 1)
-            return cls;
-
-        throw cls.TeamFormationStatus switch
-        {
-            TeamFormationStatuses.NotStarted => new ConflictException("Giảng viên chưa mở chia nhóm cho lớp này"),
-            TeamFormationStatuses.Locked => new ConflictException("Lớp đã chốt nhóm, sinh viên không thể thay đổi nhóm nữa"),
-            _ => new ConflictException("Đã hết hạn tự chọn nhóm, vui lòng liên hệ giảng viên"),
-        };
-    }
-
-    /// <summary>Lecturer placement and project registration: class Locked.</summary>
-    public static async Task<Class> EnsureLockedAsync(IUnitOfWork uow, Guid classId, string notLockedMessage, CancellationToken ct)
-    {
-        var locked = await uow.Repository<Class>().Query()
-            .Where(c => c.ClassId == classId && c.TeamFormationStatus == TeamFormationStatuses.Locked)
-            .ExecuteUpdateAsync(s => s.SetProperty(c => c.TeamFormationStatus, c => c.TeamFormationStatus), ct);
-        var cls = await ReadAsync(uow, classId, ct);
-        if (locked == 0)
-            throw new ConflictException(notLockedMessage);
+        var cls = await HoldClassAsync(uow, classId, ct);
+        if (cls.TeamFormationDeadline is { } deadline && deadline <= DateTime.UtcNow)
+            throw new ConflictException("Đã hết hạn tự chọn nhóm, vui lòng liên hệ giảng viên");
         return cls;
     }
 
-    /// <summary>Project registration: class Locked and the team has at least MinTeamSize Accepted members.</summary>
+    /// <summary>Lecturer placement: holds the class row so student changes of the same class wait for it.</summary>
+    public static async Task<Class> HoldClassAsync(IUnitOfWork uow, Guid classId, CancellationToken ct)
+    {
+        await uow.Repository<Class>().Query()
+            .Where(c => c.ClassId == classId)
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.TeamFormationStatus, c => c.TeamFormationStatus), ct);
+        return await ReadAsync(uow, classId, ct);
+    }
+
+    /// <summary>
+    /// Project registration: the team has at least MinTeamSize Accepted members. Once the project exists the team's
+    /// members can no longer change.
+    /// </summary>
     public static async Task EnsureReadyForProjectAsync(IUnitOfWork uow, Guid classId, Guid teamId, CancellationToken ct)
     {
-        var cls = await EnsureLockedAsync(uow, classId,
-            "Lớp chưa chốt danh sách nhóm, chỉ được đăng ký đề tài sau khi giảng viên chốt nhóm", ct);
+        var cls = await HoldClassAsync(uow, classId, ct);
         if (cls.MinTeamSize is not { } min)
             return;
 

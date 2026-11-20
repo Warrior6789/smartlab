@@ -2,8 +2,8 @@ namespace SmartLab.BLL.Constants;
 
 /// <summary>
 /// Must match the CHECK constraint on classes.team_formation_status.
-/// NotStarted: students cannot form teams yet. Open: students form teams themselves (within the size limit and deadline).
-/// Locked: students can no longer change teams; the lecturer places the remaining students, then teams register projects.
+/// No longer drives any rule (students form teams until the deadline, the lecturer places students at any time);
+/// kept because classes.team_formation_status still exists and is returned as is.
 /// </summary>
 public static class TeamFormationStatuses
 {

@@ -17,9 +17,7 @@ public static class TeamMappings
         response.MaxTeamSize = cls.MaxTeamSize;
         response.MemberCount = accepted;
         response.IsFull = cls.MaxTeamSize is { } max && accepted + pending >= max;
-        response.IsReadyForProject = pending == 0 &&
-                                     cls.TeamFormationStatus == TeamFormationStatuses.Locked &&
-                                     (cls.MinTeamSize is not { } min || accepted >= min);
+        response.IsReadyForProject = pending == 0 && (cls.MinTeamSize is not { } min || accepted >= min);
         return response;
     }
 
