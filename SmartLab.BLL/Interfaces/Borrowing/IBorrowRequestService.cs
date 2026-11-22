@@ -13,12 +13,6 @@ public interface IBorrowRequestService
 
     Task<BorrowRequestDetailResponse> GetRequestByIdAsync(Guid borrowRequestId, CancellationToken ct = default);
 
-    Task<PagedResult<TransferLineResponse>> GetTransfersAsync(
-        TransferQueryParams query, PageParams paging, CancellationToken ct = default);
-
-    Task<BorrowRequestDetailResponse> ReceiveTransferAsync(
-        Guid borrowRequestId, ReceiveTransferRequest request, CancellationToken ct = default);
-
     Task<StudentCardReadResponse> ReadStudentCardAsync(ReadStudentCardRequest request, CancellationToken ct = default);
 
     Task<HandoverPhotoResponse> UploadPhotoAsync(
@@ -38,10 +32,6 @@ public interface IBorrowRequestService
 
     Task<BorrowRequestDetailResponse> CancelReplacementAsync(
         Guid borrowRequestId, CancelReplacementRequest request, CancellationToken ct = default);
-
-    /// <summary>The source lab says it sent a line to the pickup lab.</summary>
-    Task<BorrowRequestDetailResponse> DispatchTransferAsync(
-        Guid borrowRequestId, DispatchTransferRequest request, CancellationToken ct = default);
 
     /// <summary>The pickup lab checked the goods: Approved becomes Ready and the student is told to come.</summary>
     Task<BorrowRequestDetailResponse> LabAcceptAsync(Guid borrowRequestId, CancellationToken ct = default);

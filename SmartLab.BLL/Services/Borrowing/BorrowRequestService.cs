@@ -26,7 +26,6 @@ namespace SmartLab.BLL.Services.Borrowing;
 /// with a photo of the components and the student card (Ready → Borrowing), and returns at that lab, possibly in several
 /// times (→ Returned). A unit that breaks during the loan can be swapped: the broken one is retired and a Pending
 /// replacement line is added to the same request when the lab has a free unit, then handed over on its own.
-/// The dispatch / receive endpoints only matter for requests approved before labs stopped passing components.
 /// Every change first locks the request row (a no-op UPDATE ... WHERE status = ...), so two staff cannot act on the same
 /// request at once. Lock order is always request → labs.
 /// </summary>
@@ -36,10 +35,6 @@ public class BorrowRequestService : IBorrowRequestService
     private const string StockChangedMessage = "Tồn kho vừa thay đổi bởi thao tác khác, vui lòng thử lại";
 
     private static readonly string[] BorrowedStatuses = { BorrowRequestStatuses.Borrowing, BorrowRequestStatuses.Overdue };
-
-    /// <summary>Request statuses with lines to carry over: Approved, or a replacement of a request being borrowed.</summary>
-    private static readonly string[] TransferStatuses =
-        { BorrowRequestStatuses.Approved, BorrowRequestStatuses.Borrowing, BorrowRequestStatuses.Overdue };
 
     private readonly IUnitOfWork _uow;
     private readonly ICurrentUserService _currentUser;
@@ -210,162 +205,6 @@ public class BorrowRequestService : IBorrowRequestService
                    .AsSplitQuery()
                    .FirstOrDefaultAsync(ct)
                ?? throw new ForbiddenException("Bạn không có quyền xem đơn mượn này");
-    }
-
-    public Task<PagedResult<TransferLineResponse>> GetTransfersAsync(
-        TransferQueryParams query, PageParams paging, CancellationToken ct = default)
-    {
-        var lines = _uow.Repository<BorrowItem>().QueryNoTracking()
-            .Where(i => i.SourceRoomId != null
-                        && i.ReceivedAt == null
-                        && i.Status == BorrowItemStatuses.Pending
-                        && TransferStatuses.Contains(i.BorrowRequest.Status));
-
-        var isAdmin = _currentUser.IsInRole(RoleNames.Admin);
-        var myRooms = MyRoomIds();
-        if (!isAdmin)
-        {
-            lines = lines.Where(i => myRooms.Contains(i.SourceRoomId!.Value) || myRooms.Contains(i.BorrowRequest.RoomId));
-        }
-
-        if (query.SourceRoomId.HasValue)
-            lines = lines.Where(i => i.SourceRoomId == query.SourceRoomId.Value);
-
-        if (!string.IsNullOrWhiteSpace(query.Search))
-        {
-            var keyword = query.Search.Trim().ToLower();
-            lines = lines.Where(i => i.BorrowRequest.RequestCode.ToLower().Contains(keyword)
-                                     || i.Component.ComponentCode.ToLower().Contains(keyword)
-                                     || i.Component.ComponentName.ToLower().Contains(keyword));
-        }
-
-        var result = lines
-            .OrderBy(i => i.BorrowRequest.ApprovedAt).ThenBy(i => i.BorrowRequest.RequestCode).ThenBy(i => i.BorrowItemId)
-            .Select(i => new TransferLineResponse
-            {
-                BorrowItemId = i.BorrowItemId,
-                BorrowRequestId = i.BorrowRequestId,
-                RequestCode = i.BorrowRequest.RequestCode,
-                ComponentId = i.ComponentId,
-                ComponentCode = i.Component.ComponentCode,
-                ComponentName = i.Component.ComponentName,
-                TrackingType = i.Component.TrackingType,
-                Unit = i.Component.Unit,
-                Quantity = i.Quantity,
-                SourceRoomId = i.SourceRoomId!.Value,
-                SourceRoomCode = i.SourceRoom!.RoomCode,
-                PickupRoomId = i.BorrowRequest.RoomId,
-                PickupRoomCode = i.BorrowRequest.Room.RoomCode,
-                ApprovedAt = i.BorrowRequest.ApprovedAt,
-                BorrowDate = i.BorrowRequest.BorrowDate,
-                DispatchedAt = i.DispatchedAt,
-                CanDispatch = isAdmin || myRooms.Contains(i.SourceRoomId!.Value),
-                CanReceive = isAdmin || myRooms.Contains(i.BorrowRequest.RoomId),
-            });
-
-        return PagedResult<TransferLineResponse>.CreateAsync(result, paging, ct);
-    }
-
-    /// <summary>
-    /// The pickup lab confirms one line arrived from its source lab: the units (or CONSUMABLE quantity, taken from the
-    /// source lab's fullest cabinets) move into a cabinet of the pickup lab, logged as Move. The request stays Approved
-    /// until the lab accepts it (<see cref="LabAcceptAsync"/>). A replacement line of a request being borrowed can then be
-    /// handed over with <see cref="IssueReplacementAsync"/>.
-    /// </summary>
-    public async Task<BorrowRequestDetailResponse> ReceiveTransferAsync(
-        Guid borrowRequestId, ReceiveTransferRequest request, CancellationToken ct = default)
-    {
-        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
-        var now = DateTime.UtcNow;
-
-        await using var tx = await _uow.BeginTransactionAsync(ct);
-
-        await LockRequestAsync(borrowRequestId, TransferStatuses,
-            "Chỉ nhận hàng chuyển về cho đơn đã duyệt đang chờ chuyển hàng hoặc món thay thế của đơn đang mượn", ct);
-        var header = await GetHeaderAsync(borrowRequestId, ct);
-        await EnsurePickupStaffAsync(header.RoomId, ct);
-
-        var line = await _uow.Repository<BorrowItem>().Query()
-                       .Include(i => i.Component)
-                       .FirstOrDefaultAsync(i => i.BorrowItemId == request.BorrowItemId && i.BorrowRequestId == borrowRequestId, ct)
-                   ?? throw new NotFoundException("Không tìm thấy dòng linh kiện trong đơn mượn");
-        if (line.Status != BorrowItemStatuses.Pending || line.ReceivedAt != null || line.SourceRoomId == null)
-            throw new ConflictException("Dòng linh kiện này đã được nhận ở lab của đơn");
-        var sourceRoomId = line.SourceRoomId.Value;
-
-        var cabinetOk = await _uow.Repository<StorageCabinet>().QueryNoTracking()
-            .AnyAsync(c => c.CabinetId == request.ToCabinetId
-                           && c.RoomId == header.RoomId
-                           && c.Status == CabinetStatuses.Active, ct);
-        if (!cabinetOk)
-            throw new BadRequestException("Tủ cất phải là tủ đang hoạt động thuộc lab của đơn");
-
-        await RoomStock.LockRoomsAsync(_uow, new[] { sourceRoomId, header.RoomId }, ct);
-
-        var transactions = _uow.Repository<InventoryTransaction>();
-        if (line.Component.TrackingType == ComponentTrackingTypes.Consumable)
-        {
-            if (request.ItemIds.Count > 0)
-                throw new BadRequestException("Vật tư tiêu hao không quét mã từng con, chỉ nhận theo số lượng");
-
-            var taken = await TakeConsumableAsync(line.ComponentId, sourceRoomId, line.Quantity, now, ct);
-            foreach (var (cabinetId, quantity) in taken)
-                await transactions.AddAsync(NewTransaction(InventoryTransactionTypes.Move, line.ComponentId, cabinetId, null,
-                    -quantity, borrowRequestId, header.RequestCode, userId, now), ct);
-
-            await AddConsumableAsync(line.ComponentId, request.ToCabinetId, line.Quantity, now, ct);
-            await transactions.AddAsync(NewTransaction(InventoryTransactionTypes.Move, line.ComponentId, request.ToCabinetId, null,
-                line.Quantity, borrowRequestId, header.RequestCode, userId, now), ct);
-        }
-        else
-        {
-            if (request.ItemIds.Count != line.Quantity)
-                throw new BadRequestException(
-                    $"{line.Component.ComponentName}: phải quét đúng {line.Quantity} con, đã quét {request.ItemIds.Count}");
-
-            var units = await LoadUnitsAsync(request.ItemIds, ct);
-            var errors = CheckUnits(units, request.ItemIds, line.ComponentId, ComponentItemStatuses.Available, sourceRoomId,
-                "không nằm ở lab chuyển hàng");
-            if (errors.Count > 0)
-                throw new BadRequestException("Có con không nhận được", new Dictionary<string, string[]> { ["itemIds"] = errors.ToArray() });
-
-            var moved = await _uow.Repository<ComponentItem>().Query()
-                .Where(i => request.ItemIds.Contains(i.ItemId)
-                            && i.Status == ComponentItemStatuses.Available
-                            && i.Cabinet.RoomId == sourceRoomId
-                            && !i.IssueReports.Any(r => r.Status == IssueReportStatuses.Open))
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(i => i.CabinetId, request.ToCabinetId)
-                    .SetProperty(i => i.UpdatedAt, now), ct);
-            if (moved != request.ItemIds.Count)
-                throw new ConflictException(StockChangedMessage);
-
-            foreach (var unit in units)
-            {
-                await transactions.AddAsync(NewTransaction(InventoryTransactionTypes.Move, line.ComponentId, unit.CabinetId, unit.ItemId,
-                    -1, borrowRequestId, header.RequestCode, userId, now), ct);
-                await transactions.AddAsync(NewTransaction(InventoryTransactionTypes.Move, line.ComponentId, request.ToCabinetId, unit.ItemId,
-                    1, borrowRequestId, header.RequestCode, userId, now), ct);
-            }
-        }
-
-        line.ReceivedAt = now;
-        line.ReceivedBy = userId;
-        await SaveStockChangesAsync(ct);
-
-        if (header.Status != BorrowRequestStatuses.Approved)
-        {
-            await tx.CommitAsync(ct);
-            await _notifier.ReplacementArrivedAsync(borrowRequestId, line.BorrowItemId, ct);
-            await _changes.BorrowRequestChangedAsync(borrowRequestId);
-            return await GetRequestByIdAsync(borrowRequestId, ct);
-        }
-
-        await tx.CommitAsync(ct);
-
-        await _changes.BorrowRequestChangedAsync(borrowRequestId);
-
-        return await GetRequestByIdAsync(borrowRequestId, ct);
     }
 
     /// <summary>Reads a student card so staff can find the request. The photo is not stored and nothing is decided from it.</summary>
@@ -977,39 +816,6 @@ public class BorrowRequestService : IBorrowRequestService
         await tx.CommitAsync(ct);
 
         await _notifier.ReplacementCancelledAsync(borrowRequestId, componentName, notCarriedFrom, request.Reason.Trim(), userId, ct);
-        await _changes.BorrowRequestChangedAsync(borrowRequestId);
-
-        return await GetRequestByIdAsync(borrowRequestId, ct);
-    }
-
-    /// <summary>
-    /// The source lab says it sent a line, so the pickup lab knows the goods are on the way. Only staff of the source lab.
-    /// Optional: the pickup lab can still confirm arrival without it, for instance when the source lab has no staff.
-    /// </summary>
-    public async Task<BorrowRequestDetailResponse> DispatchTransferAsync(
-        Guid borrowRequestId, DispatchTransferRequest request, CancellationToken ct = default)
-    {
-        await using var tx = await _uow.BeginTransactionAsync(ct);
-
-        await LockRequestAsync(borrowRequestId, TransferStatuses, "Đơn này không còn hàng chờ chuyển", ct);
-
-        var line = await _uow.Repository<BorrowItem>().Query()
-                       .FirstOrDefaultAsync(i => i.BorrowItemId == request.BorrowItemId && i.BorrowRequestId == borrowRequestId, ct)
-                   ?? throw new NotFoundException("Không tìm thấy dòng linh kiện trong đơn mượn");
-        if (line.SourceRoomId == null || line.Status != BorrowItemStatuses.Pending || line.ReceivedAt != null)
-            throw new ConflictException("Dòng linh kiện này không cần chuyển hoặc đã được nhận");
-        if (line.DispatchedAt != null)
-            throw new ConflictException("Dòng linh kiện này đã được gửi đi");
-
-        if (!_currentUser.IsInRole(RoleNames.Admin) && !await MyRoomIds().AnyAsync(id => id == line.SourceRoomId, ct))
-            throw new ForbiddenException("Chỉ nhân viên phụ trách lab chuyển hàng được xác nhận đã gửi");
-
-        line.DispatchedAt = DateTime.UtcNow;
-        await _uow.SaveChangesAsync(ct);
-
-        await tx.CommitAsync(ct);
-
-        await _notifier.TransferDispatchedAsync(borrowRequestId, line.BorrowItemId, ct);
         await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);

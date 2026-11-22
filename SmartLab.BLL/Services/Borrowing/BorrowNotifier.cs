@@ -388,34 +388,6 @@ public class BorrowNotifier : IBorrowNotifier
         await SendAsync(info, $"SmartLab - Đơn {info.RequestCode} đã bị hủy", body);
     }
 
-    public async Task TransferDispatchedAsync(Guid borrowRequestId, Guid borrowItemId, CancellationToken ct = default)
-    {
-        var info = await LoadStaffInfoAsync(borrowRequestId, ct);
-        if (info == null)
-            return;
-
-        var line = await _uow.Repository<BorrowItem>().QueryNoTracking()
-            .Where(i => i.BorrowItemId == borrowItemId)
-            .Select(i => new
-            {
-                i.Component.ComponentName,
-                i.Quantity,
-                i.Component.Unit,
-                SourceRoomCode = i.SourceRoom != null ? i.SourceRoom.RoomCode : null,
-            })
-            .FirstOrDefaultAsync(ct);
-        if (line == null)
-            return;
-
-        var body =
-            $"<p>Lab <b>{Encode(line.SourceRoomCode ?? string.Empty)}</b> đã gửi {line.Quantity} {Encode(line.Unit)} " +
-            $"{Encode(line.ComponentName)} của đơn <b>{Encode(info.RequestCode)}</b> sang <b>{Encode(info.RoomCode)}</b>.</p>" +
-            "<p>Khi hàng tới, hãy kiểm tra rồi bấm \"Nhập kho\" trong mục Chuyển hàng.</p>";
-
-        await SendToStaffAsync(info, info.RoomId, null,
-            $"SmartLab - Hàng cho đơn {info.RequestCode} đang chuyển tới {info.RoomCode}", body);
-    }
-
     public async Task StaffApprovedAsync(Guid borrowRequestId, CancellationToken ct = default)
     {
         var info = await LoadStaffInfoAsync(borrowRequestId, ct);

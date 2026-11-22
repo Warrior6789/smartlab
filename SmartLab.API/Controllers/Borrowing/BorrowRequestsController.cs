@@ -46,22 +46,6 @@ public class BorrowRequestsController : ControllerBase
     }
 
     /// <summary>
-    /// Các dòng linh kiện đang chờ mang từ lab khác về lab của đơn. Các lab không còn chuyển đồ cho nhau nên đơn mới không
-    /// có dòng nào ở đây; chỉ còn để xử lý đơn duyệt trước khi đổi quy tắc.
-    /// Nhân viên thấy dòng có lab chuyển hàng hoặc lab của đơn là lab mình phụ trách.
-    /// </summary>
-    [HttpGet("transfers")]
-    [Authorize(Policy = PermissionCodes.BorrowIssue)]
-    [ProducesResponseType(typeof(ApiResponse<PagedResult<TransferLineResponse>>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> GetTransfers(
-        [FromQuery] TransferQueryParams query, [FromQuery] PageParams paging, CancellationToken ct)
-    {
-        var result = await _borrowRequestService.GetTransfersAsync(query, paging, ct);
-        return Ok(ApiResponse<PagedResult<TransferLineResponse>>.Ok(result));
-    }
-
-    /// <summary>
     /// Chi tiết đơn: các dòng linh kiện (lab chuyển hàng, đã nhận chưa, con nào đã giao), ảnh giao / trả, lịch sử duyệt.
     /// Người mượn, nhóm, giảng viên của lớp, nhân viên lab liên quan và Admin xem được.
     /// </summary>
@@ -73,25 +57,6 @@ public class BorrowRequestsController : ControllerBase
     {
         var request = await _borrowRequestService.GetRequestByIdAsync(id, ct);
         return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(request));
-    }
-
-    /// <summary>
-    /// Chỉ dùng cho đơn duyệt trước khi các lab ngừng chuyển đồ cho nhau.
-    /// Nhân viên lab nhận đồ xác nhận đã nhận 1 dòng mang từ lab khác về: hàng theo từng con thì quét đúng các con nhận được,
-    /// vật tư tiêu hao thì nhận đủ số lượng. Hàng chuyển vào tủ đã chọn. Nhận đủ mọi dòng thì đơn thành Ready. Món thay thế
-    /// của đơn đang mượn cũng nhận ở đây, sau đó giao bằng replacements/issue.
-    /// </summary>
-    [HttpPost("{id:guid}/receive")]
-    [Authorize(Policy = PermissionCodes.BorrowIssue)]
-    [ProducesResponseType(typeof(ApiResponse<BorrowRequestDetailResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> ReceiveTransfer(Guid id, [FromBody] ReceiveTransferRequest request, CancellationToken ct)
-    {
-        var result = await _borrowRequestService.ReceiveTransferAsync(id, request, ct);
-        return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Đã nhận hàng chuyển về"));
     }
 
     /// <summary>
@@ -216,19 +181,6 @@ public class BorrowRequestsController : ControllerBase
     {
         var result = await _borrowRequestService.CancelReplacementAsync(id, request, ct);
         return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Đã hủy món thay thế"));
-    }
-
-    /// <summary>Lab chuyển hàng báo đã gửi một dòng linh kiện sang lab nhận đồ (chỉ còn cho đơn duyệt trước khi các lab ngừng chuyển đồ).</summary>
-    [HttpPost("{id:guid}/dispatch")]
-    [Authorize(Policy = PermissionCodes.BorrowIssue)]
-    [ProducesResponseType(typeof(ApiResponse<BorrowRequestDetailResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> Dispatch(Guid id, [FromBody] DispatchTransferRequest request, CancellationToken ct)
-    {
-        var result = await _borrowRequestService.DispatchTransferAsync(id, request, ct);
-        return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Đã báo gửi hàng"));
     }
 
     /// <summary>Nhân viên lab của đơn đã chuẩn bị và kiểm tra hàng: đơn Approved sang Ready và báo sinh viên đến nhận.</summary>
