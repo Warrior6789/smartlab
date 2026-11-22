@@ -779,10 +779,10 @@ public class BorrowRequestService : IBorrowRequestService
     /// <summary>
     /// Swaps a unit that broke during the loan (request being borrowed), with a Return photo of it. The broken unit is
     /// confirmed as Damaged through Issue Reports (unit Retired, an Open report of it Confirmed) and its line closed. Then
-    /// a Pending replacement line of the same component is added, taken from the pickup lab when it has a free unit
-    /// (ready to hand over), otherwise from the lab with the most free units (to carry over first). When no lab has one
-    /// left there is no replacement and the request becomes Returned if nothing else is out. Every lab is locked first,
-    /// like approving, so the free unit cannot be promised twice.
+    /// a Pending replacement line of the same component is added from the request's lab when it has a free unit (ready
+    /// to hand over); labs never pass components to each other, so when that lab has none left there is no replacement
+    /// and the request becomes Returned if nothing else is out. Every lab is locked first, like approving, so the free
+    /// unit cannot be promised twice.
     /// </summary>
     public async Task<ReplaceDamagedResponse> ReplaceDamagedAsync(
         Guid borrowRequestId, ReplaceDamagedRequest request, CancellationToken ct = default)
