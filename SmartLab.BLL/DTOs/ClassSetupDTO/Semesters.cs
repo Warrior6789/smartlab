@@ -1,6 +1,6 @@
 ﻿namespace SmartLab.BLL.DTOs.ClassSetupDTO;
 /// <summary>
-/// New semester; it starts active. Term (Spring/Summer/Fall) and Year come from StartDate.
+/// New semester, starting today or later; it starts active. Term (Spring/Summer/Fall) and Year come from StartDate.
 /// SemesterCode empty = made from them (FA26, then FA26_A, FA26_B... when taken).
 /// </summary>
 public class CreateSemesterRequest

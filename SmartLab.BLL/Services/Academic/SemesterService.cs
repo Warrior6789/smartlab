@@ -60,8 +60,8 @@ public class SemesterService : ISemesterService
 
     public async Task<SemesterResponse> CreateAsync(CreateSemesterRequest request, CancellationToken ct = default)
     {
-        if (request.EndDate < TodayInVietnam())
-            throw new BadRequestException("Không thể tạo kỳ học đã kết thúc: ngày kết thúc phải từ hôm nay trở đi.");
+        if (request.StartDate < TodayInVietnam())
+            throw new BadRequestException("Không thể tạo kỳ học trong quá khứ: ngày bắt đầu phải từ hôm nay trở đi.");
 
         var term = TermFor(request.StartDate);
         var code = request.SemesterCode?.Trim().ToUpperInvariant();
@@ -122,7 +122,10 @@ public class SemesterService : ISemesterService
             .FirstOrDefaultAsync(s => s.SemesterId == id, ct)
             ?? throw new NotFoundException("Kỳ học", id);
 
-        if (request.EndDate != semester.EndDate && request.EndDate < TodayInVietnam())
+        var today = TodayInVietnam();
+        if (request.StartDate != semester.StartDate && request.StartDate < today)
+            throw new BadRequestException("Ngày bắt đầu mới không được ở quá khứ.");
+        if (request.EndDate != semester.EndDate && request.EndDate < today)
             throw new BadRequestException("Ngày kết thúc mới không được ở quá khứ.");
 
         semester.Term = TermFor(request.StartDate);
