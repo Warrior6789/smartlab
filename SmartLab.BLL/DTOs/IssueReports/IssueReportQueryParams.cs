@@ -12,4 +12,7 @@ public class IssueReportQueryParams
     public DateTime? FromDate { get; set; }
     public DateTime? ToDate { get; set; }
     public bool? Mine { get; set; }
+
+    /// <summary>Only reports on units lent under a borrow request of this project.</summary>
+    public Guid? ProjectId { get; set; }
 }

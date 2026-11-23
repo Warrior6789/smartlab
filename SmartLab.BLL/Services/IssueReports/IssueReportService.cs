@@ -407,10 +407,6 @@ public class IssueReportService : IIssueReportService
             await IsAssignedToRoomAsync(item.Cabinet.RoomId, userId, ct))
             return;
 
-        if (_currentUser.IsInRole(RoleNames.Student) &&
-            activeBorrowItem?.BorrowRequest.RequesterId == userId)
-            return;
-
         throw new ForbiddenException(
             "Bạn không được báo sự cố cho linh kiện ngoài phạm vi phụ trách hoặc mượn của mình");
     }
@@ -553,7 +549,14 @@ public class IssueReportService : IIssueReportService
             throw new ForbiddenException("Vai trò hiện tại không được xem báo cáo sự cố");
 
         return query.Where(report =>
-            (isStudent && report.ReportedBy == userId) ||
+            (isStudent &&
+             report.BorrowItem != null &&
+             (report.BorrowItem.BorrowRequest.RequesterId == userId ||
+              (report.BorrowItem.BorrowRequest.Project != null &&
+               report.BorrowItem.BorrowRequest.Project.Team != null &&
+               (report.BorrowItem.BorrowRequest.Project.Team.Leader.UserId == userId ||
+                report.BorrowItem.BorrowRequest.Project.Team.TeamMembers.Any(member =>
+                    member.Student.UserId == userId && member.Status == TeamMemberStatuses.Accepted))))) ||
             (isLabStaff && report.ComponentItem.Cabinet.Room.LabRoomStaffs
                 .Any(assignment => assignment.UserId == userId)) ||
             (isLecturer &&
@@ -567,6 +570,10 @@ public class IssueReportService : IIssueReportService
         IQueryable<IssueReport> reports,
         IssueReportQueryParams query)
     {
+        if (query.ProjectId.HasValue)
+            reports = reports.Where(report =>
+                report.BorrowItem != null && report.BorrowItem.BorrowRequest.ProjectId == query.ProjectId.Value);
+
         if (!string.IsNullOrWhiteSpace(query.Status))
         {
             var status = IssueReportStatuses.Normalize(query.Status)
