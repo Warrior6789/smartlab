@@ -89,6 +89,21 @@ public class ProjectService : IProjectService
                 OwnerName = p.Owner.FullName,
                 ComponentCount = p.ProjectComponents.Count,
                 SubmittedAt = p.SubmittedAt,
+                RequestCode = p.BorrowRequests
+                    .Where(r => r.Status != BorrowRequestStatuses.Rejected && r.Status != BorrowRequestStatuses.Cancelled)
+                    .OrderByDescending(r => r.RequestDate)
+                    .Select(r => r.RequestCode)
+                    .FirstOrDefault(),
+                BorrowDate = p.BorrowRequests
+                    .Where(r => r.Status != BorrowRequestStatuses.Rejected && r.Status != BorrowRequestStatuses.Cancelled)
+                    .OrderByDescending(r => r.RequestDate)
+                    .Select(r => r.BorrowDate)
+                    .FirstOrDefault(),
+                DueDate = p.BorrowRequests
+                    .Where(r => r.Status != BorrowRequestStatuses.Rejected && r.Status != BorrowRequestStatuses.Cancelled)
+                    .OrderByDescending(r => r.RequestDate)
+                    .Select(r => (DateTime?)r.DueDate)
+                    .FirstOrDefault(),
                 ReviewedAt = p.ReviewedAt,
                 ReviewComment = p.ReviewComment,
                 FinalStatus = p.FinalStatus,

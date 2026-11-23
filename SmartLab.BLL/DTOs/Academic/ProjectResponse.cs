@@ -24,6 +24,11 @@ public class ProjectResponse
 
     public DateTime? SubmittedAt { get; set; }
 
+    /// <summary>Latest borrow request of the project that is not Rejected or Cancelled; null when there is none.</summary>
+    public string? RequestCode { get; set; }
+    public DateTime? BorrowDate { get; set; }
+    public DateTime? DueDate { get; set; }
+
     public DateTime? ReviewedAt { get; set; }
 
     /// <summary>Comment of the latest decision (the reject reason when Rejected); cleared when the project is sent again.</summary>
