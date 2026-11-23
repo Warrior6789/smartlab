@@ -6,6 +6,7 @@ public class StockReceiptResponse
     public string ReceiptCode { get; set; } = string.Empty;
     public string SupplierName { get; set; } = string.Empty;
     public string? InvoiceNumber { get; set; }
+    public DateTime? InvoiceDate { get; set; }
 
     /// <summary>Completed or Cancelled.</summary>
     public string Status { get; set; } = string.Empty;

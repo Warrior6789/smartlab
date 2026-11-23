@@ -80,6 +80,7 @@ public class StockReceiptService : IStockReceiptService
                 ReceiptCode = r.ReceiptCode,
                 SupplierName = r.SupplierName,
                 InvoiceNumber = r.InvoiceNumber,
+                InvoiceDate = r.InvoiceDate,
                 Status = r.Status,
                 ReceivedAt = r.ReceivedAt,
                 CreatedAt = r.CreatedAt,

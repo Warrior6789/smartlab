@@ -3,8 +3,6 @@ namespace SmartLab.BLL.DTOs.Inventory;
 /// <summary>Receipt laid out like form 01-VT (Phiếu nhập kho), plus the system's own tracking fields.</summary>
 public class StockReceiptDetailResponse : StockReceiptResponse
 {
-    public DateTime? InvoiceDate { get; set; }
-
     /// <summary>TotalAmount written in Vietnamese words, e.g. "Năm triệu đồng".</summary>
     public string TotalAmountInWords { get; set; } = string.Empty;
 
