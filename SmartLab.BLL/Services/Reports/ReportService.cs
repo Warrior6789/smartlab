@@ -553,7 +553,10 @@ public class ReportService : IReportService
                 rooms = scope.RoomIds;
 
             dashboard.TotalComponents = await _uow.Repository<Component>().QueryNoTracking().CountAsync(c => c.IsActive, ct);
-            dashboard.LowStockCount = await StockSummary(new StockSummaryQueryParams(), rooms).CountAsync(s => s.IsLowStock, ct);
+            var summary = StockSummary(new StockSummaryQueryParams(), rooms);
+            dashboard.LowStockCount = await summary.CountAsync(s => s.IsLowStock, ct);
+            dashboard.OutOfStockCount = await summary.CountAsync(s => s.Available == 0, ct);
+            dashboard.BelowMinStockCount = await summary.CountAsync(s => s.IsLowStock && s.Available > 0, ct);
         }
 
         if (scope.SeesAll)

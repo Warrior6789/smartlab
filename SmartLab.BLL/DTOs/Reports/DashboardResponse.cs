@@ -9,6 +9,12 @@ public class DashboardResponse
     /// <summary>Components below MinStock in the labs the user sees (Admin, InventoryManager, LabStaff).</summary>
     public int? LowStockCount { get; set; }
 
+    /// <summary>Active components with nothing available in the labs the user sees (Admin, InventoryManager, LabStaff).</summary>
+    public int? OutOfStockCount { get; set; }
+
+    /// <summary>Components below MinStock that still have some available (Admin, InventoryManager, LabStaff).</summary>
+    public int? BelowMinStockCount { get; set; }
+
     /// <summary>Units in stock or lent out at purchase price, plus consumables at the latest receipt price (Admin, InventoryManager).</summary>
     public decimal? StockValue { get; set; }
 
