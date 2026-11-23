@@ -15,10 +15,15 @@ public class SemesterService : ISemesterService
 
     public SemesterService(IUnitOfWork uow) => _uow = uow;
 
+    private static DateOnly TodayInVietnam() => DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+
     public async Task<SemesterResponse> CreateAsync(CreateSemesterRequest request, CancellationToken ct = default)
     {
         // Lỗi 6: chuẩn hóa một lần, dùng cho cả check và lưu
         var code = request.SemesterCode.Trim();
+
+        if (request.EndDate < TodayInVietnam())
+            throw new BadRequestException("Không thể tạo kỳ học đã kết thúc: ngày kết thúc phải từ hôm nay trở đi.");
 
         var exists = await _uow.Repository<Semester>().QueryNoTracking()
             .AnyAsync(s => s.SemesterCode == code, ct);
@@ -69,6 +74,9 @@ public class SemesterService : ISemesterService
         var semester = await _uow.Repository<Semester>().Query()
             .FirstOrDefaultAsync(s => s.SemesterId == id, ct)
             ?? throw new NotFoundException("Kỳ học", id);
+
+        if (request.EndDate != semester.EndDate && request.EndDate < TodayInVietnam())
+            throw new BadRequestException("Ngày kết thúc mới không được ở quá khứ.");
 
         semester.Term = request.Term.Trim();
         semester.Year = request.Year;
