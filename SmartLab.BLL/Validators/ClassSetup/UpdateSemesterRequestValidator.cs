@@ -7,6 +7,9 @@ public class UpdateSemesterRequestValidator : AbstractValidator<UpdateSemesterRe
 {
     public UpdateSemesterRequestValidator()
     {
-        Include(new CreateSemesterRequestValidator());
+        RuleFor(x => x.StartDate)
+            .NotEmpty().WithMessage("Ngày bắt đầu là bắt buộc.");
+        RuleFor(x => x.EndDate).GreaterThan(x => x.StartDate)
+            .WithMessage("Ngày kết thúc phải sau ngày bắt đầu.");
     }
 }
