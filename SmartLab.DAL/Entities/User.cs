@@ -37,8 +37,6 @@ public partial class User
 
     public virtual ICollection<BorrowHandoverPhoto> BorrowHandoverPhotos { get; set; } = new List<BorrowHandoverPhoto>();
 
-    public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
-
     public virtual ICollection<BorrowRequest> BorrowRequests { get; set; } = new List<BorrowRequest>();
 
     public virtual ICollection<ComponentImage> ComponentImages { get; set; } = new List<ComponentImage>();

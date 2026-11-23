@@ -277,28 +277,22 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.BorrowRequestId, "ix_borrow_items_request_id");
 
-            entity.HasIndex(e => e.SourceRoomId, "ix_borrow_items_waiting_transfer").HasFilter("(received_at IS NULL)");
-
             entity.Property(e => e.BorrowItemId)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("borrow_item_id");
             entity.Property(e => e.BorrowRequestId).HasColumnName("borrow_request_id");
             entity.Property(e => e.ComponentId).HasColumnName("component_id");
             entity.Property(e => e.ComponentItemId).HasColumnName("component_item_id");
-            entity.Property(e => e.DispatchedAt).HasColumnName("dispatched_at");
             entity.Property(e => e.IssuedAt).HasColumnName("issued_at");
             entity.Property(e => e.Quantity)
                 .HasDefaultValue(1)
                 .HasColumnName("quantity");
-            entity.Property(e => e.ReceivedAt).HasColumnName("received_at");
-            entity.Property(e => e.ReceivedBy).HasColumnName("received_by");
             entity.Property(e => e.ReturnCondition)
                 .HasMaxLength(255)
                 .HasColumnName("return_condition");
             entity.Property(e => e.ReturnPhotoId).HasColumnName("return_photo_id");
             entity.Property(e => e.ReturnedAt).HasColumnName("returned_at");
             entity.Property(e => e.ReturnedQuantity).HasColumnName("returned_quantity");
-            entity.Property(e => e.SourceRoomId).HasColumnName("source_room_id");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Pending'::character varying")
@@ -317,17 +311,9 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.ComponentItemId)
                 .HasConstraintName("borrow_items_component_item_id_fkey");
 
-            entity.HasOne(d => d.ReceivedByNavigation).WithMany(p => p.BorrowItems)
-                .HasForeignKey(d => d.ReceivedBy)
-                .HasConstraintName("borrow_items_received_by_fkey");
-
             entity.HasOne(d => d.ReturnPhoto).WithMany(p => p.BorrowItems)
                 .HasForeignKey(d => d.ReturnPhotoId)
                 .HasConstraintName("borrow_items_return_photo_id_fkey");
-
-            entity.HasOne(d => d.SourceRoom).WithMany(p => p.BorrowItems)
-                .HasForeignKey(d => d.SourceRoomId)
-                .HasConstraintName("borrow_items_source_room_id_fkey");
         });
 
         modelBuilder.Entity<BorrowRequest>(entity =>

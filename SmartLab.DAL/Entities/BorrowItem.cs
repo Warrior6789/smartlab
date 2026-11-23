@@ -25,15 +25,7 @@ public partial class BorrowItem
 
     public int? ReturnedQuantity { get; set; }
 
-    public Guid? SourceRoomId { get; set; }
-
-    public DateTime? ReceivedAt { get; set; }
-
-    public Guid? ReceivedBy { get; set; }
-
     public Guid? ReturnPhotoId { get; set; }
-
-    public DateTime? DispatchedAt { get; set; }
 
     public virtual BorrowRequest BorrowRequest { get; set; } = null!;
 
@@ -43,9 +35,5 @@ public partial class BorrowItem
 
     public virtual ICollection<IssueReport> IssueReports { get; set; } = new List<IssueReport>();
 
-    public virtual User? ReceivedByNavigation { get; set; }
-
     public virtual BorrowHandoverPhoto? ReturnPhoto { get; set; }
-
-    public virtual LabRoom? SourceRoom { get; set; }
 }
