@@ -1,6 +1,6 @@
 namespace SmartLab.BLL.DTOs.Borrowing;
 
-/// <summary>Drops a replacement not handed over yet (e.g. the source lab found its unit broken too).</summary>
+/// <summary>Drops a replacement not handed over yet (e.g. the free unit turned out broken too).</summary>
 public class CancelReplacementRequest
 {
     /// <summary>The Pending replacement line.</summary>

@@ -37,7 +37,7 @@ public class BorrowNotifier : IBorrowNotifier
         var body =
             Greeting(info) +
             $"<p>Đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)} đã được giảng viên duyệt.</p>" +
-            $"<p>Nhân viên lab đang gom linh kiện về <b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b>. " +
+            $"<p>Nhân viên lab <b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b> đang kiểm tra linh kiện. " +
             "Hệ thống sẽ gửi mail tiếp khi đủ đồ để bạn đến nhận.</p>";
 
         await SendAsync(info, $"SmartLab - Đơn {info.RequestCode} đã được duyệt", body);
@@ -201,68 +201,14 @@ public class BorrowNotifier : IBorrowNotifier
 
         if (replacementLineId == null)
         {
-            body += "<p>Hiện không lab nào còn linh kiện này để đổi, nên đơn không có con thay thế.</p>";
+            body += $"<p>Lab {Encode(info.RoomCode)} hiện không còn linh kiện này để đổi, nên đơn không có con thay thế.</p>";
             await SendAsync(info, $"SmartLab - Không còn linh kiện để đổi cho đơn {info.RequestCode}", body);
             return;
         }
 
-        var replacement = await LoadReplacementAsync(replacementLineId.Value, ct);
-        if (replacement == null)
-            return;
-
-        string subject;
-        if (replacement.ReceivedAt != null)
-        {
-            subject = $"SmartLab - Món thay thế của đơn {info.RequestCode} đã sẵn sàng";
-            body += $"<p>Con thay thế đã có sẵn tại <b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b>. " +
-                    "Mời bạn đến nhận, nhớ mang theo <b>thẻ sinh viên</b>.</p>";
-        }
-        else
-        {
-            subject = $"SmartLab - Đang chuẩn bị món thay thế cho đơn {info.RequestCode}";
-            body += $"<p>Con thay thế đang được mang từ lab <b>{Encode(replacement.SourceRoomCode ?? string.Empty)}</b> về " +
-                    $"<b>{Encode(info.RoomCode)}</b>. Hệ thống sẽ gửi mail khi hàng tới để bạn đến nhận.</p>";
-        }
-        body += $"<p>Hạn trả vẫn là <b>{ToVietnamDate(info.DueDate)}</b>.</p>";
-
-        await SendAsync(info, subject, body);
-
-        if (replacement.ReceivedAt != null || replacement.SourceRoomId == null)
-            return;
-
-        var staff = await LoadStaffInfoAsync(borrowRequestId, ct);
-        if (staff == null)
-            return;
-
-        var line = new StaffLine(replacement.ComponentCode, replacement.ComponentName, replacement.Unit, 1,
-            replacement.SourceRoomId, replacement.SourceRoomCode, null);
-        var staffBody =
-            $"<p>Đơn mượn <b>{Encode(staff.RequestCode)}</b> của {RequesterText(staff)} cần đổi 1 con bị hỏng.</p>" +
-            $"<p>Lab <b>{Encode(replacement.SourceRoomCode ?? string.Empty)}</b> cần mang linh kiện sau sang " +
-            $"<b>{Encode(staff.RoomCode)} - {Encode(staff.RoomName)}</b>:</p>" +
-            LinesTable(new[] { line }) +
-            "<p>Nhân viên lab nhận đồ sẽ bấm \"Đã nhận\" khi hàng tới.</p>";
-
-        await SendToSourceLabAsync(staff, replacement.SourceRoomId.Value,
-            $"SmartLab - Chuyển món thay thế cho đơn {staff.RequestCode} sang {staff.RoomCode}", staffBody);
-    }
-
-    public async Task ReplacementArrivedAsync(Guid borrowRequestId, Guid replacementLineId, CancellationToken ct = default)
-    {
-        var info = await LoadAsync(borrowRequestId, ct);
-        if (info == null)
-            return;
-
-        var line = (await LoadLinesAsync(borrowRequestId, ct)).FirstOrDefault(l => l.BorrowItemId == replacementLineId);
-        if (line == null)
-            return;
-
-        var body =
-            Greeting(info) +
-            $"<p>Con <b>{Encode(line.ComponentName)}</b> thay thế cho đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)} " +
-            $"đã về tới <b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b>.</p>" +
-            "<p>Mời bạn đến nhận, nhớ mang theo <b>thẻ sinh viên</b>: nhân viên sẽ chụp ảnh linh kiện kèm thẻ khi giao.</p>" +
-            $"<p>Hạn trả vẫn là <b>{ToVietnamDate(info.DueDate)}</b>.</p>";
+        body += $"<p>Con thay thế đã có sẵn tại <b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b>. " +
+                "Mời bạn đến nhận, nhớ mang theo <b>thẻ sinh viên</b>.</p>" +
+                $"<p>Hạn trả vẫn là <b>{ToVietnamDate(info.DueDate)}</b>.</p>";
 
         await SendAsync(info, $"SmartLab - Món thay thế của đơn {info.RequestCode} đã sẵn sàng", body);
     }
@@ -289,8 +235,7 @@ public class BorrowNotifier : IBorrowNotifier
     }
 
     public async Task ReplacementCancelledAsync(
-        Guid borrowRequestId, string componentName, Guid? notCarriedFromRoomId, string reason, Guid cancelledBy,
-        CancellationToken ct = default)
+        Guid borrowRequestId, string componentName, string reason, CancellationToken ct = default)
     {
         var info = await LoadAsync(borrowRequestId, ct);
         if (info == null)
@@ -303,34 +248,7 @@ public class BorrowNotifier : IBorrowNotifier
             $"<p>Lý do: {Encode(reason)}</p>";
 
         await SendAsync(info, $"SmartLab - Món thay thế của đơn {info.RequestCode} đã bị hủy", body);
-
-        if (notCarriedFromRoomId == null)
-            return;
-
-        var staff = await LoadStaffInfoAsync(borrowRequestId, ct);
-        if (staff == null)
-            return;
-
-        var staffBody =
-            $"<p>Món thay thế <b>{Encode(componentName)}</b> của đơn mượn <b>{Encode(staff.RequestCode)}</b> " +
-            $"({RequesterText(staff)}) đã bị hủy.</p>" +
-            $"<p>Lý do: {Encode(reason)}</p>" +
-            $"<p>Lab của bạn <b>không cần</b> mang linh kiện này sang {Encode(staff.RoomCode)} nữa.</p>";
-
-        await SendToStaffAsync(staff, notCarriedFromRoomId.Value, cancelledBy,
-            $"SmartLab - Món thay thế của đơn {staff.RequestCode} đã hủy, không cần chuyển hàng", staffBody);
     }
-
-    private sealed record ReplacementLine(
-        string ComponentCode, string ComponentName, string Unit, Guid? SourceRoomId, string? SourceRoomCode, DateTime? ReceivedAt);
-
-    private Task<ReplacementLine?> LoadReplacementAsync(Guid borrowItemId, CancellationToken ct)
-        => _uow.Repository<BorrowItem>().QueryNoTracking()
-            .Where(i => i.BorrowItemId == borrowItemId)
-            .Select(i => new ReplacementLine(
-                i.Component.ComponentCode, i.Component.ComponentName, i.Component.Unit,
-                i.SourceRoomId, i.SourceRoom != null ? i.SourceRoom.RoomCode : null, i.ReceivedAt))
-            .FirstOrDefaultAsync(ct);
 
     public async Task DueSoonAsync(Guid borrowRequestId, CancellationToken ct = default)
     {
@@ -394,42 +312,12 @@ public class BorrowNotifier : IBorrowNotifier
         if (info == null)
             return;
 
-        var waiting = WaitingLines(info);
-        foreach (var source in waiting.GroupBy(l => l.SourceRoomId))
-        {
-            var first = source.First();
-            var body =
-                $"<p>Đơn mượn <b>{Encode(info.RequestCode)}</b> của {RequesterText(info)} vừa được giảng viên duyệt.</p>" +
-                $"<p>Lab <b>{Encode(first.SourceRoomCode)}</b> cần mang các linh kiện sau sang " +
-                $"<b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b>{BorrowDateText(info.BorrowDate, "trước ngày")}:</p>" +
-                LinesTable(source) +
-                "<p>Nhân viên lab nhận đồ sẽ bấm \"Đã nhận\" khi hàng tới.</p>";
+        var body =
+            $"<p>Đơn mượn <b>{Encode(info.RequestCode)}</b> của {RequesterText(info)} vừa được giảng viên duyệt, " +
+            $"linh kiện đang có tại <b>{Encode(info.RoomCode)}</b>. Hãy kiểm tra hàng rồi bấm \"Chấp nhận\" để báo sinh viên đến nhận:</p>" +
+            LinesTable(info.Lines);
 
-            await SendToSourceLabAsync(info, source.Key!.Value,
-                $"SmartLab - Chuyển linh kiện cho đơn {info.RequestCode} sang {info.RoomCode}", body);
-        }
-
-        string pickupBody;
-        string pickupSubject;
-        if (waiting.Count == 0)
-        {
-            pickupSubject = $"SmartLab - Đơn {info.RequestCode} chờ lab chấp nhận";
-            pickupBody =
-                $"<p>Đơn mượn <b>{Encode(info.RequestCode)}</b> của {RequesterText(info)} vừa được giảng viên duyệt, " +
-                $"linh kiện đang có tại <b>{Encode(info.RoomCode)}</b>. Hãy kiểm tra hàng rồi bấm \"Chấp nhận\" để báo sinh viên đến nhận:</p>" +
-                LinesTable(info.Lines);
-        }
-        else
-        {
-            pickupSubject = $"SmartLab - Đơn {info.RequestCode} đang chờ hàng chuyển về";
-            pickupBody =
-                $"<p>Đơn mượn <b>{Encode(info.RequestCode)}</b> của {RequesterText(info)} vừa được duyệt.</p>" +
-                $"<p>Các linh kiện dưới đây đang được mang từ lab khác sang <b>{Encode(info.RoomCode)}</b>. " +
-                "Khi hàng tới, hãy kiểm tra rồi bấm \"Đã nhận\" trong mục Hàng chờ chuyển, sau đó bấm \"Chấp nhận\" ở đơn mượn:</p>" +
-                LinesTable(waiting);
-        }
-
-        await SendToStaffAsync(info, info.RoomId, null, pickupSubject, pickupBody);
+        await SendToStaffAsync(info, info.RoomId, null, $"SmartLab - Đơn {info.RequestCode} chờ lab chấp nhận", body);
     }
 
     public async Task StaffCancelledAsync(Guid borrowRequestId, Guid cancelledBy, CancellationToken ct = default)
@@ -442,29 +330,15 @@ public class BorrowNotifier : IBorrowNotifier
         if (!string.IsNullOrWhiteSpace(info.Reason))
             reason = $"<p>Lý do: {Encode(info.Reason)}</p>";
 
-        foreach (var source in WaitingLines(info).GroupBy(l => l.SourceRoomId))
-        {
-            var body =
-                $"<p>Đơn mượn <b>{Encode(info.RequestCode)}</b> của {RequesterText(info)} đã bị hủy.</p>" + reason +
-                $"<p>Lab <b>{Encode(source.First().SourceRoomCode)}</b> <b>không cần</b> mang các linh kiện sau sang " +
-                $"{Encode(info.RoomCode)} nữa:</p>" +
-                LinesTable(source);
-
-            await SendToStaffAsync(info, source.Key!.Value, cancelledBy,
-                $"SmartLab - Đơn {info.RequestCode} đã hủy, không cần chuyển hàng", body);
-        }
-
         var pickupBody =
             $"<p>Đơn mượn <b>{Encode(info.RequestCode)}</b> của {RequesterText(info)} đã bị hủy, không cần chuẩn bị giao nữa.</p>" +
-            reason +
-            $"<p>Linh kiện đã mang về {Encode(info.RoomCode)} thì để lại tại lab.</p>";
+            reason;
 
         await SendToStaffAsync(info, info.RoomId, cancelledBy, $"SmartLab - Đơn {info.RequestCode} đã bị hủy", pickupBody);
     }
 
     private sealed record StaffLine(
-        string ComponentCode, string ComponentName, string Unit, int Quantity,
-        Guid? SourceRoomId, string? SourceRoomCode, DateTime? ReceivedAt);
+        string ComponentCode, string ComponentName, string Unit, int Quantity);
 
     private sealed record StaffMailInfo(
         Guid BorrowRequestId, string RequestCode, string RequesterName, string? StudentCode, Guid RoomId, string RoomCode,
@@ -480,46 +354,9 @@ public class BorrowNotifier : IBorrowNotifier
                 r.BorrowItems
                     .OrderBy(i => i.Component.ComponentName)
                     .Select(i => new StaffLine(
-                        i.Component.ComponentCode, i.Component.ComponentName, i.Component.Unit, i.Quantity,
-                        i.SourceRoomId, i.SourceRoom != null ? i.SourceRoom.RoomCode : null, i.ReceivedAt))
+                        i.Component.ComponentCode, i.Component.ComponentName, i.Component.Unit, i.Quantity))
                     .ToList()))
             .FirstOrDefaultAsync(ct);
-
-    private static List<StaffLine> WaitingLines(StaffMailInfo info)
-        => info.Lines
-            .Where(l => l.SourceRoomId.HasValue && l.SourceRoomId != info.RoomId && l.ReceivedAt == null)
-            .ToList();
-
-    /// <summary>Goods must leave this lab: its staff are told, or the inventory managers when it has none.</summary>
-    private async Task SendToSourceLabAsync(StaffMailInfo info, Guid roomId, string subject, string body)
-    {
-        var hasStaff = await _uow.Repository<LabRoomStaff>().QueryNoTracking()
-            .AnyAsync(s => s.RoomId == roomId && s.User.IsActive, CancellationToken.None);
-        if (hasStaff)
-        {
-            await SendToStaffAsync(info, roomId, null, subject, body);
-            return;
-        }
-
-        var managers = await _uow.Repository<User>().QueryNoTracking()
-            .Where(u => u.IsActive && u.UserRoles.Any(r => r.Role.RoleName == RoleNames.InventoryManager))
-            .Select(u => new { u.UserId, u.Email })
-            .ToListAsync(CancellationToken.None);
-
-        foreach (var manager in managers)
-        {
-            await _notifications.SendAsync(manager.UserId, subject, NotificationRefTypes.BorrowRequest, info.BorrowRequestId);
-
-            try
-            {
-                await _email.SendAsync(manager.Email, subject, body + "<p>Lab này chưa có Lab Staff phụ trách.</p>", CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Could not email manager {Email} about borrow request {Code}", manager.Email, info.RequestCode);
-            }
-        }
-    }
 
     private async Task SendToStaffAsync(StaffMailInfo info, Guid roomId, Guid? skipUserId, string subject, string body)
     {
@@ -557,11 +394,11 @@ public class BorrowNotifier : IBorrowNotifier
         foreach (var line in lines)
         {
             rows += $"<tr><td>{Encode(line.ComponentCode)}</td><td>{Encode(line.ComponentName)}</td>" +
-                    $"<td>{line.Quantity} {Encode(line.Unit)}</td><td>{Encode(line.SourceRoomCode ?? string.Empty)}</td></tr>";
+                    $"<td>{line.Quantity} {Encode(line.Unit)}</td></tr>";
         }
 
         return "<table border=\"1\" cellpadding=\"6\" style=\"border-collapse:collapse\">" +
-               "<tr><th>Mã</th><th>Linh kiện</th><th>Số lượng</th><th>Lấy từ</th></tr>" + rows + "</table>";
+               "<tr><th>Mã</th><th>Linh kiện</th><th>Số lượng</th></tr>" + rows + "</table>";
     }
 
     private static string BorrowDateText(DateTime? borrowDate, string prefix)

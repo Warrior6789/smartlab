@@ -192,7 +192,7 @@ public class ProjectReviewService : IProjectReviewService
 
         if (step.IsLast)
         {
-            await AllocateSourcesAsync(step, userId, now, ct);
+            await CheckStockAsync(step, ct);
 
             // Ready only comes from the lab: see IBorrowRequestService.LabAcceptAsync.
             await _uow.Repository<BorrowRequest>().Query()
@@ -367,11 +367,11 @@ public class ProjectReviewService : IProjectReviewService
     /// <summary>
     /// Approving reserves stock, so the checks of submitting run again (things may have changed since): every component is
     /// still in use, and the lab of the class's course alone can still lend every line (the request moves to that lab if
-    /// the Admin changed the course's lab meanwhile). Labs never pass components to each other: every line comes from that
-    /// lab and counts as received there, so its staff can accept the request right away. Every lab is locked first, so two
+    /// the Admin changed the course's lab meanwhile). Labs never pass components to each other, so the lab's staff can
+    /// accept the request right away. Every lab is locked first, so two
     /// approvals cannot both take the last units. Rejecting is always allowed.
     /// </summary>
-    private async Task AllocateSourcesAsync(CurrentStep step, Guid userId, DateTime now, CancellationToken ct)
+    private async Task CheckStockAsync(CurrentStep step, CancellationToken ct)
     {
         await RoomStock.LockAllRoomsAsync(_uow, ct);
 
@@ -422,15 +422,6 @@ public class ProjectReviewService : IProjectReviewService
                 $"Lab {roomCode} không còn đủ linh kiện (đã trừ các đơn đã duyệt chưa cấp): {string.Join("; ", shortages)}. " +
                 "Các lab không chuyển đồ cho nhau: hãy giảm số lượng khi duyệt, hoặc từ chối để nhóm đưa món thiếu vào danh sách tự mua.");
         }
-
-        foreach (var line in lines)
-        {
-            line.SourceRoomId = pickupRoomId;
-            line.ReceivedAt = now;
-            line.ReceivedBy = userId;
-        }
-
-        await _uow.SaveChangesAsync(ct);
     }
 
     /// <summary>

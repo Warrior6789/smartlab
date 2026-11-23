@@ -183,7 +183,6 @@ public class IssueReportBorrowingIntegrationService : IIssueReportBorrowingInteg
     private async Task<BorrowItem> FindBorrowItemAsync(Guid borrowItemId, CancellationToken ct)
         => await _uow.Repository<BorrowItem>().QueryNoTracking()
                .Include(item => item.BorrowRequest)
-               .Include(item => item.SourceRoom)
                .Include(item => item.ComponentItem)
                    .ThenInclude(componentItem => componentItem!.Component)
                .Include(item => item.ComponentItem)
@@ -198,10 +197,6 @@ public class IssueReportBorrowingIntegrationService : IIssueReportBorrowingInteg
         Guid actorId,
         CancellationToken ct)
     {
-        if (!borrowItem.SourceRoomId.HasValue || borrowItem.SourceRoom is null)
-            throw new ConflictException(
-                "Dòng mượn không có SourceRoomId hợp lệ; không được fallback sang phòng của BorrowRequest");
-
         if (borrowItem.ComponentItemId is null || borrowItem.ComponentItem is null)
             throw new ConflictException("Dòng mượn không liên kết ComponentItem hợp lệ");
 

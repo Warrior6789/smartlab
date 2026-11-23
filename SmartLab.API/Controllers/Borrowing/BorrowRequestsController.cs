@@ -31,7 +31,7 @@ public class BorrowRequestsController : ControllerBase
     }
 
     /// <summary>
-    /// Danh sách đơn cho nhân viên lab: đơn có lab nhận đồ hoặc lab chuyển hàng là lab mình phụ trách (Admin thấy tất cả).
+    /// Danh sách đơn cho nhân viên lab: đơn thuộc lab mình phụ trách (Admin thấy tất cả).
     /// Lọc theo trạng thái, quá hạn (overdue=true), tìm theo mã đơn, tên project, tên người mượn.
     /// </summary>
     [HttpGet]
@@ -46,7 +46,7 @@ public class BorrowRequestsController : ControllerBase
     }
 
     /// <summary>
-    /// Chi tiết đơn: các dòng linh kiện (lab chuyển hàng, đã nhận chưa, con nào đã giao), ảnh giao / trả, lịch sử duyệt.
+    /// Chi tiết đơn: các dòng linh kiện (con nào đã giao), ảnh giao / trả, lịch sử duyệt.
     /// Người mượn, nhóm, giảng viên của lớp, nhân viên lab liên quan và Admin xem được.
     /// </summary>
     [HttpGet("{id:guid}")]
@@ -167,7 +167,7 @@ public class BorrowRequestsController : ControllerBase
     }
 
     /// <summary>
-    /// Hủy món thay thế chưa giao (ví dụ lab chuyển hàng phát hiện con đó cũng hỏng), phải ghi lý do để gửi mail cho sinh
+    /// Hủy món thay thế chưa giao (ví dụ con đó cũng hỏng), phải ghi lý do để gửi mail cho sinh
     /// viên. Hàng đã mang về lab nhận đồ thì để luôn ở đó. Không còn gì đang mượn thì đơn thành Returned.
     /// </summary>
     [HttpPost("{id:guid}/replacements/cancel")]

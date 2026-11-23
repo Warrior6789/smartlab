@@ -41,7 +41,4 @@ public class BorrowRequestResponse
     public DateTime? ReturnedAt { get; set; }
 
     public int ItemCount { get; set; }
-
-    /// <summary>Lines still waiting to be carried from another lab to the pickup lab.</summary>
-    public int WaitingTransferCount { get; set; }
 }

@@ -11,8 +11,7 @@ namespace SmartLab.BLL.Services.Inventory;
 /// <summary>
 /// What a lab can still lend: stock in the lab's cabinets (CONSUMABLE quantity + Available units) minus what borrow
 /// requests reserve there: every line of an Approved or Ready request, and a replacement line of a request being borrowed
-/// (all of them still Pending, not issued yet). A reserved line holds stock in its source lab until the pickup lab receives
-/// it, then in the pickup lab. Used when submitting, approving and suggesting, so "còn" means the same everywhere.
+/// (all of them still Pending, not issued yet). A reserved line holds stock in the request's lab. Used when submitting, approving and suggesting, so "còn" means the same everywhere.
 /// </summary>
 internal static class RoomStock
 {
@@ -132,8 +131,7 @@ internal static class RoomStock
             .Where(i => shortIds.Contains(i.ComponentId)
                         && i.Status == BorrowItemStatuses.Pending
                         && HoldingStatuses.Contains(i.BorrowRequest.Status)
-                        && ((i.ReceivedAt == null && i.SourceRoomId == roomId)
-                            || (i.ReceivedAt != null && i.BorrowRequest.RoomId == roomId)))
+                        && i.BorrowRequest.RoomId == roomId)
             .Select(i => new { i.ComponentId, i.BorrowRequest.RequestCode })
             .Distinct()
             .ToListAsync(ct);
@@ -236,8 +234,7 @@ internal static class RoomStock
         var reservations = uow.Repository<BorrowItem>().QueryNoTracking()
             .Where(i => i.Status == BorrowItemStatuses.Pending
                         && HoldingStatuses.Contains(i.BorrowRequest.Status)
-                        && ((i.ReceivedAt == null && i.SourceRoomId == roomId)
-                            || (i.ReceivedAt != null && i.BorrowRequest.RoomId == roomId)));
+                        && i.BorrowRequest.RoomId == roomId);
 
         if (componentIds != null)
             reservations = reservations.Where(i => componentIds.Contains(i.ComponentId));
@@ -248,10 +245,7 @@ internal static class RoomStock
             .ToDictionaryAsync(x => x.ComponentId, x => x.Quantity, ct);
     }
 
-    /// <summary>
-    /// Reserved quantity per lab and component: lines not received yet count in their source lab, received lines in the
-    /// request's pickup lab.
-    /// </summary>
+    /// <summary>Reserved quantity per lab and component: every line counts in its request's lab.</summary>
     private static async Task<List<RoomQuantity>> GetReservedRowsAsync(
         IUnitOfWork uow, IReadOnlyCollection<Guid>? componentIds, CancellationToken ct)
     {
@@ -261,25 +255,10 @@ internal static class RoomStock
         if (componentIds != null)
             lines = lines.Where(i => componentIds.Contains(i.ComponentId));
 
-        var waiting = await lines
-            .Where(i => i.ReceivedAt == null && i.SourceRoomId != null)
-            .GroupBy(i => new { RoomId = i.SourceRoomId!.Value, i.ComponentId })
-            .Select(g => new { g.Key.RoomId, g.Key.ComponentId, Quantity = g.Sum(i => i.Quantity) })
-            .ToListAsync(ct);
-
-        var received = await lines
-            .Where(i => i.ReceivedAt != null)
+        return await lines
             .GroupBy(i => new { i.BorrowRequest.RoomId, i.ComponentId })
-            .Select(g => new { g.Key.RoomId, g.Key.ComponentId, Quantity = g.Sum(i => i.Quantity) })
+            .Select(g => new RoomQuantity(g.Key.RoomId, g.Key.ComponentId, g.Sum(i => i.Quantity)))
             .ToListAsync(ct);
-
-        var rows = new List<RoomQuantity>();
-        foreach (var row in waiting)
-            rows.Add(new RoomQuantity(row.RoomId, row.ComponentId, row.Quantity));
-        foreach (var row in received)
-            rows.Add(new RoomQuantity(row.RoomId, row.ComponentId, row.Quantity));
-
-        return rows;
     }
 
     /// <summary>

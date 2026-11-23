@@ -22,17 +22,6 @@ public class BorrowItemResponse
     /// <summary>Pending, Issued, Returned, Damaged or Lost.</summary>
     public string Status { get; set; } = string.Empty;
 
-    /// <summary>Lab the line is taken from (set when the request is approved).</summary>
-    public Guid? SourceRoomId { get; set; }
-
-    public string? SourceRoomCode { get; set; }
-
-    /// <summary>When the pickup lab received the line; null while it still has to be carried over.</summary>
-    public DateTime? ReceivedAt { get; set; }
-
-    /// <summary>When the source lab sent the line; null while it has not left yet.</summary>
-    public DateTime? DispatchedAt { get; set; }
-
     public Guid? ComponentItemId { get; set; }
 
     public string? ItemCode { get; set; }

@@ -83,10 +83,7 @@ public class BorrowRequestService : IBorrowRequestService
         if (!_currentUser.IsInRole(RoleNames.Admin))
         {
             var myRooms = MyRoomIds();
-            requests = query.PickupOnly == true
-                ? requests.Where(r => myRooms.Contains(r.RoomId))
-                : requests.Where(r => myRooms.Contains(r.RoomId)
-                                      || r.BorrowItems.Any(i => i.SourceRoomId != null && myRooms.Contains(i.SourceRoomId.Value)));
+            requests = requests.Where(r => myRooms.Contains(r.RoomId));
         }
 
         return ToPagedResponses(Filter(requests, query), paging, ct);
@@ -122,7 +119,6 @@ public class BorrowRequestService : IBorrowRequestService
                        DueDate = r.DueDate,
                        ReturnedAt = r.ReturnedAt,
                        ItemCount = r.BorrowItems.Select(i => i.ComponentId).Distinct().Count(),
-                       WaitingTransferCount = r.BorrowItems.Count(i => i.SourceRoomId != null && i.ReceivedAt == null),
                        Purpose = r.Purpose,
                        RejectReason = r.RejectReason,
                        Items = r.BorrowItems
@@ -137,10 +133,6 @@ public class BorrowRequestService : IBorrowRequestService
                                Unit = i.Component.Unit,
                                Quantity = i.Quantity,
                                Status = i.Status,
-                               SourceRoomId = i.SourceRoomId,
-                               SourceRoomCode = i.SourceRoom != null ? i.SourceRoom.RoomCode : null,
-                               ReceivedAt = i.ReceivedAt,
-                               DispatchedAt = i.DispatchedAt,
                                ComponentItemId = i.ComponentItemId,
                                ItemCode = i.ComponentItem != null ? i.ComponentItem.ItemCode : null,
                                SerialNumber = i.ComponentItem != null ? i.ComponentItem.SerialNumber : null,
@@ -241,7 +233,7 @@ public class BorrowRequestService : IBorrowRequestService
                            r.Status,
                            r.RoomId,
                            StudentCode = r.Requester.StudentProfile != null ? r.Requester.StudentProfile.StudentCode : null,
-                           ReplacementReady = r.BorrowItems.Any(i => i.Status == BorrowItemStatuses.Pending && i.ReceivedAt != null),
+                           ReplacementReady = r.BorrowItems.Any(i => i.Status == BorrowItemStatuses.Pending),
                        })
                        .FirstOrDefaultAsync(ct)
                    ?? throw new NotFoundException("Không tìm thấy đơn mượn");
@@ -430,9 +422,6 @@ public class BorrowRequestService : IBorrowRequestService
                     {
                         BorrowRequestId = line.BorrowRequestId,
                         ComponentId = line.ComponentId,
-                        SourceRoomId = line.SourceRoomId,
-                        ReceivedAt = line.ReceivedAt,
-                        ReceivedBy = line.ReceivedBy,
                     };
                     await borrowItems.AddAsync(target, ct);
                 }
@@ -666,9 +655,8 @@ public class BorrowRequestService : IBorrowRequestService
         line.ReturnedAt = now;
         line.ReturnCondition = ReturnConditions.Damaged;
 
-        var sourceRoomId = await PickReplacementRoomAsync(line.ComponentId, header.RoomId, ct);
         BorrowItem? replacement = null;
-        if (sourceRoomId != null)
+        if (await HasFreeUnitAsync(line.ComponentId, header.RoomId, ct))
         {
             replacement = new BorrowItem
             {
@@ -676,13 +664,7 @@ public class BorrowRequestService : IBorrowRequestService
                 ComponentId = line.ComponentId,
                 Status = BorrowItemStatuses.Pending,
                 Quantity = 1,
-                SourceRoomId = sourceRoomId,
             };
-            if (sourceRoomId == header.RoomId)
-            {
-                replacement.ReceivedAt = now;
-                replacement.ReceivedBy = userId;
-            }
             await _uow.Repository<BorrowItem>().AddAsync(replacement, ct);
         }
 
@@ -699,21 +681,13 @@ public class BorrowRequestService : IBorrowRequestService
             Request = await GetRequestByIdAsync(borrowRequestId, ct),
         };
         if (replacement != null)
-        {
             response.ReplacementBorrowItemId = replacement.BorrowItemId;
-            response.SourceRoomId = replacement.SourceRoomId;
-            response.SourceRoomCode = await _uow.Repository<LabRoom>().QueryNoTracking()
-                .Where(r => r.RoomId == replacement.SourceRoomId)
-                .Select(r => r.RoomCode)
-                .FirstAsync(ct);
-            response.WaitingTransfer = replacement.ReceivedAt == null;
-        }
 
         return response;
     }
 
     /// <summary>
-    /// Hands a replacement unit over: the line must be at the pickup lab, with an Issue photo taken after it got there
+    /// Hands a replacement unit over, with an Issue photo taken after the last broken unit was swapped
     /// (the staff gives a reason when the AI did not confirm the card). The unit becomes Borrowed, logged as Borrow.
     /// The due date does not change.
     /// </summary>
@@ -730,14 +704,15 @@ public class BorrowRequestService : IBorrowRequestService
         await EnsurePickupStaffAsync(header.RoomId, ct);
 
         var line = await FindReplacementAsync(borrowRequestId, request.BorrowItemId, ct);
-        if (line.ReceivedAt == null)
-            throw new ConflictException("Món thay thế chưa được chuyển về lab của đơn");
+        var lastSwapAt = await _uow.Repository<BorrowItem>().QueryNoTracking()
+            .Where(i => i.BorrowRequestId == borrowRequestId && i.Status == BorrowItemStatuses.Damaged)
+            .MaxAsync(i => i.ReturnedAt, ct);
 
         var photo = await _uow.Repository<BorrowHandoverPhoto>().Query()
                         .FirstOrDefaultAsync(p => p.PhotoId == request.PhotoId
                                                   && p.BorrowRequestId == borrowRequestId
                                                   && p.PhotoType == HandoverPhotoTypes.Issue
-                                                  && p.TakenAt >= line.ReceivedAt, ct)
+                                                  && p.TakenAt >= lastSwapAt, ct)
                     ?? throw new BadRequestException(
                         "Không tìm thấy ảnh giao món thay thế. Hãy chụp ảnh con thay thế kèm thẻ sinh viên trước khi giao.");
         if (photo.AiResult != StudentCardCheckResults.Match)
@@ -787,9 +762,8 @@ public class BorrowRequestService : IBorrowRequestService
     }
 
     /// <summary>
-    /// Drops a replacement not handed over yet, with a reason emailed to the borrower (e.g. the source lab found its unit
-    /// broken too). A unit already carried to the pickup lab stays there. The request becomes Returned if nothing else is
-    /// out.
+    /// Drops a replacement not handed over yet, with a reason emailed to the borrower (e.g. the free unit turned out broken
+    /// too). The request becomes Returned if nothing else is out.
     /// </summary>
     public async Task<BorrowRequestDetailResponse> CancelReplacementAsync(
         Guid borrowRequestId, CancelReplacementRequest request, CancellationToken ct = default)
@@ -805,9 +779,6 @@ public class BorrowRequestService : IBorrowRequestService
 
         var line = await FindReplacementAsync(borrowRequestId, request.BorrowItemId, ct);
         var componentName = line.Component.ComponentName;
-        Guid? notCarriedFrom = null;
-        if (line.ReceivedAt == null)
-            notCarriedFrom = line.SourceRoomId;
 
         _uow.Repository<BorrowItem>().Remove(line);
         await _uow.SaveChangesAsync(ct);
@@ -815,7 +786,7 @@ public class BorrowRequestService : IBorrowRequestService
 
         await tx.CommitAsync(ct);
 
-        await _notifier.ReplacementCancelledAsync(borrowRequestId, componentName, notCarriedFrom, request.Reason.Trim(), userId, ct);
+        await _notifier.ReplacementCancelledAsync(borrowRequestId, componentName, request.Reason.Trim(), ct);
         await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
@@ -823,7 +794,7 @@ public class BorrowRequestService : IBorrowRequestService
 
     /// <summary>
     /// The pickup lab checked the goods after the lecturer approved: Approved becomes Ready and the student is told to come.
-    /// All lines must have arrived first. If the goods are not usable, staff cancel the request instead (<see cref="CancelAsync"/>).
+    /// If the goods are not usable, staff cancel the request instead (<see cref="CancelAsync"/>).
     /// </summary>
     public async Task<BorrowRequestDetailResponse> LabAcceptAsync(Guid borrowRequestId, CancellationToken ct = default)
     {
@@ -833,11 +804,6 @@ public class BorrowRequestService : IBorrowRequestService
             "Chỉ chấp nhận đơn đã được giảng viên duyệt", ct);
         var header = await GetHeaderAsync(borrowRequestId, ct);
         await EnsurePickupStaffAsync(header.RoomId, ct);
-
-        var waiting = await _uow.Repository<BorrowItem>().QueryNoTracking()
-            .AnyAsync(i => i.BorrowRequestId == borrowRequestId && i.ReceivedAt == null, ct);
-        if (waiting)
-            throw new ConflictException("Còn linh kiện đang chuyển về lab, hãy xác nhận đã nhận trước");
 
         await _uow.Repository<BorrowRequest>().Query()
             .Where(r => r.BorrowRequestId == borrowRequestId)
@@ -853,9 +819,8 @@ public class BorrowRequestService : IBorrowRequestService
 
     /// <summary>
     /// Cancels an Approved or Ready request (nothing handed over yet): the borrower, staff of the pickup lab or an Admin.
-    /// Staff must give a reason (e.g. a source lab found components broken or lost after approval); it is saved in
-    /// RejectReason and emailed to the borrower. The reservation ends; components already carried to the pickup lab stay
-    /// there. When no other approved request of the project is left, the project goes back to Draft (and a supplementary
+    /// Staff must give a reason (e.g. the lab found components broken or lost after approval); it is saved in
+    /// RejectReason and emailed to the borrower. The reservation ends. When no other approved request of the project is left, the project goes back to Draft (and a supplementary
     /// request still waiting is cancelled) so the team can change it and submit again; cancelling a supplementary request
     /// while the first one stands keeps the project Approved.
     /// </summary>
@@ -960,17 +925,14 @@ public class BorrowRequestService : IBorrowRequestService
     }
 
     /// <summary>
-    /// The request's lab when it has a free unit of the component; null otherwise (the student goes without, since labs
-    /// never pass components to each other). Free means not reserved (see RoomStock). The lab must already be locked.
+    /// True when the request's lab has a free unit of the component; otherwise the student goes without, since labs
+    /// never pass components to each other. Free means not reserved (see RoomStock). The lab must already be locked.
     /// </summary>
-    private async Task<Guid?> PickReplacementRoomAsync(Guid componentId, Guid pickupRoomId, CancellationToken ct)
+    private async Task<bool> HasFreeUnitAsync(Guid componentId, Guid roomId, CancellationToken ct)
     {
         var byRoom = await RoomStock.GetAvailableByRoomAsync(_uow, new[] { componentId }, ct);
 
-        if (byRoom.TryGetValue(pickupRoomId, out var pickup) && pickup.GetValueOrDefault(componentId) > 0)
-            return pickupRoomId;
-
-        return null;
+        return byRoom.TryGetValue(roomId, out var room) && room.GetValueOrDefault(componentId) > 0;
     }
 
     /// <summary>A Pending replacement line of the request (tracked, with its component); otherwise 404 / 409.</summary>
@@ -1056,8 +1018,7 @@ public class BorrowRequestService : IBorrowRequestService
                                                             && tm.Status == TeamMemberStatuses.Accepted)))
             || (r.Class != null && r.Class.Instructor != null && r.Class.Instructor.UserId == userId)
             || r.BorrowApprovals.Any(a => a.ApproverId == userId)
-            || (isStaff && (myRooms.Contains(r.RoomId)
-                            || r.BorrowItems.Any(i => i.SourceRoomId != null && myRooms.Contains(i.SourceRoomId.Value)))));
+            || (isStaff && myRooms.Contains(r.RoomId)));
     }
 
     private static IQueryable<BorrowRequest> Filter(IQueryable<BorrowRequest> requests, BorrowRequestQueryParams query)
@@ -1123,7 +1084,6 @@ public class BorrowRequestService : IBorrowRequestService
                 DueDate = r.DueDate,
                 ReturnedAt = r.ReturnedAt,
                 ItemCount = r.BorrowItems.Select(i => i.ComponentId).Distinct().Count(),
-                WaitingTransferCount = r.BorrowItems.Count(i => i.SourceRoomId != null && i.ReceivedAt == null),
             });
 
         return PagedResult<BorrowRequestResponse>.CreateAsync(result, paging, ct);

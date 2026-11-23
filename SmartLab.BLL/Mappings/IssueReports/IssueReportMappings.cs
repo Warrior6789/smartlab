@@ -109,7 +109,6 @@ public static class IssueReportMappings
         BorrowRequest? request = borrowItem.BorrowRequest;
         User? requester = request?.Requester;
         Class? @class = request?.Class;
-        LabRoom? sourceRoom = borrowItem.SourceRoom;
 
         return new IssueReportBorrowContextResponse
         {
@@ -123,8 +122,8 @@ public static class IssueReportMappings
             RequesterFullName = requester?.FullName,
             ClassId = request?.ClassId,
             ClassCode = @class?.ClassCode,
-            SourceRoomId = borrowItem.SourceRoomId,
-            SourceRoomCode = sourceRoom?.RoomCode,
+            RoomId = request?.RoomId,
+            RoomCode = request?.Room?.RoomCode,
         };
     }
 }

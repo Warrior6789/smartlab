@@ -12,6 +12,6 @@ public class IssueReportBorrowContextResponse
     public string? RequesterFullName { get; set; }
     public Guid? ClassId { get; set; }
     public string? ClassCode { get; set; }
-    public Guid? SourceRoomId { get; set; }
-    public string? SourceRoomCode { get; set; }
+    public Guid? RoomId { get; set; }
+    public string? RoomCode { get; set; }
 }

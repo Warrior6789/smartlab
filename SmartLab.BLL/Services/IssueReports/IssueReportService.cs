@@ -524,7 +524,8 @@ public class IssueReportService : IIssueReportService
                 .ThenInclude(borrowItem => borrowItem!.BorrowRequest)
                     .ThenInclude(request => request.Class)
             .Include(report => report.BorrowItem)
-                .ThenInclude(borrowItem => borrowItem!.SourceRoom)
+                .ThenInclude(borrowItem => borrowItem!.BorrowRequest)
+                    .ThenInclude(request => request.Room)
             .AsSplitQuery();
 
     private IQueryable<IssueReport> ListQuery()

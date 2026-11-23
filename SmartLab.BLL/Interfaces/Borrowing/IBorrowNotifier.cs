@@ -9,7 +9,7 @@ public interface IBorrowNotifier
     /// <summary>A new request waits for approval: tells the lecturer of the pending approval step.</summary>
     Task SubmittedAsync(Guid borrowRequestId, CancellationToken ct = default);
 
-    /// <summary>Approved, but components still have to be carried from other labs to the pickup lab.</summary>
+    /// <summary>Approved by the lecturer: the lab checks the goods, another mail follows when the request is Ready.</summary>
     Task ApprovedAsync(Guid borrowRequestId, CancellationToken ct = default);
 
     Task RejectedAsync(Guid borrowRequestId, CancellationToken ct = default);
@@ -27,25 +27,16 @@ public interface IBorrowNotifier
     Task ReturnedAsync(Guid borrowRequestId, IReadOnlyCollection<Guid> returnedLineIds, CancellationToken ct = default);
 
     /// <summary>
-    /// A broken unit was swapped: tells the borrower the replacement is ready at the pickup lab, is being carried from
-    /// another lab, or that no lab has one left (<paramref name="replacementLineId"/> null). When it must be carried over,
-    /// also tells the staff of the source lab.
+    /// A broken unit was swapped: tells the borrower the replacement is ready at the request's lab, or that the lab has none
+    /// left (<paramref name="replacementLineId"/> null).
     /// </summary>
     Task ReplacementAsync(Guid borrowRequestId, Guid damagedLineId, Guid? replacementLineId, CancellationToken ct = default);
-
-    /// <summary>A replacement carried from another lab reached the pickup lab: come and pick it up with the student card.</summary>
-    Task ReplacementArrivedAsync(Guid borrowRequestId, Guid replacementLineId, CancellationToken ct = default);
 
     /// <summary>Receipt after handing a replacement unit over.</summary>
     Task ReplacementIssuedAsync(Guid borrowRequestId, Guid replacementLineId, CancellationToken ct = default);
 
-    /// <summary>
-    /// A replacement was dropped: tells the borrower with the reason, and the source lab (when the unit was not carried
-    /// over yet, <paramref name="notCarriedFromRoomId"/>) that it no longer needs to bring it.
-    /// </summary>
-    Task ReplacementCancelledAsync(
-        Guid borrowRequestId, string componentName, Guid? notCarriedFromRoomId, string reason, Guid cancelledBy,
-        CancellationToken ct = default);
+    /// <summary>A replacement was dropped: tells the borrower with the reason.</summary>
+    Task ReplacementCancelledAsync(Guid borrowRequestId, string componentName, string reason, CancellationToken ct = default);
 
     /// <summary>The due date is tomorrow and components are still out.</summary>
     Task DueSoonAsync(Guid borrowRequestId, CancellationToken ct = default);
@@ -57,14 +48,12 @@ public interface IBorrowNotifier
     Task CancelledByStaffAsync(Guid borrowRequestId, CancellationToken ct = default);
 
     /// <summary>
-    /// Tells lab staff about a newly approved request: staff of each source lab get the lines they must carry to the
-    /// pickup lab, staff of the pickup lab get the whole request (what is coming from where, or that it is ready).
+    /// Tells the request's lab staff about a newly approved request so they check the goods and accept it.
     /// </summary>
     Task StaffApprovedAsync(Guid borrowRequestId, CancellationToken ct = default);
 
     /// <summary>
-    /// Tells lab staff that a request was cancelled: source labs with lines not yet carried over no longer need to bring
-    /// them, and the pickup lab staff (except the one who cancelled) stop preparing it.
+    /// Tells the request's lab staff (except the one who cancelled) that a request was cancelled.
     /// </summary>
     Task StaffCancelledAsync(Guid borrowRequestId, Guid cancelledBy, CancellationToken ct = default);
 
