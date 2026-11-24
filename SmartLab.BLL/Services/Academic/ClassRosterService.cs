@@ -14,6 +14,7 @@ using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.External.Email;
 using SmartLab.BLL.External.Security;
 using SmartLab.BLL.Interfaces.Academic;
+using SmartLab.BLL.Interfaces.Borrowing;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
 
@@ -25,14 +26,17 @@ public class ClassRosterService : IClassRosterService
     private readonly IPasswordHasher _passwordHasher;
     private readonly IEmailSender _email;
     private readonly ICurrentUserService _currentUser;
+    private readonly IBorrowNotifier _borrowNotifier;
 
     public ClassRosterService(
-        IUnitOfWork uow, IPasswordHasher passwordHasher, IEmailSender email, ICurrentUserService currentUser)
+        IUnitOfWork uow, IPasswordHasher passwordHasher, IEmailSender email, ICurrentUserService currentUser,
+        IBorrowNotifier borrowNotifier)
     {
         _uow = uow;
         _passwordHasher = passwordHasher;
         _email = email;
         _currentUser = currentUser;
+        _borrowNotifier = borrowNotifier;
     }
 
     private sealed record RosterRow(string StudentCode, string FullName, string Email, string? Major, string? Cohort);
@@ -548,7 +552,16 @@ public class ClassRosterService : IClassRosterService
 
         // 4. Gán instructor vào lớp
         classEntity.InstructorId = instructorProfile.InstructorProfileId;
-        await _uow.SaveChangesAsync(ct);
+        List<Guid> movedRequestIds;
+        await using (var tx = await _uow.BeginTransactionAsync(ct))
+        {
+            await _uow.SaveChangesAsync(ct);
+            movedRequestIds = await PendingApprovals.MoveToLecturerAsync(_uow, classEntity.ClassId, user.UserId, ct);
+            await tx.CommitAsync(ct);
+        }
+
+        foreach (var requestId in movedRequestIds)
+            await _borrowNotifier.SubmittedAsync(requestId, ct);
 
         return new AssignInstructorResponse
         {

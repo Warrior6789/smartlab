@@ -5,6 +5,7 @@ using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.ClassSetupDTO;
 using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.Interfaces.Academic;
+using SmartLab.BLL.Interfaces.Borrowing;
 using SmartLab.BLL.Mappings.Academic;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
@@ -15,11 +16,13 @@ public class ClassService : IClassService
 {
     private readonly IUnitOfWork _uow;
     private readonly ICurrentUserService _currentUser;
+    private readonly IBorrowNotifier _borrowNotifier;
 
-    public ClassService(IUnitOfWork uow, ICurrentUserService currentUser)
+    public ClassService(IUnitOfWork uow, ICurrentUserService currentUser, IBorrowNotifier borrowNotifier)
     {
         _uow = uow;
         _currentUser = currentUser;
+        _borrowNotifier = borrowNotifier;
     }
 
     // Query helper — luôn include đủ để mapping
@@ -216,12 +219,14 @@ public class ClassService : IClassService
         if (!courseExists)
             throw new NotFoundException("Môn học", request.CourseId);
 
+        Guid? lecturerUserId = null;
         if (request.InstructorId.HasValue)
         {
-            var instructorExists = await _uow.Repository<InstructorProfile>().QueryNoTracking()
-                .AnyAsync(i => i.InstructorProfileId == request.InstructorId.Value, ct);
-            if (!instructorExists)
-                throw new NotFoundException("Giảng viên", request.InstructorId.Value);
+            lecturerUserId = await _uow.Repository<InstructorProfile>().QueryNoTracking()
+                                 .Where(i => i.InstructorProfileId == request.InstructorId.Value)
+                                 .Select(i => (Guid?)i.UserId)
+                                 .FirstOrDefaultAsync(ct)
+                             ?? throw new NotFoundException("Giảng viên", request.InstructorId.Value);
         }
 
         // Lỗi 9b: không được hạ MaxStudents xuống dưới số SV đang học
@@ -235,9 +240,21 @@ public class ClassService : IClassService
         entity.ClassCode = request.ClassCode.Trim();
         entity.CourseId = request.CourseId;          // Lỗi 9a: bổ sung dòng bị thiếu
         entity.MaxStudents = request.MaxStudents;
-        entity.InstructorId = request.InstructorId;
+        if (request.InstructorId.HasValue)
+            entity.InstructorId = request.InstructorId;
 
-        await _uow.SaveChangesAsync(ct);
+        var movedRequestIds = new List<Guid>();
+        await using (var tx = await _uow.BeginTransactionAsync(ct))
+        {
+            await _uow.SaveChangesAsync(ct);
+            if (lecturerUserId.HasValue)
+                movedRequestIds = await PendingApprovals.MoveToLecturerAsync(_uow, id, lecturerUserId.Value, ct);
+            await tx.CommitAsync(ct);
+        }
+
+        foreach (var requestId in movedRequestIds)
+            await _borrowNotifier.SubmittedAsync(requestId, ct);
+
         return ClassSetupMappings.ToResponse(entity);
     }
 

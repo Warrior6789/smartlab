@@ -116,6 +116,13 @@ public class LabRoomService : ILabRoomService
         if (assigned)
             throw new ConflictException("Nhân viên đã được phân công ở phòng này");
 
+        var otherRoom = await assignments.QueryNoTracking()
+            .Where(s => s.UserId == request.UserId)
+            .Select(s => s.Room.RoomName)
+            .FirstOrDefaultAsync(ct);
+        if (otherRoom != null)
+            throw new ConflictException($"Nhân viên đang phụ trách {otherRoom}. Mỗi nhân viên chỉ phụ trách 1 phòng, hãy gỡ khỏi phòng đó trước");
+
         try
         {
             await assignments.AddAsync(new LabRoomStaff
