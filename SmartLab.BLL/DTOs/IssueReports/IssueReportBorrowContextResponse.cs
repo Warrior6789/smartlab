@@ -10,6 +10,7 @@ public class IssueReportBorrowContextResponse
     public string? BorrowRequestCode { get; set; }
     public Guid? RequesterId { get; set; }
     public string? RequesterFullName { get; set; }
+    public string? RequesterStudentCode { get; set; }
     public Guid? ClassId { get; set; }
     public string? ClassCode { get; set; }
     public Guid? RoomId { get; set; }

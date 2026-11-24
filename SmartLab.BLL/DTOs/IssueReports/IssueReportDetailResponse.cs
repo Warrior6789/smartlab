@@ -7,4 +7,7 @@ public class IssueReportDetailResponse : IssueReportListItemResponse
     public IssueReportActorResponse? ResolvedBy { get; set; }
     public IssueReportItemResponse? Item { get; set; }
     public IssueReportBorrowContextResponse? BorrowContext { get; set; }
+
+    /// <summary>Only in the create response: the replacement line added to the borrow request, if any.</summary>
+    public Guid? ReplacementBorrowItemId { get; set; }
 }

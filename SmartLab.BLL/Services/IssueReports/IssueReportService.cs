@@ -4,11 +4,14 @@ using Microsoft.Extensions.Logging;
 using SmartLab.BLL.Common;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
+using SmartLab.BLL.DTOs.Borrowing;
 using SmartLab.BLL.DTOs.IssueReports;
 using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.External.Storage;
+using SmartLab.BLL.Interfaces.Borrowing;
 using SmartLab.BLL.Interfaces.IssueReports;
 using SmartLab.BLL.Mappings.IssueReports;
+using SmartLab.BLL.Services.Inventory;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
 
@@ -30,20 +33,66 @@ public class IssueReportService : IIssueReportService
     private readonly IUnitOfWork _uow;
     private readonly ICurrentUserService _currentUser;
     private readonly IFileStorage _fileStorage;
+    private readonly IBorrowRequestService _borrowRequests;
     private readonly ILogger<IssueReportService> _logger;
 
     public IssueReportService(
         IUnitOfWork uow,
         ICurrentUserService currentUser,
         IFileStorage fileStorage,
+        IBorrowRequestService borrowRequests,
         ILogger<IssueReportService> logger)
     {
         _uow = uow;
         _currentUser = currentUser;
         _fileStorage = fileStorage;
+        _borrowRequests = borrowRequests;
         _logger = logger;
     }
 
+    /// <summary>
+    /// The unit with this item code or serial, and who is borrowing it. Fails with the same errors as
+    /// <see cref="CreateAsync"/>, so the form tells them right after scanning.
+    /// </summary>
+    public async Task<IssueReportLookupResponse> LookupAsync(string? code, CancellationToken ct = default)
+    {
+        var userId = GetCurrentUserId();
+        var keyword = code?.Trim().ToLower();
+        if (string.IsNullOrWhiteSpace(keyword))
+            throw new BadRequestException("Nhập hoặc quét mã thiết bị");
+
+        var item = await ItemQuery()
+                       .Where(candidate => candidate.ItemCode.ToLower() == keyword ||
+                                           (candidate.SerialNumber != null && candidate.SerialNumber.ToLower() == keyword))
+                       .OrderByDescending(candidate => candidate.Status == ComponentItemAvailable ||
+                                                       candidate.Status == ComponentItemBorrowed)
+                       .ThenByDescending(candidate => candidate.ImportedAt)
+                       .FirstOrDefaultAsync(ct)
+                   ?? throw new NotFoundException("Không tìm thấy thiết bị có mã hoặc serial này");
+
+        var activeBorrowItem = await EnsureCanReportAsync(item, userId, ct);
+        var freeUnits = 0;
+        if (activeBorrowItem is not null)
+        {
+            var byRoom = await RoomStock.GetAvailableByRoomAsync(_uow, new[] { item.ComponentId }, ct);
+            if (byRoom.TryGetValue(activeBorrowItem.BorrowRequest.RoomId, out var room))
+                freeUnits = room.GetValueOrDefault(item.ComponentId);
+        }
+
+        return new IssueReportLookupResponse
+        {
+            Item = IssueReportMappings.ToItemResponse(item)!,
+            BorrowContext = IssueReportMappings.ToBorrowContextResponse(activeBorrowItem),
+            ConfirmsImmediately = await CanConfirmAsync(item, userId, ct),
+            FreeReplacementUnits = freeUnits,
+        };
+    }
+
+    /// <summary>
+    /// Lab staff have the unit in hand, so their report is Confirmed at once: a lent unit closes its borrow line (with a
+    /// replacement when asked for), a unit in its cabinet leaves the stock. An inventory manager's report stays Open until
+    /// the lab staff check it.
+    /// </summary>
     public async Task<IssueReportDetailResponse> CreateAsync(
         CreateIssueReportRequest request,
         CancellationToken ct = default)
@@ -58,90 +107,159 @@ public class IssueReportService : IIssueReportService
             throw new BadRequestException("Mô tả sự cố không được vượt quá 1000 ký tự");
 
         var item = await FindItemAsync(request.ComponentItemId, request.ItemCode, ct);
-        EnsureInventoryManagerCreateStatus(item);
-        var activeBorrowItem = await ResolveActiveBorrowItemAsync(item, ct);
-        await EnsureCanCreateAsync(item, activeBorrowItem, userId, ct);
+        var activeBorrowItem = await EnsureCanReportAsync(item, userId, ct);
+        if (request.Replace && activeBorrowItem is null)
+            throw new BadRequestException("Chỉ đổi con khác khi thiết bị đang được mượn");
 
-        if (await HasOpenReportAsync(item.ItemId, ct))
-            throw new ConflictException("Linh kiện này đã có báo cáo sự cố đang chờ xử lý");
-        EnsureSupportedItem(item);
+        var confirmNow = await CanConfirmAsync(item, userId, ct);
+        if (activeBorrowItem is not null && !confirmNow)
+            throw new ForbiddenException("Chỉ LabStaff phụ trách đúng lab hoặc Admin được ghi nhận thiết bị đang mượn");
 
-        StoredFile? uploadedImage = null;
-        var databaseCommitted = false;
-
+        var image = await UploadImageAsync(request, ct);
+        Guid reportId;
+        Guid? replacementId = null;
         try
         {
-            if (request.Image is not null)
+            if (activeBorrowItem is not null)
             {
-                await using var imageStream = request.Image.OpenReadStream();
-                uploadedImage = await _fileStorage.UploadImageAsync(
-                    imageStream,
-                    request.Image.FileName,
-                    IssueImageFolder,
-                    ct);
-
-                if (uploadedImage.Url.Length > 500)
-                    throw new BadRequestException("URL ảnh minh chứng vượt quá giới hạn lưu trữ");
-            }
-
-            var reportId = Guid.NewGuid();
-            await using var transaction = await _uow.BeginTransactionAsync(ct);
-
-            try
-            {
-                var expectedItemStatus = item.Status;
-                // Serialize Create and return confirmation before reloading business state.
-                var affectedItems = await _uow.Repository<ComponentItem>().Query()
-                    .Where(candidate => candidate.ItemId == item.ItemId &&
-                                        candidate.Status == expectedItemStatus)
-                    .ExecuteUpdateAsync(setters => setters
-                        .SetProperty(candidate => candidate.Status, candidate => candidate.Status), ct);
-
-                if (affectedItems != 1)
-                    throw new ConflictException("Trạng thái linh kiện đã thay đổi, vui lòng tải lại dữ liệu");
-
-                item = await FindItemByIdAsync(item.ItemId, ct);
-                EnsureInventoryManagerCreateStatus(item);
-                activeBorrowItem = await ResolveActiveBorrowItemAsync(item, ct);
-                await EnsureCanCreateAsync(item, activeBorrowItem, userId, ct);
-
-                EnsureSupportedItem(item);
-
-                if (await HasOpenReportAsync(item.ItemId, ct))
-                    throw new ConflictException("Linh kiện này đã có báo cáo sự cố đang chờ xử lý");
-
-                await _uow.Repository<IssueReport>().AddAsync(new IssueReport
+                var recorded = await _borrowRequests.RecordLoanIssueAsync(new RecordLoanIssueCommand
                 {
-                    IssueReportId = reportId,
-                    BorrowItemId = activeBorrowItem?.BorrowItemId,
-                    ComponentItemId = item.ItemId,
-                    ReportedBy = userId,
+                    BorrowItemId = activeBorrowItem.BorrowItemId,
                     IssueType = issueType,
                     Description = description,
-                    ImageUrl = uploadedImage?.Url,
-                    Status = IssueReportStatuses.Open,
-                    CreatedAt = DateTime.UtcNow,
+                    ImageUrl = image?.Url,
+                    Replace = request.Replace,
                 }, ct);
-
-                await _uow.SaveChangesAsync(ct);
-                await transaction.CommitAsync(ct);
-                databaseCommitted = true;
+                reportId = recorded.IssueReportId;
+                replacementId = recorded.ReplacementBorrowItemId;
             }
-            catch
+            else
             {
-                await transaction.RollbackAsync(CancellationToken.None);
-                throw;
+                reportId = await CreateForCabinetItemAsync(item, issueType, description, image?.Url, confirmNow, userId, ct);
             }
-
-            return await LoadDetailAsync(reportId, ct);
         }
         catch
         {
-            if (uploadedImage is not null && !databaseCommitted)
-                await TryDeleteUploadedImageAsync(uploadedImage);
+            if (image is not null)
+                await DeleteUnusedImageAsync(image);
 
             throw;
         }
+
+        var response = await LoadDetailAsync(reportId, ct);
+        response.ReplacementBorrowItemId = replacementId;
+        return response;
+    }
+
+    /// <summary>Saves the report of a unit in its cabinet, confirmed in the same transaction when <paramref name="confirmNow"/>.</summary>
+    private async Task<Guid> CreateForCabinetItemAsync(
+        ComponentItem item,
+        string issueType,
+        string description,
+        string? imageUrl,
+        bool confirmNow,
+        Guid userId,
+        CancellationToken ct)
+    {
+        await using var transaction = await _uow.BeginTransactionAsync(ct);
+
+        var affectedItems = await _uow.Repository<ComponentItem>().Query()
+            .Where(candidate => candidate.ItemId == item.ItemId &&
+                                candidate.Status == ComponentItemAvailable)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(candidate => candidate.Status, candidate => candidate.Status), ct);
+        if (affectedItems != 1)
+            throw new ConflictException("Trạng thái linh kiện đã thay đổi, vui lòng tải lại dữ liệu");
+
+        item = await FindItemByIdAsync(item.ItemId, ct);
+        await EnsureCanReportAsync(item, userId, ct);
+
+        var now = DateTime.UtcNow;
+        var report = new IssueReport
+        {
+            IssueReportId = Guid.NewGuid(),
+            ComponentItemId = item.ItemId,
+            ReportedBy = userId,
+            IssueType = issueType,
+            Description = description,
+            ImageUrl = imageUrl,
+            Status = IssueReportStatuses.Open,
+            CreatedAt = now,
+        };
+        if (confirmNow)
+        {
+            report.Status = IssueReportStatuses.Confirmed;
+            report.ResolvedBy = userId;
+            report.ResolvedAt = now;
+        }
+
+        await _uow.Repository<IssueReport>().AddAsync(report, ct);
+        if (confirmNow)
+        {
+            await IssueReportConfirmationHandler.ConfirmAsync(_uow, new IssueReport
+            {
+                IssueReportId = report.IssueReportId,
+                ComponentItemId = item.ItemId,
+                IssueType = issueType,
+                ComponentItem = item,
+            }, userId, null, now, ct);
+        }
+
+        await _uow.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+
+        return report.IssueReportId;
+    }
+
+    /// <summary>Checks that the user may report this unit now; returns its active borrow line (null when in its cabinet).</summary>
+    private async Task<BorrowItem?> EnsureCanReportAsync(ComponentItem item, Guid userId, CancellationToken ct)
+    {
+        EnsureSupportedItem(item);
+        EnsureInventoryManagerCreateStatus(item);
+        var activeBorrowItem = await ResolveActiveBorrowItemAsync(item, ct);
+        await EnsureCanCreateAsync(item, userId, ct);
+
+        if (await HasOpenReportAsync(item.ItemId, ct))
+            throw new ConflictException("Linh kiện này đã có báo cáo sự cố đang chờ xử lý");
+
+        return activeBorrowItem;
+    }
+
+    /// <summary>Admin, or lab staff of the unit's lab, with ISSUE_RESOLVE.</summary>
+    private async Task<bool> CanConfirmAsync(ComponentItem item, Guid userId, CancellationToken ct)
+    {
+        if (!_currentUser.HasPermission(PermissionCodes.IssueResolve))
+            return false;
+        if (_currentUser.IsInRole(RoleNames.Admin))
+            return true;
+
+        return _currentUser.IsInRole(RoleNames.LabStaff) &&
+               await IsAssignedToRoomAsync(item.Cabinet.RoomId, userId, ct);
+    }
+
+    private async Task<StoredFile?> UploadImageAsync(CreateIssueReportRequest request, CancellationToken ct)
+    {
+        if (request.Image is null)
+            return null;
+
+        await using var imageStream = request.Image.OpenReadStream();
+        var image = await _fileStorage.UploadImageAsync(imageStream, request.Image.FileName, IssueImageFolder, ct);
+        if (image.Url.Length > 500)
+        {
+            await TryDeleteUploadedImageAsync(image);
+            throw new BadRequestException("URL ảnh minh chứng vượt quá giới hạn lưu trữ");
+        }
+
+        return image;
+    }
+
+    /// <summary>Deletes the image of a failed create, unless a report was saved with it before the failure.</summary>
+    private async Task DeleteUnusedImageAsync(StoredFile image)
+    {
+        var used = await _uow.Repository<IssueReport>().QueryNoTracking()
+            .AnyAsync(report => report.ImageUrl == image.Url);
+        if (!used)
+            await TryDeleteUploadedImageAsync(image);
     }
 
     public async Task<IssueReportDetailResponse> ResolveAsync(
@@ -343,7 +461,7 @@ public class IssueReportService : IIssueReportService
             throw new BadRequestException("Chỉ thiết bị REUSABLE hoặc HIGH_VALUE mới được báo sự cố");
 
         if (item.Status is not (ComponentItemAvailable or ComponentItemBorrowed))
-            throw new BadRequestException("Linh kiện phải ở trạng thái Available hoặc Borrowed để báo sự cố");
+            throw new BadRequestException($"Thiết bị đang ở trạng thái {item.Status}, không ghi nhận sự cố được");
     }
 
     private async Task<BorrowItem?> ResolveActiveBorrowItemAsync(ComponentItem item, CancellationToken ct)
@@ -353,6 +471,12 @@ public class IssueReportService : IIssueReportService
 
         var matches = await _uow.Repository<BorrowItem>().QueryNoTracking()
             .Include(borrowItem => borrowItem.BorrowRequest)
+                .ThenInclude(request => request.Requester)
+                    .ThenInclude(requester => requester.StudentProfile)
+            .Include(borrowItem => borrowItem.BorrowRequest)
+                .ThenInclude(request => request.Class)
+            .Include(borrowItem => borrowItem.BorrowRequest)
+                .ThenInclude(request => request.Room)
             .Where(borrowItem => borrowItem.ComponentItemId == item.ItemId &&
                                  borrowItem.Status == BorrowItemIssued &&
                                  borrowItem.IssuedAt != null &&
@@ -386,7 +510,6 @@ public class IssueReportService : IIssueReportService
 
     private async Task EnsureCanCreateAsync(
         ComponentItem item,
-        BorrowItem? activeBorrowItem,
         Guid userId,
         CancellationToken ct)
     {
@@ -408,7 +531,7 @@ public class IssueReportService : IIssueReportService
             return;
 
         throw new ForbiddenException(
-            "Bạn không được báo sự cố cho linh kiện ngoài phạm vi phụ trách hoặc mượn của mình");
+            "Bạn chỉ ghi nhận được sự cố của thiết bị thuộc lab mình phụ trách");
     }
 
     private Task<bool> IsAssignedToRoomAsync(Guid roomId, Guid userId, CancellationToken ct)
@@ -516,6 +639,7 @@ public class IssueReportService : IIssueReportService
             .Include(report => report.BorrowItem)
                 .ThenInclude(borrowItem => borrowItem!.BorrowRequest)
                     .ThenInclude(request => request.Requester)
+                        .ThenInclude(requester => requester.StudentProfile)
             .Include(report => report.BorrowItem)
                 .ThenInclude(borrowItem => borrowItem!.BorrowRequest)
                     .ThenInclude(request => request.Class)

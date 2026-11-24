@@ -42,6 +42,16 @@ public class CreateIssueReportRequestValidator : AbstractValidator<CreateIssueRe
             .Must(description => description.Trim().Length <= 1000)
             .WithMessage("Mô tả sự cố không được vượt quá 1000 ký tự");
 
+        RuleFor(x => x.Image)
+            .NotNull()
+            .When(x => IssueTypes.Normalize(x.IssueType) is IssueTypes.Damaged or IssueTypes.Burnt)
+            .WithMessage("Phải chụp ảnh thiết bị hư hỏng hoặc cháy");
+
+        RuleFor(x => x.Replace)
+            .Equal(false)
+            .When(x => IssueTypes.Normalize(x.IssueType) == IssueTypes.Lost)
+            .WithMessage("Thiết bị bị mất thì không đổi con khác");
+
         When(x => x.Image is not null, () =>
         {
             RuleFor(x => x.Image)

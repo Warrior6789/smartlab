@@ -5,6 +5,8 @@ namespace SmartLab.BLL.Interfaces.IssueReports;
 
 public interface IIssueReportService
 {
+    Task<IssueReportLookupResponse> LookupAsync(string? code, CancellationToken ct = default);
+
     Task<IssueReportDetailResponse> CreateAsync(
         CreateIssueReportRequest request,
         CancellationToken ct = default);

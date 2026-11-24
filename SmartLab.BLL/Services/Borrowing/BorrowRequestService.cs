@@ -615,7 +615,6 @@ public class BorrowRequestService : IBorrowRequestService
     public async Task<ReplaceDamagedResponse> ReplaceDamagedAsync(
         Guid borrowRequestId, ReplaceDamagedRequest request, CancellationToken ct = default)
     {
-        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
         var now = DateTime.UtcNow;
 
         await using var tx = await _uow.BeginTransactionAsync(ct);
@@ -631,32 +630,99 @@ public class BorrowRequestService : IBorrowRequestService
         if (!photoOk)
             throw new BadRequestException("Không tìm thấy ảnh nhận trả của đơn này. Hãy chụp ảnh con bị hỏng trước khi đổi.");
 
+        var result = await CloseBrokenLineAsync(borrowRequestId, header.RoomId, new RecordLoanIssueCommand
+        {
+            BorrowItemId = request.BorrowItemId,
+            IssueType = IssueTypes.Damaged,
+            Description = $"Hỏng trong lúc mượn, đổi con khác cho đơn {header.RequestCode}",
+            Replace = true,
+        }, request.PhotoId, now, ct);
+
+        await tx.CommitAsync(ct);
+
+        await _notifier.ReplacementAsync(borrowRequestId, request.BorrowItemId, result.ReplacementBorrowItemId, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
+
+        return new ReplaceDamagedResponse
+        {
+            Request = await GetRequestByIdAsync(borrowRequestId, ct),
+            ReplacementBorrowItemId = result.ReplacementBorrowItemId,
+        };
+    }
+
+    public async Task<RecordLoanIssueResult> RecordLoanIssueAsync(RecordLoanIssueCommand command, CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+        var borrowRequestId = await _uow.Repository<BorrowItem>().QueryNoTracking()
+                                  .Where(i => i.BorrowItemId == command.BorrowItemId)
+                                  .Select(i => (Guid?)i.BorrowRequestId)
+                                  .FirstOrDefaultAsync(ct)
+                              ?? throw new NotFoundException("Không tìm thấy dòng linh kiện trong đơn mượn");
+
+        await using var tx = await _uow.BeginTransactionAsync(ct);
+
+        await LockRequestAsync(borrowRequestId, BorrowedStatuses, "Chỉ ghi nhận sự cố cho đơn đang mượn", ct);
+        var header = await GetHeaderAsync(borrowRequestId, ct);
+        await EnsurePickupStaffAsync(header.RoomId, ct);
+
+        var result = await CloseBrokenLineAsync(borrowRequestId, header.RoomId, command, null, now, ct);
+
+        await tx.CommitAsync(ct);
+
+        if (command.Replace)
+            await _notifier.ReplacementAsync(borrowRequestId, command.BorrowItemId, result.ReplacementBorrowItemId, ct);
+        else
+            await _notifier.ReturnedAsync(borrowRequestId, new[] { command.BorrowItemId }, ct);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
+
+        return result;
+    }
+
+    /// <summary>
+    /// Confirms the issue of one lent unit through Issue Reports (Damaged / Burnt → Retired, Lost → Lost), closes its line
+    /// and adds a Pending replacement line when asked for and the lab has a free unit. Call inside the caller's transaction,
+    /// after locking the request and checking the staff.
+    /// </summary>
+    private async Task<RecordLoanIssueResult> CloseBrokenLineAsync(
+        Guid borrowRequestId, Guid roomId, RecordLoanIssueCommand command, Guid? returnPhotoId, DateTime now, CancellationToken ct)
+    {
         var line = await _uow.Repository<BorrowItem>().Query()
                        .Include(i => i.Component)
-                       .FirstOrDefaultAsync(i => i.BorrowItemId == request.BorrowItemId && i.BorrowRequestId == borrowRequestId, ct)
+                       .FirstOrDefaultAsync(i => i.BorrowItemId == command.BorrowItemId && i.BorrowRequestId == borrowRequestId, ct)
                    ?? throw new NotFoundException("Không tìm thấy dòng linh kiện trong đơn mượn");
         if (line.Component.TrackingType == ComponentTrackingTypes.Consumable || line.ComponentItemId == null)
-            throw new BadRequestException("Chỉ đổi được hàng theo từng con, vật tư tiêu hao không đổi");
+            throw new BadRequestException("Chỉ ghi nhận được hàng theo từng con, không áp dụng cho vật tư tiêu hao");
         if (line.Status != BorrowItemStatuses.Issued)
             throw new ConflictException($"{line.Component.ComponentName}: dòng này không còn đang mượn");
 
-        await RoomStock.LockAllRoomsAsync(_uow, ct);
+        if (command.Replace)
+            await RoomStock.LockAllRoomsAsync(_uow, ct);
 
-        await _issueReports.ConfirmReturnIssueAsync(new ConfirmBorrowingReturnIssueCommand
+        var issue = await _issueReports.ConfirmReturnIssueAsync(new ConfirmBorrowingReturnIssueCommand
         {
             BorrowItemId = line.BorrowItemId,
-            IssueType = ReturnConditions.Damaged,
-            Description = $"Hỏng trong lúc mượn, đổi con khác cho đơn {header.RequestCode}",
+            IssueType = command.IssueType,
+            Description = command.Description,
+            ImageUrl = command.ImageUrl,
         }, ct);
 
-        line.Status = BorrowItemStatuses.Damaged;
-        line.ReturnedQuantity = 1;
-        line.ReturnPhotoId = request.PhotoId;
         line.ReturnedAt = now;
-        line.ReturnCondition = ReturnConditions.Damaged;
+        line.ReturnPhotoId = returnPhotoId;
+        if (issue.IssueType == IssueTypes.Lost)
+        {
+            line.Status = BorrowItemStatuses.Lost;
+            line.ReturnedQuantity = 0;
+            line.ReturnCondition = ReturnConditions.Lost;
+        }
+        else
+        {
+            line.Status = BorrowItemStatuses.Damaged;
+            line.ReturnedQuantity = 1;
+            line.ReturnCondition = ReturnConditions.Damaged;
+        }
 
         BorrowItem? replacement = null;
-        if (await HasFreeUnitAsync(line.ComponentId, header.RoomId, ct))
+        if (command.Replace && await HasFreeUnitAsync(line.ComponentId, roomId, ct))
         {
             replacement = new BorrowItem
             {
@@ -671,19 +737,11 @@ public class BorrowRequestService : IBorrowRequestService
         await SaveStockChangesAsync(ct);
         await CloseWhenAllBackAsync(borrowRequestId, now, ct);
 
-        await tx.CommitAsync(ct);
-
-        await _notifier.ReplacementAsync(borrowRequestId, line.BorrowItemId, replacement?.BorrowItemId, ct);
-        await _changes.BorrowRequestChangedAsync(borrowRequestId);
-
-        var response = new ReplaceDamagedResponse
+        return new RecordLoanIssueResult
         {
-            Request = await GetRequestByIdAsync(borrowRequestId, ct),
+            IssueReportId = issue.IssueReportId,
+            ReplacementBorrowItemId = replacement?.BorrowItemId,
         };
-        if (replacement != null)
-            response.ReplacementBorrowItemId = replacement.BorrowItemId;
-
-        return response;
     }
 
     /// <summary>

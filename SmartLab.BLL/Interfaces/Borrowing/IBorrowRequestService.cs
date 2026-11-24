@@ -27,6 +27,12 @@ public interface IBorrowRequestService
     Task<ReplaceDamagedResponse> ReplaceDamagedAsync(
         Guid borrowRequestId, ReplaceDamagedRequest request, CancellationToken ct = default);
 
+    /// <summary>
+    /// Closes the line of a lent unit that lab staff found broken, burnt or lost, with a Confirmed issue report, and adds
+    /// a replacement line when asked for and the lab has a free unit.
+    /// </summary>
+    Task<RecordLoanIssueResult> RecordLoanIssueAsync(RecordLoanIssueCommand command, CancellationToken ct = default);
+
     Task<BorrowRequestDetailResponse> IssueReplacementAsync(
         Guid borrowRequestId, IssueReplacementRequest request, CancellationToken ct = default);
 

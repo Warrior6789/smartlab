@@ -36,8 +36,10 @@ public class IssueReportsController : ControllerBase
     }
 
     /// <summary>
-    /// Nhân viên lab (hoặc Quản lý kho, Admin) ghi nhận một thiết bị REUSABLE/HIGH_VALUE bị hỏng, cháy hoặc mất, kèm ảnh.
-    /// Sinh viên không tự báo: mang thiết bị tới lab để nhân viên kiểm tra; sinh viên vẫn xem được báo cáo liên quan tới mình.
+    /// Ghi nhận một thiết bị REUSABLE/HIGH_VALUE bị hỏng, cháy (bắt buộc ảnh) hoặc mất. Sinh viên không tự báo: mang thiết bị
+    /// tới lab để nhân viên kiểm tra; sinh viên vẫn xem được báo cáo liên quan tới mình.
+    /// Nhân viên lab/Admin ghi nhận là Confirmed ngay: thiết bị Retired/Lost; đang mượn thì đóng luôn dòng mượn, gửi replace = true để
+    /// đổi con khác nếu lab còn (trả về replacementBorrowItemId). Quản lý kho chỉ báo thiết bị trong tủ, báo cáo Open chờ nhân viên lab.
     /// </summary>
     [HttpPost]
     [Authorize(Roles = CreateRoles)]
@@ -55,7 +57,24 @@ public class IssueReportsController : ControllerBase
         return CreatedAtAction(
             nameof(GetById),
             new { id = report.IssueReportId },
-            ApiResponse<IssueReportDetailResponse>.Ok(report, "Tạo báo cáo sự cố thành công"));
+            ApiResponse<IssueReportDetailResponse>.Ok(report, report.Status == IssueReportStatuses.Confirmed ? "Đã ghi nhận sự cố" : "Đã gửi báo cáo sự cố, chờ nhân viên lab kiểm tra"));
+    }
+
+    /// <summary>
+    /// Tra thiết bị theo mã hoặc serial trước khi ghi nhận sự cố: thông tin thiết bị, người đang mượn, số con còn để đổi.
+    /// Trả đúng lỗi mà API tạo sẽ trả (sai lab, đã Retired, đang có báo cáo chờ xử lý...).
+    /// </summary>
+    [HttpGet("lookup")]
+    [Authorize(Roles = CreateRoles)]
+    [ProducesResponseType(typeof(ApiResponse<IssueReportLookupResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Lookup([FromQuery] string? code, CancellationToken ct)
+    {
+        var result = await _issueReportService.LookupAsync(code, ct);
+        return Ok(ApiResponse<IssueReportLookupResponse>.Ok(result));
     }
 
     /// <summary>LabStaff đúng lab hoặc Admin xác nhận hay từ chối báo cáo đang Open.</summary>

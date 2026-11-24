@@ -115,6 +115,7 @@ public class IssueReportBorrowingIntegrationService : IIssueReportBorrowingInteg
                 ReportedBy = actorId,
                 IssueType = finalIssueType,
                 Description = description,
+                ImageUrl = command.ImageUrl,
                 Status = IssueReportStatuses.Confirmed,
                 ResolvedBy = actorId,
                 CreatedAt = now,

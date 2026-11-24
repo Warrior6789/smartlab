@@ -120,6 +120,7 @@ public static class IssueReportMappings
             BorrowRequestCode = request?.RequestCode,
             RequesterId = request?.RequesterId,
             RequesterFullName = requester?.FullName,
+            RequesterStudentCode = requester?.StudentProfile?.StudentCode,
             ClassId = request?.ClassId,
             ClassCode = @class?.ClassCode,
             RoomId = request?.RoomId,
