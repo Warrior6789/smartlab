@@ -183,6 +183,34 @@ public class BorrowNotifier : IBorrowNotifier
         await SendAsync(info, subject, body);
     }
 
+    public async Task IssueRecordedAsync(Guid borrowRequestId, Guid lineId, CancellationToken ct = default)
+    {
+        var info = await LoadAsync(borrowRequestId, ct);
+        if (info == null)
+            return;
+
+        var lines = await LoadLinesAsync(borrowRequestId, ct);
+        var line = lines.FirstOrDefault(l => l.BorrowItemId == lineId);
+        if (line == null)
+            return;
+
+        var stillOut = lines.Where(l => l.Status == BorrowItemStatuses.Issued).ToList();
+        var result = line.ReturnCondition == ReturnConditions.Lost ? "mất" : "hỏng";
+
+        var body =
+            Greeting(info) +
+            $"<p>Lab <b>{Encode(info.RoomCode)}</b> đã ghi nhận con <b>{Encode(line.ComponentName)}</b> {UnitText(line)} " +
+            $"của đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)} bị <b>{result}</b>.</p>";
+        if (stillOut.Count > 0)
+            body += $"<p>Còn <b>chưa trả</b> (hạn trả <b>{ToVietnamDate(info.DueDate)}</b>):</p>" + ItemsTable(stillOut, true);
+        else if (lines.Any(l => l.Status == BorrowItemStatuses.Pending))
+            body += "<p>Đơn vẫn còn món thay thế đang chờ bạn đến nhận.</p>";
+        else
+            body += "<p>Đơn không còn món nào đang mượn nên đã được đóng.</p>";
+
+        await SendAsync(info, $"SmartLab - Ghi nhận linh kiện bị {result} trong đơn {info.RequestCode}", body);
+    }
+
     public async Task ReplacementAsync(
         Guid borrowRequestId, Guid damagedLineId, Guid? replacementLineId, CancellationToken ct = default)
     {

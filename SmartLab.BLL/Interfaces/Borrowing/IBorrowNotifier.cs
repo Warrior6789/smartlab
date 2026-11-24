@@ -27,6 +27,12 @@ public interface IBorrowNotifier
     Task ReturnedAsync(Guid borrowRequestId, IReadOnlyCollection<Guid> returnedLineIds, CancellationToken ct = default);
 
     /// <summary>
+    /// Lab staff recorded a lent unit as broken, burnt or lost without giving another one: what was recorded and what is
+    /// still out.
+    /// </summary>
+    Task IssueRecordedAsync(Guid borrowRequestId, Guid lineId, CancellationToken ct = default);
+
+    /// <summary>
     /// A broken unit was swapped: tells the borrower the replacement is ready at the request's lab, or that the lab has none
     /// left (<paramref name="replacementLineId"/> null).
     /// </summary>

@@ -696,7 +696,7 @@ public class BorrowRequestService : IBorrowRequestService
         if (command.Replace)
             await _notifier.ReplacementAsync(borrowRequestId, command.BorrowItemId, result.ReplacementBorrowItemId, ct);
         else
-            await _notifier.ReturnedAsync(borrowRequestId, new[] { command.BorrowItemId }, ct);
+            await _notifier.IssueRecordedAsync(borrowRequestId, command.BorrowItemId, ct);
         await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return result;

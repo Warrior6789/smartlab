@@ -157,7 +157,7 @@ public class IssueReportBorrowingIntegrationService : IIssueReportBorrowingInteg
         Guid borrowItemId,
         CancellationToken ct = default)
     {
-        var actorId = GetAuthorizedActorId();
+        var actorId = _currentUser.UserId ?? throw new UnauthorizedException();
         var now = DateTime.UtcNow;
 
         return await _uow.Repository<IssueReport>().Query()

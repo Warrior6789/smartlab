@@ -23,6 +23,7 @@ public interface IIssueReportBorrowingIntegration
     /// Borrowed to Available in SQL (holding its row lock), and records Return +1 before
     /// calling this method in the same transaction. The caller owns return metadata,
     /// request status, tracking refresh and commit/rollback. This method only updates reports.
+    /// Returning a good unit only needs the caller's borrowing permission, not ISSUE_RESOLVE.
     /// </summary>
     Task<int> RejectOpenReportsOnGoodReturnAsync(Guid borrowItemId, CancellationToken ct = default);
 }
