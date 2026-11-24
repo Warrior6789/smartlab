@@ -4,6 +4,7 @@ public class InventoryTransactionQueryParams
 {
     public Guid? ComponentId { get; set; }
     public Guid? CabinetId { get; set; }
+    public Guid? RoomId { get; set; }
     public Guid? ItemId { get; set; }
     public Guid? ReceiptId { get; set; }
     public Guid? AuditId { get; set; }

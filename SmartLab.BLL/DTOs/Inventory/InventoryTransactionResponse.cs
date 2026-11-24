@@ -9,7 +9,9 @@ public class InventoryTransactionResponse
     public string ComponentName { get; set; } = string.Empty;
     public Guid? CabinetId { get; set; }
     public string? CabinetCode { get; set; }
+    public string? RoomCode { get; set; }
     public Guid? ItemId { get; set; }
+    public string? ItemCode { get; set; }
     public string? SerialNumber { get; set; }
 
     /// <summary>Positive when stock goes up, negative when it goes down.</summary>

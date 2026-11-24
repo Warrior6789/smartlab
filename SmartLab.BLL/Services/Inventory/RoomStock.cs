@@ -36,6 +36,9 @@ internal static class RoomStock
             throw new ForbiddenException("Chỉ được chuyển hàng trong lab bạn phụ trách");
     }
 
+    /// <summary>Goods leaving a lab are only moved with a reason, so the ledger says why.</summary>
+    public const string OtherLabReasonMessage = "Chuyển sang lab khác phải ghi lý do";
+
     /// <summary>Borrow request statuses whose lines hold stock (nothing handed over yet).</summary>
     public static readonly string[] ReservingStatuses = { BorrowRequestStatuses.Approved, BorrowRequestStatuses.Ready };
 

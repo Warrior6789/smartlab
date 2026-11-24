@@ -19,7 +19,7 @@ public class InventoryTransactionsController : ControllerBase
         _inventoryTransactionService = inventoryTransactionService;
     }
 
-    /// <summary>Sổ kho: lịch sử nhập, hủy phiếu, điều chỉnh, chuyển tủ, thanh lý (mới nhất trước, phân trang, lọc theo linh kiện/tủ/con/phiếu/người làm/loại/ngày).</summary>
+    /// <summary>Sổ kho: lịch sử nhập, hủy phiếu, điều chỉnh, chuyển tủ, thanh lý (mới nhất trước, phân trang, lọc theo linh kiện/lab/tủ/con/phiếu/người làm/loại/ngày). Lab Staff chỉ thấy lab mình phụ trách.</summary>
     [HttpGet]
     [Authorize(Policy = PermissionCodes.InventoryAudit)]
     [ProducesResponseType(typeof(ApiResponse<PagedResult<InventoryTransactionResponse>>), StatusCodes.Status200OK)]

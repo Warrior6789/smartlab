@@ -40,6 +40,9 @@ public class ComponentItemService : IComponentItemService
         if (query.CabinetId.HasValue)
             items = items.Where(i => i.CabinetId == query.CabinetId.Value);
 
+        if (query.RoomId.HasValue)
+            items = items.Where(i => i.Cabinet.RoomId == query.RoomId.Value);
+
         var status = ComponentItemStatuses.Normalize(query.Status);
         if (status != null)
             items = items.Where(i => i.Status == status);
@@ -180,6 +183,9 @@ public class ComponentItemService : IComponentItemService
 
         var fromAvailable = request.FromStatus == ComponentItemStatuses.Available;
         var sameRoom = await RoomStock.SameRoomAsync(_uow, request.FromCabinetId, toCabinetId, ct);
+        if (!sameRoom && string.IsNullOrWhiteSpace(request.Reason))
+            throw new BadRequestException(RoomStock.OtherLabReasonMessage);
+
         if (fromAvailable && !sameRoom)
             await RoomStock.EnsureNotReservedAsync(_uow,
                 new[] { new StockRemoval(request.ComponentId, request.FromCabinetId, itemIds.Count) }, ct);
