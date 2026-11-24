@@ -532,6 +532,13 @@ public class BorrowRequestService : IBorrowRequestService
                                                && c.Status == CabinetStatuses.Active, ct);
             if (!cabinetOk)
                 throw new BadRequestException("Phải chọn tủ đang hoạt động thuộc lab của đơn để cất vật tư tiêu hao trả về");
+
+            var returnedIds = lines
+                .Where(l => l.Component.TrackingType == ComponentTrackingTypes.Consumable
+                            && request.Lines.First(r => r.BorrowItemId == l.BorrowItemId).ReturnedQuantity > 0)
+                .Select(l => l.ComponentId)
+                .ToList();
+            await CabinetRules.EnsureAcceptsAsync(_uow, request.CabinetId!.Value, returnedIds, ct);
         }
 
         var unitIds = lines.Where(l => l.ComponentItemId != null).Select(l => l.ComponentItemId!.Value).ToList();

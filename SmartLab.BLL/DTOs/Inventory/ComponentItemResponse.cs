@@ -8,6 +8,7 @@ public class ComponentItemResponse
     public Guid ComponentId { get; set; }
     public string ComponentCode { get; set; } = string.Empty;
     public string ComponentName { get; set; } = string.Empty;
+    public string TrackingType { get; set; } = string.Empty;
     public Guid CabinetId { get; set; }
     public string CabinetCode { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;

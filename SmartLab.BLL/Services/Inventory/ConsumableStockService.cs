@@ -67,6 +67,8 @@ public class ConsumableStockService : IConsumableStockService
                 .AnyAsync(c => c.CabinetId == request.ToCabinetId && c.Status == CabinetStatuses.Active, ct))
             throw new BadRequestException("Tủ đích không tồn tại hoặc đã ngừng hoạt động");
 
+        await CabinetRules.EnsureAcceptsAsync(_uow, request.ToCabinetId, new[] { request.ComponentId }, ct);
+
         if (request.ReceiptId.HasValue)
             await StockReceiptService.EnsureReceiptHasComponentAsync(_uow, request.ReceiptId.Value, request.ComponentId, ct);
 
@@ -172,6 +174,9 @@ public class ConsumableStockService : IConsumableStockService
 
         if (oldQuantity == countedQuantity)
             throw new BadRequestException("Số đếm khớp với hệ thống, không cần điều chỉnh");
+
+        if (countedQuantity > oldQuantity)
+            await CabinetRules.EnsureAcceptsAsync(_uow, request.CabinetId, new[] { request.ComponentId }, ct);
 
         var now = DateTime.UtcNow;
         await using var tx = await _uow.BeginTransactionAsync(ct);

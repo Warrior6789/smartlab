@@ -605,8 +605,8 @@ public class StockReceiptService : IStockReceiptService
             var cabinet = cabinets[line.CabinetId];
             var component = components[line.ComponentId];
             if (cabinet.TrackingType != null && cabinet.TrackingType != component.TrackingType)
-                throw new BadRequestException(
-                    $"{component.ComponentCode} là loại {component.TrackingType}, không cất được vào tủ {cabinet.CabinetCode} (dành cho {cabinet.TrackingType})");
+                throw new BadRequestException(CabinetRules.MisfitMessage(
+                    component.ComponentCode, component.TrackingType, cabinet.CabinetCode, cabinet.TrackingType));
         }
     }
 

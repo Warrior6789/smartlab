@@ -297,6 +297,12 @@ public class InventoryAuditService : IInventoryAuditService
                 .Where(st => st.CabinetId == audit.CabinetId && countedIds.Contains(st.ComponentId))
                 .ToDictionaryAsync(st => st.ComponentId, st => st.Quantity, ct);
 
+            var foundMoreIds = request.Consumables
+                .Where(c => c.CountedQuantity > systemQuantities.GetValueOrDefault(c.ComponentId))
+                .Select(c => c.ComponentId)
+                .ToList();
+            await CabinetRules.EnsureAcceptsAsync(_uow, audit.CabinetId, foundMoreIds, ct);
+
             foreach (var count in request.Consumables)
             {
                 tracked.InventoryAuditCounts.Add(new InventoryAuditCount

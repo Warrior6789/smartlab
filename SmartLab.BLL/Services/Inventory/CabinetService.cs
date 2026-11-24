@@ -154,6 +154,9 @@ public class CabinetService : ICabinetService
             && await _uow.Repository<ConsumableStock>().QueryNoTracking().AnyAsync(st => st.CabinetId == cabinetId && st.Quantity > 0, ct))
             throw new ConflictException("Tủ còn linh kiện tiêu hao, hãy chuyển sang tủ khác trước khi ngừng sử dụng");
 
+        if (request.TrackingType != null && request.TrackingType != cabinet.TrackingType)
+            await CabinetRules.EnsureHoldsOnlyAsync(_uow, cabinetId, request.TrackingType, ct);
+
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
         if (request.RoomId != cabinet.RoomId)

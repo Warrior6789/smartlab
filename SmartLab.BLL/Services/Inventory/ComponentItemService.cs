@@ -132,6 +132,9 @@ public class ComponentItemService : IComponentItemService
                 .AnyAsync(c => c.CabinetId == toCabinetId && c.Status == CabinetStatuses.Active, ct))
             throw new BadRequestException("Tủ đích không tồn tại hoặc đã ngừng hoạt động");
 
+        if (toCabinetId != request.FromCabinetId)
+            await CabinetRules.EnsureAcceptsAsync(_uow, toCabinetId, new[] { request.ComponentId }, ct);
+
         if (request.ReceiptId.HasValue)
             await StockReceiptService.EnsureReceiptHasComponentAsync(_uow, request.ReceiptId.Value, request.ComponentId, ct);
 
@@ -331,6 +334,7 @@ public class ComponentItemService : IComponentItemService
             ComponentId = i.ComponentId,
             ComponentCode = i.Component.ComponentCode,
             ComponentName = i.Component.ComponentName,
+            TrackingType = i.Component.TrackingType,
             CabinetId = i.CabinetId,
             CabinetCode = i.Cabinet.CabinetCode,
             Status = i.Status,
