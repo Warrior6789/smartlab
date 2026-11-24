@@ -8,6 +8,10 @@ public class LabRoomResponse
     public string Status { get; set; } = string.Empty;
     public int CabinetCount { get; set; }
     public int StaffCount { get; set; }
+
+    /// <summary>The current user is assigned to this lab as Lab Staff.</summary>
+    public bool IsMine { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

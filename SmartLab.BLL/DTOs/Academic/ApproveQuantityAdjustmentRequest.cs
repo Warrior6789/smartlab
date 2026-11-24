@@ -7,5 +7,5 @@ namespace SmartLab.BLL.DTOs.Academic;
 public class ApproveQuantityAdjustmentRequest
 {
     public Guid ComponentId { get; set; }
-    public int Quantity { get; set; }
+    public int? Quantity { get; set; }
 }

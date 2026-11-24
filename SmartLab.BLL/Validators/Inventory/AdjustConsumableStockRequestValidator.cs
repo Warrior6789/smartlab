@@ -16,6 +16,7 @@ public class AdjustConsumableStockRequestValidator : AbstractValidator<AdjustCon
             .NotEmpty().WithMessage("Tủ là bắt buộc");
 
         RuleFor(x => x.CountedQuantity)
+            .NotNull().WithMessage("Số đếm thực tế là bắt buộc")
             .InclusiveBetween(0, MaxQuantity).WithMessage($"Số đếm thực tế phải từ 0 đến {MaxQuantity}");
 
         RuleFor(x => x.Reason)

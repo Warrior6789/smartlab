@@ -10,6 +10,7 @@ public class ApproveQuantityAdjustmentRequestValidator : AbstractValidator<Appro
         RuleFor(x => x.ComponentId)
             .NotEmpty().WithMessage("Linh kiện điều chỉnh là bắt buộc");
         RuleFor(x => x.Quantity)
+            .NotNull().WithMessage("Số lượng duyệt là bắt buộc")
             .GreaterThanOrEqualTo(0).WithMessage("Số lượng duyệt không được âm");
     }
 }

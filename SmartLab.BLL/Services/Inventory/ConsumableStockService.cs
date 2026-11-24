@@ -153,6 +153,8 @@ public class ConsumableStockService : IConsumableStockService
     {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
 
+        var countedQuantity = request.CountedQuantity ?? throw new BadRequestException("Số đếm thực tế là bắt buộc");
+
         await EnsureConsumableAsync(request.ComponentId, ct);
 
         if (!await _uow.Repository<StorageCabinet>().QueryNoTracking().AnyAsync(c => c.CabinetId == request.CabinetId, ct))
@@ -168,7 +170,7 @@ public class ConsumableStockService : IConsumableStockService
             .FirstOrDefaultAsync(ct);
         var oldQuantity = stockQuantity ?? 0;
 
-        if (oldQuantity == request.CountedQuantity)
+        if (oldQuantity == countedQuantity)
             throw new BadRequestException("Số đếm khớp với hệ thống, không cần điều chỉnh");
 
         var now = DateTime.UtcNow;
@@ -181,7 +183,7 @@ public class ConsumableStockService : IConsumableStockService
                              && st.CabinetId == request.CabinetId
                              && st.Quantity == oldQuantity)
                 .ExecuteUpdateAsync(s => s
-                    .SetProperty(st => st.Quantity, request.CountedQuantity)
+                    .SetProperty(st => st.Quantity, countedQuantity)
                     .SetProperty(st => st.UpdatedAt, now), ct);
             if (updated == 0)
                 throw new ConflictException("Tồn kho vừa thay đổi bởi thao tác khác, vui lòng tải lại và kiểm tra lại");
@@ -192,7 +194,7 @@ public class ConsumableStockService : IConsumableStockService
             {
                 ComponentId = request.ComponentId,
                 CabinetId = request.CabinetId,
-                Quantity = request.CountedQuantity,
+                Quantity = countedQuantity,
                 UpdatedAt = now,
             }, ct);
         }
@@ -202,7 +204,7 @@ public class ConsumableStockService : IConsumableStockService
             Type = InventoryTransactionTypes.Adjust,
             ComponentId = request.ComponentId,
             CabinetId = request.CabinetId,
-            QuantityChange = request.CountedQuantity - oldQuantity,
+            QuantityChange = countedQuantity - oldQuantity,
             Reason = request.Reason.Trim(),
             ReceiptId = request.ReceiptId,
             CreatedBy = userId,
@@ -219,7 +221,7 @@ public class ConsumableStockService : IConsumableStockService
                 .FirstAsync(ct),
         };
 
-        if (request.CountedQuantity < oldQuantity)
+        if (countedQuantity < oldQuantity)
         {
             var roomId = await RoomStock.GetRoomIdAsync(_uow, request.CabinetId, ct);
             response.ReservationShortages = await RoomStock.GetShortagesAsync(_uow, roomId, new[] { request.ComponentId }, ct);

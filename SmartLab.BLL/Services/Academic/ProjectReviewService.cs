@@ -290,16 +290,17 @@ public class ProjectReviewService : IProjectReviewService
         {
             var line = lines.FirstOrDefault(l => l.ComponentId == adjustment.ComponentId)
                        ?? throw new BadRequestException("Có linh kiện điều chỉnh không nằm trong đơn mượn");
-            if (adjustment.Quantity > line.Quantity)
+            var quantity = adjustment.Quantity ?? throw new BadRequestException("Số lượng duyệt là bắt buộc");
+            if (quantity > line.Quantity)
                 throw new BadRequestException(
                     $"{line.Component.ComponentName}: chỉ được giảm số lượng (nhóm xin {line.Quantity}). Muốn tăng thì nhóm rút đơn và gửi lại.");
-            if (adjustment.Quantity == line.Quantity)
+            if (quantity == line.Quantity)
                 continue;
 
-            changes.Add($"{line.Component.ComponentName} {line.Quantity}→{adjustment.Quantity}");
+            changes.Add($"{line.Component.ComponentName} {line.Quantity}→{quantity}");
 
             var projectLine = projectLines.FirstOrDefault(pc => pc.ComponentId == adjustment.ComponentId);
-            if (adjustment.Quantity == 0)
+            if (quantity == 0)
             {
                 _uow.Repository<BorrowItem>().Remove(line);
                 lines.Remove(line);
@@ -308,9 +309,9 @@ public class ProjectReviewService : IProjectReviewService
             }
             else
             {
-                line.Quantity = adjustment.Quantity;
+                line.Quantity = quantity;
                 if (projectLine != null)
-                    projectLine.Quantity = adjustment.Quantity;
+                    projectLine.Quantity = quantity;
             }
         }
 

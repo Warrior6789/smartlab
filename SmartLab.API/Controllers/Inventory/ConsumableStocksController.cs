@@ -35,7 +35,7 @@ public class ConsumableStocksController : ControllerBase
 
     /// <summary>
     /// Chuyển hàng tiêu hao từ tủ này sang tủ khác. Có thể kèm lý do và phiếu nhập đang sửa (vd phiếu chọn nhầm tủ).
-    /// Lab Staff (BORROW_ISSUE) chỉ chuyển được giữa các tủ trong cùng lab, không gắn phiếu nhập; còn lại cần COMPONENT_MANAGE (403).
+    /// Lab Staff (BORROW_ISSUE) chỉ chuyển được giữa các tủ của lab mình phụ trách, không gắn phiếu nhập; còn lại cần COMPONENT_MANAGE (403).
     /// </summary>
     [HttpPost("move")]
     [Authorize(Policy = PermissionCodes.ComponentView)]
@@ -51,11 +51,11 @@ public class ConsumableStocksController : ControllerBase
     }
 
     /// <summary>
-    /// Điều chỉnh kiểm kê: đặt tồn kho bằng số đếm thực tế, có ghi lý do vào nhật ký. Số đếm thấp hơn luôn được ghi nhận;
+    /// Điều chỉnh kiểm kê (Quản lý kho): đặt tồn kho bằng số đếm thực tế, có ghi lý do vào nhật ký. Lab Staff thấy lệch thì kiểm kê tủ để Quản lý kho duyệt. Số đếm thấp hơn luôn được ghi nhận;
     /// nếu làm lab thiếu hàng cho đơn đã duyệt thì <c>reservationShortages</c> liệt kê linh kiện thiếu và các mã đơn bị ảnh hưởng.
     /// </summary>
     [HttpPost("adjust")]
-    [Authorize(Policy = PermissionCodes.InventoryAudit)]
+    [Authorize(Policy = PermissionCodes.InventoryAuditApprove)]
     [ProducesResponseType(typeof(ApiResponse<AdjustConsumableStockResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]

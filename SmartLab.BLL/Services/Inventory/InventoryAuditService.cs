@@ -303,7 +303,8 @@ public class InventoryAuditService : IInventoryAuditService
                 {
                     ComponentId = count.ComponentId,
                     SystemQuantity = systemQuantities.GetValueOrDefault(count.ComponentId),
-                    CountedQuantity = count.CountedQuantity,
+                    CountedQuantity = count.CountedQuantity
+                                      ?? throw new BadRequestException("Số đếm thực tế là bắt buộc"),
                 });
             }
         }

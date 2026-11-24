@@ -3,6 +3,7 @@ using Npgsql;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Inventory;
+using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.Interfaces.Inventory;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
@@ -14,10 +15,12 @@ public class LabRoomService : ILabRoomService
     private const string RoomCodePrefix = "LAB-";
 
     private readonly IUnitOfWork _uow;
+    private readonly ICurrentUserService _currentUser;
 
-    public LabRoomService(IUnitOfWork uow)
+    public LabRoomService(IUnitOfWork uow, ICurrentUserService currentUser)
     {
         _uow = uow;
+        _currentUser = currentUser;
     }
 
     public async Task<IReadOnlyList<LabRoomResponse>> GetLabRoomsAsync(CancellationToken ct = default)
@@ -177,8 +180,10 @@ public class LabRoomService : ILabRoomService
         return $"{RoomCodePrefix}{maxNumber + 1:D2}";
     }
 
-    private static IQueryable<LabRoomResponse> ToResponses(IQueryable<LabRoom> rooms) =>
-        rooms.Select(r => new LabRoomResponse
+    private IQueryable<LabRoomResponse> ToResponses(IQueryable<LabRoom> rooms)
+    {
+        var userId = _currentUser.UserId;
+        return rooms.Select(r => new LabRoomResponse
         {
             RoomId = r.RoomId,
             RoomCode = r.RoomCode,
@@ -186,7 +191,9 @@ public class LabRoomService : ILabRoomService
             Status = r.Status,
             CabinetCount = r.StorageCabinets.Count,
             StaffCount = r.LabRoomStaffs.Count,
+            IsMine = r.LabRoomStaffs.Any(s => s.UserId == userId),
             CreatedAt = r.CreatedAt,
             UpdatedAt = r.UpdatedAt,
         });
+    }
 }

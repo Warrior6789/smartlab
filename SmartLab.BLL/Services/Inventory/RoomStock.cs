@@ -16,7 +16,7 @@ namespace SmartLab.BLL.Services.Inventory;
 internal static class RoomStock
 {
     /// <summary>
-    /// Lab staff work inside a lab, so they may rearrange its cabinets: same room, and <paramref name="cabinetOnly"/>
+    /// Lab staff work inside a lab, so they may rearrange the cabinets of a lab they are assigned to: same room, and <paramref name="cabinetOnly"/>
     /// means nothing but the cabinet changes. Anything wider needs COMPONENT_MANAGE.
     /// </summary>
     public static async Task EnsureMayMoveAsync(
@@ -28,6 +28,12 @@ internal static class RoomStock
         if (!user.HasPermission(PermissionCodes.BorrowIssue) || !cabinetOnly
             || !await SameRoomAsync(uow, fromCabinetId, toCabinetId, ct))
             throw new ForbiddenException("Chỉ được chuyển hàng giữa các tủ trong cùng một lab");
+
+        var userId = user.UserId ?? throw new UnauthorizedException();
+        var assigned = await uow.Repository<StorageCabinet>().QueryNoTracking()
+            .AnyAsync(c => c.CabinetId == fromCabinetId && c.Room.LabRoomStaffs.Any(s => s.UserId == userId), ct);
+        if (!assigned)
+            throw new ForbiddenException("Chỉ được chuyển hàng trong lab bạn phụ trách");
     }
 
     /// <summary>Borrow request statuses whose lines hold stock (nothing handed over yet).</summary>
