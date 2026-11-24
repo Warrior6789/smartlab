@@ -62,13 +62,13 @@ public class StockReceiptService : IStockReceiptService
 
         if (query.FromDate.HasValue)
         {
-            var from = DateTime.SpecifyKind(query.FromDate.Value.Date - VietnamUtcOffset, DateTimeKind.Utc);
+            var from = VietnamDays.StartUtc(query.FromDate.Value);
             receipts = receipts.Where(r => r.ReceivedAt >= from);
         }
 
         if (query.ToDate.HasValue)
         {
-            var toExclusive = DateTime.SpecifyKind(query.ToDate.Value.Date.AddDays(1) - VietnamUtcOffset, DateTimeKind.Utc);
+            var toExclusive = VietnamDays.EndExclusiveUtc(query.ToDate.Value);
             receipts = receipts.Where(r => r.ReceivedAt < toExclusive);
         }
 

@@ -348,8 +348,8 @@ public class IssueReportService : IIssueReportService
 
         reports = ApplyFilters(reports, query);
 
-        var pageNumber = Math.Max(1, paging.Page);
         var pageSize = Math.Clamp(paging.Size, 1, 100);
+        var pageNumber = Math.Clamp(paging.Page, 1, int.MaxValue / pageSize);
         var totalCount = await reports.CountAsync(ct);
         var entities = await reports
             .OrderByDescending(report => report.CreatedAt)
@@ -693,10 +693,16 @@ public class IssueReportService : IIssueReportService
             reports = reports.Where(report => report.ReportedBy == query.ReportedBy.Value);
 
         if (query.FromDate.HasValue)
-            reports = reports.Where(report => report.CreatedAt >= query.FromDate.Value);
+        {
+            var from = VietnamDays.StartUtc(query.FromDate.Value);
+            reports = reports.Where(report => report.CreatedAt >= from);
+        }
 
         if (query.ToDate.HasValue)
-            reports = reports.Where(report => report.CreatedAt <= query.ToDate.Value);
+        {
+            var toExclusive = VietnamDays.EndExclusiveUtc(query.ToDate.Value);
+            reports = reports.Where(report => report.CreatedAt < toExclusive);
+        }
 
         return reports;
     }

@@ -9,9 +9,6 @@ namespace SmartLab.BLL.Services.Inventory;
 
 public class InventoryTransactionService : IInventoryTransactionService
 {
-    /// <summary>Vietnam has no DST, so a fixed UTC+7 offset is exact.</summary>
-    private static readonly TimeSpan VietnamUtcOffset = TimeSpan.FromHours(7);
-
     private readonly IUnitOfWork _uow;
 
     public InventoryTransactionService(IUnitOfWork uow)
@@ -48,13 +45,13 @@ public class InventoryTransactionService : IInventoryTransactionService
 
         if (query.FromDate.HasValue)
         {
-            var from = DateTime.SpecifyKind(query.FromDate.Value.Date - VietnamUtcOffset, DateTimeKind.Utc);
+            var from = VietnamDays.StartUtc(query.FromDate.Value);
             transactions = transactions.Where(t => t.CreatedAt >= from);
         }
 
         if (query.ToDate.HasValue)
         {
-            var toExclusive = DateTime.SpecifyKind(query.ToDate.Value.Date.AddDays(1) - VietnamUtcOffset, DateTimeKind.Utc);
+            var toExclusive = VietnamDays.EndExclusiveUtc(query.ToDate.Value);
             transactions = transactions.Where(t => t.CreatedAt < toExclusive);
         }
 

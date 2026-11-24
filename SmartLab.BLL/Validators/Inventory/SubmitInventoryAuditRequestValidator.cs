@@ -12,6 +12,7 @@ public class SubmitInventoryAuditRequestValidator : AbstractValidator<SubmitInve
         RuleFor(x => x.Consumables)
             .Cascade(CascadeMode.Stop)
             .NotNull().WithMessage("Danh sách vật tư không được null")
+            .Must(lines => lines.All(l => l != null)).WithMessage("Danh sách vật tư có dòng trống")
             .Must(lines => lines.Count <= MaxLines).WithMessage($"Tối đa {MaxLines} dòng vật tư")
             .Must(lines => lines.Select(l => l.ComponentId).Distinct().Count() == lines.Count)
             .WithMessage("Danh sách vật tư bị trùng linh kiện");

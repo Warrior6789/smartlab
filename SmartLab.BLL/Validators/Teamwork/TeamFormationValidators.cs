@@ -26,8 +26,16 @@ public class ApplyTeamAssignmentsRequestValidator : AbstractValidator<ApplyTeamA
 {
     public ApplyTeamAssignmentsRequestValidator()
     {
+        RuleFor(x => x.ExistingTeams)
+            .Cascade(CascadeMode.Stop)
+            .NotNull().WithMessage("Danh sách nhóm không được null")
+            .Must(teams => teams.All(t => t != null && t.StudentProfileIds != null)).WithMessage("Nhóm không hợp lệ");
+        RuleFor(x => x.NewTeams)
+            .Cascade(CascadeMode.Stop)
+            .NotNull().WithMessage("Danh sách nhóm mới không được null")
+            .Must(teams => teams.All(t => t != null && t.StudentProfileIds != null)).WithMessage("Nhóm mới không hợp lệ");
         RuleFor(x => x)
-            .Must(x => x.ExistingTeams.Any(t => t.StudentProfileIds.Count > 0) || x.NewTeams.Count > 0)
+            .Must(HasAssignment)
             .WithMessage("Chưa có sinh viên nào được xếp nhóm");
         RuleForEach(x => x.ExistingTeams).ChildRules(team =>
         {
@@ -43,9 +51,17 @@ public class ApplyTeamAssignmentsRequestValidator : AbstractValidator<ApplyTeamA
                 .NotEmpty().WithMessage("Nhóm mới phải có ít nhất 1 sinh viên");
             team.RuleForEach(t => t.StudentProfileIds).NotEmpty().WithMessage("Sinh viên không hợp lệ");
             team.RuleFor(t => t.LeaderStudentProfileId)
-                .Must((t, leader) => t.StudentProfileIds.Contains(leader))
+                .Must((t, leader) => t.StudentProfileIds != null && t.StudentProfileIds.Contains(leader))
                 .WithMessage("Trưởng nhóm phải nằm trong danh sách thành viên của nhóm mới");
         });
+    }
+
+    private static bool HasAssignment(ApplyTeamAssignmentsRequest request)
+    {
+        if (request.NewTeams?.Count > 0)
+            return true;
+
+        return request.ExistingTeams?.Any(t => t?.StudentProfileIds?.Count > 0) == true;
     }
 }
 

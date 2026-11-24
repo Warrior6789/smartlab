@@ -8,9 +8,6 @@ namespace SmartLab.BLL.Services.AuditLogs;
 
 public class AuditLogService : IAuditLogService
 {
-    /// <summary>Vietnam has no DST, so a fixed UTC+7 offset is exact.</summary>
-    private static readonly TimeSpan VietnamUtcOffset = TimeSpan.FromHours(7);
-
     private readonly IUnitOfWork _uow;
 
     public AuditLogService(IUnitOfWork uow)
@@ -49,13 +46,13 @@ public class AuditLogService : IAuditLogService
 
         if (query.FromDate.HasValue)
         {
-            var from = DateTime.SpecifyKind(query.FromDate.Value.Date - VietnamUtcOffset, DateTimeKind.Utc);
+            var from = VietnamDays.StartUtc(query.FromDate.Value);
             logs = logs.Where(l => l.CreatedAt >= from);
         }
 
         if (query.ToDate.HasValue)
         {
-            var toExclusive = DateTime.SpecifyKind(query.ToDate.Value.Date.AddDays(1) - VietnamUtcOffset, DateTimeKind.Utc);
+            var toExclusive = VietnamDays.EndExclusiveUtc(query.ToDate.Value);
             logs = logs.Where(l => l.CreatedAt < toExclusive);
         }
 

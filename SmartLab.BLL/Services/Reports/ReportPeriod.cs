@@ -1,3 +1,4 @@
+using SmartLab.BLL.Common;
 using SmartLab.BLL.Common.Exceptions;
 
 namespace SmartLab.BLL.Services.Reports;
@@ -21,11 +22,11 @@ public class ReportPeriod
     {
         var to = VietnamToday();
         if (toDate.HasValue)
-            to = toDate.Value.Date;
+            to = VietnamDays.Clamp(toDate.Value);
 
         var from = to.AddDays(1 - DefaultDays);
         if (fromDate.HasValue)
-            from = fromDate.Value.Date;
+            from = VietnamDays.Clamp(fromDate.Value);
 
         if (from > to)
             throw new BadRequestException("Từ ngày phải trước hoặc bằng đến ngày");
