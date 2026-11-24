@@ -114,7 +114,7 @@ public class BorrowRequestsController : ControllerBase
     }
 
     /// <summary>
-    /// Nhận trả tại lab nhận đồ (trả được nhiều lần), cần ảnh nhận trả. Hàng theo từng con: Good / Damaged / Lost.
+    /// Nhận trả tại lab nhận đồ (trả được nhiều lần), cần ảnh nhận trả. Hàng theo từng con: Good / Damaged / Lost; Damaged phải kèm damagePhotoId (ảnh Return chụp riêng con đó, lưu vào báo cáo sự cố).
     /// Vật tư tiêu hao: số lượng mang trả (phần còn lại coi như đã dùng hết) cất vào tủ đã chọn. Trả hết thì đơn thành Returned.
     /// </summary>
     [HttpPost("{id:guid}/return")]

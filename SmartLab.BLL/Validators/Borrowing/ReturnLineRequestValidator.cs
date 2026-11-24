@@ -17,6 +17,11 @@ public class ReturnLineRequestValidator : AbstractValidator<ReturnLineRequest>
             .When(x => !string.IsNullOrWhiteSpace(x.Condition))
             .WithMessage($"Tình trạng phải là một trong: {string.Join(", ", ReturnConditions.All)}");
 
+        RuleFor(x => x.DamagePhotoId)
+            .NotEmpty()
+            .When(x => ReturnConditions.Normalize(x.Condition) == ReturnConditions.Damaged)
+            .WithMessage("Phải chụp ảnh từng thiết bị bị hỏng");
+
         RuleFor(x => x.ReturnedQuantity)
             .GreaterThanOrEqualTo(0).WithMessage("Số lượng trả không được âm")
             .When(x => x.ReturnedQuantity.HasValue);

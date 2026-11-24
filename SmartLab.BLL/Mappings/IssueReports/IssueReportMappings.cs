@@ -11,6 +11,7 @@ public static class IssueReportMappings
         Component? component = item?.Component;
         StorageCabinet? cabinet = item?.Cabinet;
         LabRoom? room = cabinet?.Room;
+        BorrowRequest? borrowRequest = report.BorrowItem?.BorrowRequest;
 
         return new IssueReportListItemResponse
         {
@@ -28,6 +29,10 @@ public static class IssueReportMappings
             ComponentName = component?.ComponentName,
             RoomId = room?.RoomId,
             RoomCode = room?.RoomCode,
+            BorrowRequestId = borrowRequest?.BorrowRequestId,
+            BorrowRequestCode = borrowRequest?.RequestCode,
+            RequesterFullName = borrowRequest?.Requester?.FullName,
+            RequesterStudentCode = borrowRequest?.Requester?.StudentProfile?.StudentCode,
             ReportedById = report.ReportedBy,
             ReportedBy = ToActorResponse(report.ReportedByNavigation),
         };
@@ -53,6 +58,10 @@ public static class IssueReportMappings
             ComponentName = listItem.ComponentName,
             RoomId = listItem.RoomId,
             RoomCode = listItem.RoomCode,
+            BorrowRequestId = listItem.BorrowRequestId,
+            BorrowRequestCode = listItem.BorrowRequestCode,
+            RequesterFullName = listItem.RequesterFullName,
+            RequesterStudentCode = listItem.RequesterStudentCode,
             ReportedById = listItem.ReportedById,
             ReportedBy = listItem.ReportedBy,
             BorrowItemId = report.BorrowItemId,

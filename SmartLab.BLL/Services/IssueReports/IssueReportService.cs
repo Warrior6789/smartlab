@@ -656,6 +656,10 @@ public class IssueReportService : IIssueReportService
             .Include(report => report.ComponentItem)
                 .ThenInclude(item => item.Cabinet)
                     .ThenInclude(cabinet => cabinet.Room)
+            .Include(report => report.BorrowItem)
+                .ThenInclude(borrowItem => borrowItem!.BorrowRequest)
+                    .ThenInclude(request => request.Requester)
+                        .ThenInclude(requester => requester.StudentProfile)
             .AsSplitQuery();
 
     private IQueryable<IssueReport> ApplyReadScope(IQueryable<IssueReport> query, Guid userId)

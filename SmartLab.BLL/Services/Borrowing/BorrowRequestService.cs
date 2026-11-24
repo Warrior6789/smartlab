@@ -452,7 +452,7 @@ public class BorrowRequestService : IBorrowRequestService
 
     /// <summary>
     /// Records one return at the pickup lab with a Return photo. Per-unit: Good → Available, Damaged → Retired,
-    /// Lost → Lost. A Good unit's Open issue reports are Rejected. CONSUMABLE: the quantity brought back goes into a pickup lab cabinet, the rest counts as used up.
+    /// Lost → Lost; a Damaged unit needs its own photo, kept in its issue report. A Good unit's Open issue reports are Rejected. CONSUMABLE: the quantity brought back goes into a pickup lab cabinet, the rest counts as used up.
     /// Stock back on the shelf is logged as Return. When nothing is still out and no replacement is pending the request
     /// becomes Returned.
     /// </summary>
@@ -474,6 +474,17 @@ public class BorrowRequestService : IBorrowRequestService
                            && p.PhotoType == HandoverPhotoTypes.Return, ct);
         if (!photoOk)
             throw new BadRequestException("Không tìm thấy ảnh nhận trả của đơn này. Hãy chụp ảnh đồ trả về trước khi nhận.");
+
+        var damagePhotoIds = request.Lines
+            .Where(l => l.DamagePhotoId.HasValue)
+            .Select(l => l.DamagePhotoId!.Value)
+            .Distinct()
+            .ToList();
+        var damagePhotos = await _uow.Repository<BorrowHandoverPhoto>().QueryNoTracking()
+            .Where(p => damagePhotoIds.Contains(p.PhotoId)
+                        && p.BorrowRequestId == borrowRequestId
+                        && p.PhotoType == HandoverPhotoTypes.Return)
+            .ToDictionaryAsync(p => p.PhotoId, p => p.PhotoUrl, ct);
 
         var lineIds = request.Lines.Select(l => l.BorrowItemId).ToList();
         var lines = await _uow.Repository<BorrowItem>().Query()
@@ -499,6 +510,11 @@ public class BorrowRequestService : IBorrowRequestService
             else if (ReturnConditions.Normalize(input.Condition) == null)
             {
                 errors.Add($"{line.Component.ComponentName}: phải chọn tình trạng {string.Join(" / ", ReturnConditions.All)}");
+            }
+            else if (ReturnConditions.Normalize(input.Condition) == ReturnConditions.Damaged
+                     && (input.DamagePhotoId == null || !damagePhotos.ContainsKey(input.DamagePhotoId.Value)))
+            {
+                errors.Add($"{line.Component.ComponentName}: phải chụp ảnh thiết bị bị hỏng");
             }
         }
         if (errors.Count > 0)
@@ -568,18 +584,23 @@ public class BorrowRequestService : IBorrowRequestService
             }
             else
             {
+                string? imageUrl = null;
+                if (condition == ReturnConditions.Damaged)
+                    imageUrl = damagePhotos[input.DamagePhotoId!.Value];
+
                 await _issueReports.ConfirmReturnIssueAsync(new ConfirmBorrowingReturnIssueCommand
                 {
                     BorrowItemId = line.BorrowItemId,
                     IssueType = condition,
                     Description = ReturnIssueDescription(condition, header.RequestCode),
+                    ImageUrl = imageUrl,
                 }, ct);
 
                 if (condition == ReturnConditions.Damaged)
                 {
                     line.Status = BorrowItemStatuses.Damaged;
                     line.ReturnedQuantity = 1;
-                    line.ReturnPhotoId = request.PhotoId;
+                    line.ReturnPhotoId = input.DamagePhotoId;
                 }
                 else
                 {
@@ -623,18 +644,21 @@ public class BorrowRequestService : IBorrowRequestService
         var header = await GetHeaderAsync(borrowRequestId, ct);
         await EnsurePickupStaffAsync(header.RoomId, ct);
 
-        var photoOk = await _uow.Repository<BorrowHandoverPhoto>().QueryNoTracking()
-            .AnyAsync(p => p.PhotoId == request.PhotoId
-                           && p.BorrowRequestId == borrowRequestId
-                           && p.PhotoType == HandoverPhotoTypes.Return, ct);
-        if (!photoOk)
-            throw new BadRequestException("Không tìm thấy ảnh nhận trả của đơn này. Hãy chụp ảnh con bị hỏng trước khi đổi.");
+        var photoUrl = await _uow.Repository<BorrowHandoverPhoto>().QueryNoTracking()
+                           .Where(p => p.PhotoId == request.PhotoId
+                                       && p.BorrowRequestId == borrowRequestId
+                                       && p.PhotoType == HandoverPhotoTypes.Return)
+                           .Select(p => p.PhotoUrl)
+                           .FirstOrDefaultAsync(ct)
+                       ?? throw new BadRequestException(
+                           "Không tìm thấy ảnh nhận trả của đơn này. Hãy chụp ảnh con bị hỏng trước khi đổi.");
 
         var result = await CloseBrokenLineAsync(borrowRequestId, header.RoomId, new RecordLoanIssueCommand
         {
             BorrowItemId = request.BorrowItemId,
             IssueType = IssueTypes.Damaged,
             Description = $"Hỏng trong lúc mượn, đổi con khác cho đơn {header.RequestCode}",
+            ImageUrl = photoUrl,
             Replace = true,
         }, request.PhotoId, now, ct);
 

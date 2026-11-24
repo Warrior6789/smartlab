@@ -16,6 +16,10 @@ public class IssueReportListItemResponse
     public string? ComponentName { get; set; }
     public Guid? RoomId { get; set; }
     public string? RoomCode { get; set; }
+    public Guid? BorrowRequestId { get; set; }
+    public string? BorrowRequestCode { get; set; }
+    public string? RequesterFullName { get; set; }
+    public string? RequesterStudentCode { get; set; }
     public Guid ReportedById { get; set; }
     public IssueReportActorResponse? ReportedBy { get; set; }
 }
