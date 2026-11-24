@@ -12,4 +12,7 @@ public class StockSummaryQueryParams
 
     /// <summary>Matches component code or name.</summary>
     public string? Search { get; set; }
+
+    /// <summary>Stocked (ever kept here), OutOfStock (ever kept here, none available) or LowStock; empty = every component.</summary>
+    public string? Status { get; set; }
 }

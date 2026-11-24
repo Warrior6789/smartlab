@@ -6,10 +6,13 @@ public class DashboardResponse
     /// <summary>Active components (Admin, InventoryManager, LabStaff).</summary>
     public int? TotalComponents { get; set; }
 
+    /// <summary>Active components that are or were kept in the labs the user sees (Admin, InventoryManager, LabStaff).</summary>
+    public int? StockedComponents { get; set; }
+
     /// <summary>Components below MinStock in the labs the user sees (Admin, InventoryManager, LabStaff).</summary>
     public int? LowStockCount { get; set; }
 
-    /// <summary>Active components with nothing available in the labs the user sees (Admin, InventoryManager, LabStaff).</summary>
+    /// <summary>Components kept in those labs with nothing available in the labs the user sees (Admin, InventoryManager, LabStaff).</summary>
     public int? OutOfStockCount { get; set; }
 
     /// <summary>Components below MinStock that still have some available (Admin, InventoryManager, LabStaff).</summary>

@@ -29,7 +29,16 @@ public class ReportService : IReportService
         var scope = await GetScopeAsync(ct);
         var rooms = InventoryRooms(scope, query.RoomId);
 
-        var result = StockSummary(query, rooms).OrderBy(s => s.ComponentCode);
+        var summary = StockSummary(query, rooms);
+        var status = StockStatusFilters.Normalize(query.Status);
+        if (status == StockStatusFilters.Stocked)
+            summary = summary.Where(s => s.IsStocked);
+        else if (status == StockStatusFilters.OutOfStock)
+            summary = summary.Where(s => s.IsStocked && s.Available == 0);
+        else if (status == StockStatusFilters.LowStock)
+            summary = summary.Where(s => s.IsLowStock);
+
+        var result = summary.OrderBy(s => s.ComponentCode);
         return await PagedResult<StockSummaryResponse>.CreateAsync(result, paging, ct);
     }
 
@@ -51,8 +60,9 @@ public class ReportService : IReportService
                 TrackingType = s.TrackingType,
                 Unit = s.Unit,
                 Available = s.Available,
+                SystemQuantity = s.SystemQuantity,
                 MinStock = s.MinStock!.Value,
-                Shortage = s.MinStock!.Value - (s.Available + s.Borrowed),
+                Shortage = s.MinStock!.Value - s.SystemQuantity,
                 LastUnitPrice = receiptItems
                     .Where(ri => ri.ComponentId == s.ComponentId)
                     .OrderByDescending(ri => ri.Receipt.ReceivedAt)
@@ -93,17 +103,29 @@ public class ReportService : IReportService
             .Where(t => t.CreatedAt < period.FromUtc)
             .SumAsync(t => t.QuantityChange, ct);
 
-        var types = await transactions
+        var lines = await transactions
             .Where(t => t.CreatedAt >= period.FromUtc && t.CreatedAt < period.ToExclusiveUtc)
-            .GroupBy(t => t.Type)
+            .Select(t => new MovementLine
+            {
+                Type = t.Type,
+                QuantityChange = t.QuantityChange,
+                ItemId = t.ItemId,
+                ReceiptId = t.ReceiptId,
+                CreatedAt = t.CreatedAt,
+                Reason = t.Reason,
+            })
+            .ToListAsync(ct);
+
+        var types = NetMovements(lines, rooms != null)
+            .GroupBy(m => m.Type)
             .Select(g => new StockMovementTypeResponse
             {
                 Type = g.Key,
-                QuantityIn = g.Where(t => t.QuantityChange > 0).Sum(t => t.QuantityChange),
-                QuantityOut = -g.Where(t => t.QuantityChange < 0).Sum(t => t.QuantityChange),
+                QuantityIn = g.Where(m => m.QuantityChange > 0).Sum(m => m.QuantityChange),
+                QuantityOut = -g.Where(m => m.QuantityChange < 0).Sum(m => m.QuantityChange),
             })
             .OrderBy(t => t.Type)
-            .ToListAsync(ct);
+            .ToList();
 
         var totalIn = types.Sum(t => t.QuantityIn);
         var totalOut = types.Sum(t => t.QuantityOut);
@@ -124,12 +146,12 @@ public class ReportService : IReportService
         };
     }
 
-    public async Task<StockValueResponse> GetStockValueAsync(CancellationToken ct = default)
+    public async Task<StockValueResponse> GetStockValueAsync(Guid? roomId, CancellationToken ct = default)
     {
         var scope = await GetScopeAsync(ct);
         EnsureSeesMoney(scope);
 
-        return await BuildStockValueAsync(ct);
+        return await BuildStockValueAsync(roomId, ct);
     }
 
     public async Task<ReceiptReportResponse> GetReceiptReportAsync(ReceiptReportQueryParams query, CancellationToken ct = default)
@@ -142,23 +164,28 @@ public class ReportService : IReportService
         if (!string.IsNullOrWhiteSpace(query.GroupBy))
             groupBy = query.GroupBy.Trim().ToLower();
 
-        var receipts = _uow.Repository<StockReceipt>().QueryNoTracking()
-            .Where(r => r.Status == StockReceiptStatuses.Completed
-                        && r.ReceivedAt >= period.FromUtc && r.ReceivedAt < period.ToExclusiveUtc);
+        var lines = CompletedReceiptItems()
+            .Where(ri => ri.Receipt.ReceivedAt >= period.FromUtc && ri.Receipt.ReceivedAt < period.ToExclusiveUtc);
+        if (query.RoomId.HasValue)
+            lines = lines.Where(ri => ri.Cabinet.RoomId == query.RoomId.Value);
 
         List<ReceiptGroupResponse> groups;
         if (groupBy == "supplier")
         {
-            groups = await receipts
-                .GroupBy(r => r.SupplierName)
-                .Select(g => new ReceiptGroupResponse { Key = g.Key, ReceiptCount = g.Count(), Amount = g.Sum(r => r.TotalAmount) })
+            groups = await lines
+                .GroupBy(ri => ri.Receipt.SupplierName)
+                .Select(g => new ReceiptGroupResponse
+                {
+                    Key = g.Key,
+                    ReceiptCount = g.Select(ri => ri.ReceiptId).Distinct().Count(),
+                    Amount = g.Sum(ri => ri.SubTotal),
+                })
                 .OrderByDescending(g => g.Amount)
                 .ToListAsync(ct);
         }
         else if (groupBy == "category")
         {
-            groups = await _uow.Repository<StockReceiptItem>().QueryNoTracking()
-                .Where(ri => receipts.Any(r => r.ReceiptId == ri.ReceiptId))
+            groups = await lines
                 .GroupBy(ri => ri.Component.Category.CategoryName)
                 .Select(g => new ReceiptGroupResponse
                 {
@@ -171,10 +198,15 @@ public class ReportService : IReportService
         }
         else
         {
-            var rows = await receipts.Select(r => new { r.ReceivedAt, r.TotalAmount }).ToListAsync(ct);
+            var rows = await lines.Select(ri => new { ri.ReceiptId, ri.Receipt.ReceivedAt, ri.SubTotal }).ToListAsync(ct);
             groups = rows
                 .GroupBy(r => (r.ReceivedAt + ReportPeriod.VietnamUtcOffset).ToString("yyyy-MM"))
-                .Select(g => new ReceiptGroupResponse { Key = g.Key, ReceiptCount = g.Count(), Amount = g.Sum(r => r.TotalAmount) })
+                .Select(g => new ReceiptGroupResponse
+                {
+                    Key = g.Key,
+                    ReceiptCount = g.Select(r => r.ReceiptId).Distinct().Count(),
+                    Amount = g.Sum(r => r.SubTotal),
+                })
                 .OrderBy(g => g.Key)
                 .ToList();
         }
@@ -184,8 +216,8 @@ public class ReportService : IReportService
             FromDate = period.FromDate,
             ToDate = period.ToDate,
             GroupBy = groupBy,
-            ReceiptCount = await receipts.CountAsync(ct),
-            TotalAmount = await receipts.SumAsync(r => r.TotalAmount, ct),
+            ReceiptCount = await lines.Select(ri => ri.ReceiptId).Distinct().CountAsync(ct),
+            TotalAmount = await lines.SumAsync(ri => ri.SubTotal, ct),
             Groups = groups,
         };
     }
@@ -199,9 +231,15 @@ public class ReportService : IReportService
         var transactions = _uow.Repository<InventoryTransaction>().QueryNoTracking()
             .Where(t => t.CreatedAt >= period.FromUtc && t.CreatedAt < period.ToExclusiveUtc);
 
+        if (query.RoomId.HasValue)
+            transactions = transactions.Where(t => t.CabinetId != null && t.Cabinet!.RoomId == query.RoomId.Value);
+
         var units = await transactions
-            .Where(t => t.Type == InventoryTransactionTypes.Retire && t.ItemId != null)
-            .Select(t => new { t.ComponentId, t.Item!.Status, Price = t.Item.PurchasePrice ?? 0 })
+            .Where(t => t.Type == InventoryTransactionTypes.Retire
+                        && t.ItemId != null
+                        && (t.Item!.Status == ComponentItemStatuses.Lost || t.Item.Status == ComponentItemStatuses.Retired))
+            .Select(t => new { t.ItemId, t.ComponentId, t.Item!.Status, Price = t.Item.PurchasePrice ?? 0 })
+            .Distinct()
             .ToListAsync(ct);
 
         var adjustments = await transactions
@@ -350,20 +388,25 @@ public class ReportService : IReportService
         var scope = await GetScopeAsync(ct);
         var period = ReportPeriod.Create(query.FromDate, query.ToDate);
 
+        var from = period.FromUtc;
+        var to = period.ToExclusiveUtc;
         var stats = await FilterRequests(BorrowRequests(scope), query.RoomId, query.ClassId)
             .Where(r => r.ClassId != null)
             .SelectMany(r => r.BorrowItems)
-            .Where(i => i.IssuedAt != null && i.IssuedAt >= period.FromUtc && i.IssuedAt < period.ToExclusiveUtc)
+            .Where(i => i.Status == BorrowItemStatuses.Issued
+                        || (i.IssuedAt >= from && i.IssuedAt < to)
+                        || (i.ReturnedAt >= from && i.ReturnedAt < to))
             .GroupBy(i => i.BorrowRequest.ClassId!.Value)
             .Select(g => new
             {
                 ClassId = g.Key,
-                RequestCount = g.Select(i => i.BorrowRequestId).Distinct().Count(),
-                IssuedQuantity = g.Sum(i => i.Quantity),
-                ReturnedQuantity = g.Where(i => i.Status == BorrowItemStatuses.Returned).Sum(i => i.ReturnedQuantity ?? 0),
+                RequestCount = g.Where(i => i.IssuedAt >= from && i.IssuedAt < to).Select(i => i.BorrowRequestId).Distinct().Count(),
+                IssuedQuantity = g.Where(i => i.IssuedAt >= from && i.IssuedAt < to).Sum(i => i.Quantity),
+                ReturnedQuantity = g.Where(i => i.Status == BorrowItemStatuses.Returned && i.ReturnedAt >= from && i.ReturnedAt < to)
+                    .Sum(i => i.ReturnedQuantity ?? 0),
                 HoldingQuantity = g.Where(i => i.Status == BorrowItemStatuses.Issued).Sum(i => i.Quantity),
-                DamagedUnits = g.Count(i => i.Status == BorrowItemStatuses.Damaged),
-                LostUnits = g.Count(i => i.Status == BorrowItemStatuses.Lost),
+                DamagedUnits = g.Count(i => i.ReturnCondition == ReturnConditions.Damaged && i.ReturnedAt >= from && i.ReturnedAt < to),
+                LostUnits = g.Count(i => i.ReturnCondition == ReturnConditions.Lost && i.ReturnedAt >= from && i.ReturnedAt < to),
             })
             .ToListAsync(ct);
 
@@ -419,11 +462,12 @@ public class ReportService : IReportService
     public async Task<IssueSummaryResponse> GetIssueSummaryAsync(ReportPeriodQueryParams query, CancellationToken ct = default)
     {
         var scope = await GetScopeAsync(ct);
-        var rooms = InventoryRooms(scope, null);
+        var rooms = InventoryRooms(scope, query.RoomId);
         var period = ReportPeriod.Create(query.FromDate, query.ToDate);
 
         var issues = _uow.Repository<IssueReport>().QueryNoTracking()
-            .Where(r => r.CreatedAt >= period.FromUtc && r.CreatedAt < period.ToExclusiveUtc);
+            .Where(r => r.CreatedAt >= period.FromUtc && r.CreatedAt < period.ToExclusiveUtc
+                        && r.Status != IssueReportStatuses.Rejected && r.Status != IssueReportStatuses.Cancelled);
         if (rooms != null)
             issues = issues.Where(r => rooms.Contains(r.ComponentItem.Cabinet.RoomId));
 
@@ -440,8 +484,8 @@ public class ReportService : IReportService
             .ToListAsync(ct);
 
         var topComponents = await issues
-            .GroupBy(r => r.ComponentItem.Component.ComponentCode)
-            .Select(g => new CountGroupResponse { Key = g.Key, Count = g.Count() })
+            .GroupBy(r => new { r.ComponentItem.Component.ComponentCode, r.ComponentItem.Component.ComponentName })
+            .Select(g => new CountGroupResponse { Key = g.Key.ComponentCode, Name = g.Key.ComponentName, Count = g.Count() })
             .OrderByDescending(g => g.Count).ThenBy(g => g.Key)
             .Take(10)
             .ToListAsync(ct);
@@ -555,13 +599,14 @@ public class ReportService : IReportService
             dashboard.TotalComponents = await _uow.Repository<Component>().QueryNoTracking().CountAsync(c => c.IsActive, ct);
             var summary = StockSummary(new StockSummaryQueryParams(), rooms);
             dashboard.LowStockCount = await summary.CountAsync(s => s.IsLowStock, ct);
-            dashboard.OutOfStockCount = await summary.CountAsync(s => s.Available == 0, ct);
+            dashboard.StockedComponents = await summary.CountAsync(s => s.IsStocked, ct);
+            dashboard.OutOfStockCount = await summary.CountAsync(s => s.IsStocked && s.Available == 0, ct);
             dashboard.BelowMinStockCount = await summary.CountAsync(s => s.IsLowStock && s.Available > 0, ct);
         }
 
         if (scope.SeesAll)
         {
-            var stockValue = await BuildStockValueAsync(ct);
+            var stockValue = await BuildStockValueAsync(null, ct);
             dashboard.StockValue = stockValue.TotalValue;
 
             var today = ReportPeriod.VietnamToday();
@@ -597,12 +642,57 @@ public class ReportService : IReportService
         return dashboard;
     }
 
+    /// <summary>
+    /// What really came in and out: moves inside the labs of the report and cancelled receipts add up to nothing.
+    /// A unit found again counts under Retire; without a lab filter nothing can move between labs, so a move that does
+    /// not balance (stock older than the ledger) counts as an adjustment.
+    /// </summary>
+    private static IEnumerable<MovementLine> NetMovements(List<MovementLine> lines, bool limitedToLabs)
+    {
+        var result = new List<MovementLine>();
+
+        foreach (var line in lines)
+        {
+            if (line.Type == InventoryTransactionTypes.Move && IsFoundAgain(line))
+                result.Add(new MovementLine { Type = InventoryTransactionTypes.Retire, QuantityChange = line.QuantityChange });
+            else if (line.Type != InventoryTransactionTypes.Move && !IsReceiptLine(line))
+                result.Add(line);
+        }
+
+        var moveType = InventoryTransactionTypes.Adjust;
+        if (limitedToLabs)
+            moveType = InventoryTransactionTypes.Move;
+        foreach (var move in lines
+                     .Where(l => l.Type == InventoryTransactionTypes.Move && !IsFoundAgain(l))
+                     .GroupBy(l => new { l.CreatedAt, l.ItemId }))
+            result.Add(new MovementLine { Type = moveType, QuantityChange = move.Sum(l => l.QuantityChange) });
+
+        foreach (var receipt in lines.Where(IsReceiptLine).GroupBy(l => l.ReceiptId))
+        {
+            var change = receipt.Sum(l => l.QuantityChange);
+            var type = InventoryTransactionTypes.Receipt;
+            if (change < 0)
+                type = InventoryTransactionTypes.ReceiptCancel;
+            result.Add(new MovementLine { Type = type, QuantityChange = change });
+        }
+
+        return result.Where(l => l.QuantityChange != 0);
+    }
+
+    private static bool IsFoundAgain(MovementLine line) =>
+        line.Reason != null && line.Reason.StartsWith($"{ComponentItemStatuses.Lost} -> ");
+
+    private static bool IsReceiptLine(MovementLine line) =>
+        line.Type == InventoryTransactionTypes.Receipt || line.Type == InventoryTransactionTypes.ReceiptCancel;
+
     /// <summary>Per-component stock in the given labs (null = all labs), as SQL.</summary>
     private IQueryable<StockSummaryResponse> StockSummary(StockSummaryQueryParams query, List<Guid>? rooms)
     {
         var components = _uow.Repository<Component>().QueryNoTracking().Where(c => c.IsActive);
         var items = _uow.Repository<ComponentItem>().QueryNoTracking();
         var stocks = _uow.Repository<ConsumableStock>().QueryNoTracking();
+        var allItems = items;
+        var allStocks = stocks;
 
         if (rooms != null)
         {
@@ -639,30 +729,38 @@ public class ReportService : IReportService
             Borrowed = items.Count(i => i.ComponentId == c.ComponentId && i.Status == ComponentItemStatuses.Borrowed),
             LostOrRetired = items.Count(i => i.ComponentId == c.ComponentId
                                              && (i.Status == ComponentItemStatuses.Lost || i.Status == ComponentItemStatuses.Retired)),
+            SystemQuantity = allStocks.Where(s => s.ComponentId == c.ComponentId).Sum(s => s.Quantity)
+                             + allItems.Count(i => i.ComponentId == c.ComponentId
+                                                   && (i.Status == ComponentItemStatuses.Available
+                                                       || i.Status == ComponentItemStatuses.Borrowed)),
             MinStock = c.MinStock,
+            IsStocked = items.Any(i => i.ComponentId == c.ComponentId) || stocks.Any(s => s.ComponentId == c.ComponentId),
             IsLowStock = c.MinStock != null
-                         && stocks.Where(s => s.ComponentId == c.ComponentId).Sum(s => s.Quantity)
-                            + items.Count(i => i.ComponentId == c.ComponentId
-                                               && (i.Status == ComponentItemStatuses.Available
-                                                   || i.Status == ComponentItemStatuses.Borrowed))
+                         && (items.Any(i => i.ComponentId == c.ComponentId) || stocks.Any(s => s.ComponentId == c.ComponentId))
+                         && allStocks.Where(s => s.ComponentId == c.ComponentId).Sum(s => s.Quantity)
+                            + allItems.Count(i => i.ComponentId == c.ComponentId
+                                                  && (i.Status == ComponentItemStatuses.Available
+                                                      || i.Status == ComponentItemStatuses.Borrowed))
                             < c.MinStock,
         });
     }
 
     /// <summary>Units in stock or lent out at their purchase price, plus consumables at the latest receipt price.</summary>
-    private async Task<StockValueResponse> BuildStockValueAsync(CancellationToken ct)
+    private async Task<StockValueResponse> BuildStockValueAsync(Guid? roomId, CancellationToken ct)
     {
         var units = await _uow.Repository<ComponentItem>().QueryNoTracking()
             .Where(i => i.Status == ComponentItemStatuses.Available || i.Status == ComponentItemStatuses.Borrowed)
+            .Where(i => roomId == null || i.Cabinet.RoomId == roomId)
             .GroupBy(i => new { i.Component.Category.CategoryName, i.Cabinet.Room.RoomCode })
             .Select(g => new { g.Key.CategoryName, g.Key.RoomCode, Value = g.Sum(i => i.PurchasePrice ?? 0) })
             .ToListAsync(ct);
 
         var receiptItems = CompletedReceiptItems();
         var consumables = await _uow.Repository<ConsumableStock>().QueryNoTracking()
-            .Where(s => s.Quantity > 0)
+            .Where(s => s.Quantity > 0 && (roomId == null || s.Cabinet.RoomId == roomId))
             .Select(s => new
             {
+                s.ComponentId,
                 s.Component.Category.CategoryName,
                 s.Cabinet.Room.RoomCode,
                 s.Quantity,
@@ -687,6 +785,7 @@ public class ReportService : IReportService
             TotalValue = lines.Sum(l => l.Value),
             UnitValue = lines.Where(l => l.IsUnit).Sum(l => l.Value),
             ConsumableValue = lines.Where(l => !l.IsUnit).Sum(l => l.Value),
+            UnpricedComponents = consumables.Where(c => c.UnitPrice == null).Select(c => c.ComponentId).Distinct().Count(),
             ByCategory = lines.GroupBy(l => l.CategoryName)
                 .Select(g => new ValueGroupResponse { Key = g.Key, Value = g.Sum(l => l.Value) })
                 .OrderByDescending(g => g.Value).ToList(),

@@ -9,9 +9,13 @@ public class LowStockResponse
     public string TrackingType { get; set; } = null!;
     public string Unit { get; set; } = null!;
     public int Available { get; set; }
+    /// <summary>In the cabinets or on loan, over every lab.</summary>
+    public int SystemQuantity { get; set; }
+
+    /// <summary>Over every lab.</summary>
     public int MinStock { get; set; }
 
-    /// <summary>MinStock - (Available + units on loan): how many to buy to reach the minimum.</summary>
+    /// <summary>MinStock - SystemQuantity: how many to buy to reach the minimum.</summary>
     public int Shortage { get; set; }
 
     /// <summary>Unit price on the latest completed stock receipt; null when never received or for LabStaff.</summary>

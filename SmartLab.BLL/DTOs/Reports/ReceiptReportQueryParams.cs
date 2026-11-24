@@ -10,4 +10,7 @@ public class ReceiptReportQueryParams
 
     /// <summary>month (default), supplier or category.</summary>
     public string? GroupBy { get; set; }
+
+    /// <summary>Only the lines received into this lab.</summary>
+    public Guid? RoomId { get; set; }
 }

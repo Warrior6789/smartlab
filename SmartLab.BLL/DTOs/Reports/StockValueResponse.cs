@@ -10,6 +10,9 @@ public class StockValueResponse
     /// <summary>Consumable quantity x unit price on the latest completed receipt.</summary>
     public decimal ConsumableValue { get; set; }
 
+    /// <summary>Consumables in stock that were never on a completed receipt, so they count as 0.</summary>
+    public int UnpricedComponents { get; set; }
+
     /// <summary>By category name, highest value first.</summary>
     public List<ValueGroupResponse> ByCategory { get; set; } = new();
 

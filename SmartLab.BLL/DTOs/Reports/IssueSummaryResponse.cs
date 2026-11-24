@@ -5,7 +5,7 @@ public class IssueSummaryResponse
     public DateTime FromDate { get; set; }
     public DateTime ToDate { get; set; }
 
-    /// <summary>Issue reports created in the period.</summary>
+    /// <summary>Issue reports created in the period; rejected and cancelled ones are left out everywhere.</summary>
     public int TotalIssues { get; set; }
 
     public List<CountGroupResponse> ByStatus { get; set; } = new();

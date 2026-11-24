@@ -12,5 +12,10 @@ public class StockSummaryQueryParamsValidator : AbstractValidator<StockSummaryQu
             .Must(t => ComponentTrackingTypes.All.Contains(t!.Trim().ToUpper()))
             .When(x => !string.IsNullOrWhiteSpace(x.TrackingType))
             .WithMessage("Loại linh kiện phải là CONSUMABLE, REUSABLE hoặc HIGH_VALUE");
+
+        RuleFor(x => x.Status)
+            .Must(s => StockStatusFilters.Normalize(s) != null)
+            .When(x => !string.IsNullOrWhiteSpace(x.Status))
+            .WithMessage("Trạng thái tồn phải là Stocked, OutOfStock hoặc LowStock");
     }
 }

@@ -42,7 +42,7 @@ public class ReportsController : ControllerBase
         return Ok(ApiResponse<PagedResult<LowStockResponse>>.Ok(result));
     }
 
-    /// <summary>Thẻ kho của 1 linh kiện trong kỳ: tồn đầu, nhập/xuất theo loại giao dịch, tồn cuối (mặc định 30 ngày gần nhất, tối đa 366 ngày).</summary>
+    /// <summary>Thẻ kho của 1 linh kiện trong kỳ: tồn đầu, nhập/xuất theo loại giao dịch (chuyển tủ trong cùng phạm vi và phiếu nhập đã hủy không tính), tồn cuối (mặc định 30 ngày gần nhất, tối đa 366 ngày).</summary>
     [HttpGet("inventory/movements")]
     [ProducesResponseType(typeof(ApiResponse<StockMovementResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
@@ -58,9 +58,9 @@ public class ReportsController : ControllerBase
     [HttpGet("inventory/stock-value")]
     [ProducesResponseType(typeof(ApiResponse<StockValueResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> GetStockValue(CancellationToken ct)
+    public async Task<IActionResult> GetStockValue([FromQuery] Guid? roomId, CancellationToken ct)
     {
-        var result = await _reportService.GetStockValueAsync(ct);
+        var result = await _reportService.GetStockValueAsync(roomId, ct);
         return Ok(ApiResponse<StockValueResponse>.Ok(result));
     }
 
@@ -75,7 +75,7 @@ public class ReportsController : ControllerBase
         return Ok(ApiResponse<ReceiptReportResponse>.Ok(result));
     }
 
-    /// <summary>Hao hụt trong kỳ: con chuyển sang Lost/Retired, vật tư bị điều chỉnh giảm; số lượng và giá trị (chỉ Admin, quản lý kho).</summary>
+    /// <summary>Hao hụt trong kỳ: con chuyển sang Lost/Retired (bỏ con đã tìm lại được), vật tư bị điều chỉnh giảm; số lượng và giá trị (chỉ Admin, quản lý kho).</summary>
     [HttpGet("inventory/losses")]
     [ProducesResponseType(typeof(ApiResponse<LossReportResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
@@ -109,7 +109,7 @@ public class ReportsController : ControllerBase
         return Ok(ApiResponse<BorrowSummaryResponse>.Ok(result));
     }
 
-    /// <summary>Mức mượn theo lớp (theo ngày giao trong kỳ): số đơn, đã giao, đã trả, đang giữ, hỏng, mất.</summary>
+    /// <summary>Mức mượn theo lớp: số đơn, đã giao, đã trả, hỏng, mất trong kỳ; đang giữ tính lúc này.</summary>
     [HttpGet("borrowing/by-class")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<ClassUsageResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
@@ -132,7 +132,7 @@ public class ReportsController : ControllerBase
         return Ok(ApiResponse<PagedResult<DamageResponse>>.Ok(result));
     }
 
-    /// <summary>Thống kê sự cố tạo trong kỳ: theo trạng thái, loại, linh kiện nhiều sự cố nhất, thời gian xử lý trung bình.</summary>
+    /// <summary>Thống kê sự cố tạo trong kỳ (bỏ sự cố bị từ chối hoặc hủy): theo trạng thái, loại, linh kiện nhiều sự cố nhất.</summary>
     [HttpGet("issues")]
     [ProducesResponseType(typeof(ApiResponse<IssueSummaryResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]

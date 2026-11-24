@@ -13,7 +13,7 @@ public interface IReportService
 
     Task<StockMovementResponse> GetStockMovementsAsync(StockMovementQueryParams query, CancellationToken ct = default);
 
-    Task<StockValueResponse> GetStockValueAsync(CancellationToken ct = default);
+    Task<StockValueResponse> GetStockValueAsync(Guid? roomId, CancellationToken ct = default);
 
     Task<ReceiptReportResponse> GetReceiptReportAsync(ReceiptReportQueryParams query, CancellationToken ct = default);
 
