@@ -83,15 +83,14 @@ public class IssueReportService : IIssueReportService
         {
             Item = IssueReportMappings.ToItemResponse(item)!,
             BorrowContext = IssueReportMappings.ToBorrowContextResponse(activeBorrowItem),
-            ConfirmsImmediately = await CanConfirmAsync(item, userId, ct),
+            ConfirmsImmediately = true,
             FreeReplacementUnits = freeUnits,
         };
     }
 
     /// <summary>
-    /// Lab staff have the unit in hand, so their report is Confirmed at once: a lent unit closes its borrow line (with a
-    /// replacement when asked for), a unit in its cabinet leaves the stock. An inventory manager's report stays Open until
-    /// the lab staff check it.
+    /// Lab staff have the unit in hand, so the report is Confirmed at once: a lent unit closes its borrow line (with a
+    /// replacement when asked for), a unit in its cabinet leaves the stock.
     /// </summary>
     public async Task<IssueReportDetailResponse> CreateAsync(
         CreateIssueReportRequest request,
@@ -110,10 +109,6 @@ public class IssueReportService : IIssueReportService
         var activeBorrowItem = await EnsureCanReportAsync(item, userId, ct);
         if (request.Replace && activeBorrowItem is null)
             throw new BadRequestException("Chỉ đổi con khác khi thiết bị đang được mượn");
-
-        var confirmNow = await CanConfirmAsync(item, userId, ct);
-        if (activeBorrowItem is not null && !confirmNow)
-            throw new ForbiddenException("Chỉ LabStaff phụ trách đúng lab hoặc Admin được ghi nhận thiết bị đang mượn");
 
         var image = await UploadImageAsync(request, ct);
         Guid reportId;
@@ -135,7 +130,7 @@ public class IssueReportService : IIssueReportService
             }
             else
             {
-                reportId = await CreateForCabinetItemAsync(item, issueType, description, image?.Url, confirmNow, userId, ct);
+                reportId = await CreateForCabinetItemAsync(item, issueType, description, image?.Url, userId, ct);
             }
         }
         catch
@@ -151,13 +146,12 @@ public class IssueReportService : IIssueReportService
         return response;
     }
 
-    /// <summary>Saves the report of a unit in its cabinet, confirmed in the same transaction when <paramref name="confirmNow"/>.</summary>
+    /// <summary>Saves the Confirmed report of a unit in its cabinet and takes the unit out of the stock.</summary>
     private async Task<Guid> CreateForCabinetItemAsync(
         ComponentItem item,
         string issueType,
         string description,
         string? imageUrl,
-        bool confirmNow,
         Guid userId,
         CancellationToken ct)
     {
@@ -183,27 +177,20 @@ public class IssueReportService : IIssueReportService
             IssueType = issueType,
             Description = description,
             ImageUrl = imageUrl,
-            Status = IssueReportStatuses.Open,
+            Status = IssueReportStatuses.Confirmed,
+            ResolvedBy = userId,
             CreatedAt = now,
+            ResolvedAt = now,
         };
-        if (confirmNow)
-        {
-            report.Status = IssueReportStatuses.Confirmed;
-            report.ResolvedBy = userId;
-            report.ResolvedAt = now;
-        }
 
         await _uow.Repository<IssueReport>().AddAsync(report, ct);
-        if (confirmNow)
+        await IssueReportConfirmationHandler.ConfirmAsync(_uow, new IssueReport
         {
-            await IssueReportConfirmationHandler.ConfirmAsync(_uow, new IssueReport
-            {
-                IssueReportId = report.IssueReportId,
-                ComponentItemId = item.ItemId,
-                IssueType = issueType,
-                ComponentItem = item,
-            }, userId, null, now, ct);
-        }
+            IssueReportId = report.IssueReportId,
+            ComponentItemId = item.ItemId,
+            IssueType = issueType,
+            ComponentItem = item,
+        }, userId, null, now, ct);
 
         await _uow.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
@@ -215,7 +202,6 @@ public class IssueReportService : IIssueReportService
     private async Task<BorrowItem?> EnsureCanReportAsync(ComponentItem item, Guid userId, CancellationToken ct)
     {
         EnsureSupportedItem(item);
-        EnsureInventoryManagerCreateStatus(item);
         var activeBorrowItem = await ResolveActiveBorrowItemAsync(item, ct);
         await EnsureCanCreateAsync(item, userId, ct);
 
@@ -223,18 +209,6 @@ public class IssueReportService : IIssueReportService
             throw new ConflictException("Linh kiện này đã có báo cáo sự cố đang chờ xử lý");
 
         return activeBorrowItem;
-    }
-
-    /// <summary>Admin, or lab staff of the unit's lab, with ISSUE_RESOLVE.</summary>
-    private async Task<bool> CanConfirmAsync(ComponentItem item, Guid userId, CancellationToken ct)
-    {
-        if (!_currentUser.HasPermission(PermissionCodes.IssueResolve))
-            return false;
-        if (_currentUser.IsInRole(RoleNames.Admin))
-            return true;
-
-        return _currentUser.IsInRole(RoleNames.LabStaff) &&
-               await IsAssignedToRoomAsync(item.Cabinet.RoomId, userId, ct);
     }
 
     private async Task<StoredFile?> UploadImageAsync(CreateIssueReportRequest request, CancellationToken ct)
@@ -497,41 +471,23 @@ public class IssueReportService : IIssueReportService
         };
     }
 
-    private void EnsureInventoryManagerCreateStatus(ComponentItem item)
-    {
-        if (_currentUser.IsInRole(RoleNames.Admin) ||
-            !_currentUser.IsInRole(RoleNames.InventoryManager))
-            return;
-
-        if (item.Status == ComponentItemBorrowed)
-            throw new ForbiddenException(
-                "InventoryManager không được báo sự cố cho linh kiện đang được mượn");
-    }
-
+    /// <summary>Admin, or lab staff of the unit's lab, with ISSUE_RESOLVE: recording is final, like resolving a report.</summary>
     private async Task EnsureCanCreateAsync(
         ComponentItem item,
         Guid userId,
         CancellationToken ct)
     {
+        if (!_currentUser.HasPermission(PermissionCodes.IssueResolve))
+            throw new ForbiddenException("Bạn không có quyền ISSUE_RESOLVE");
+
         if (_currentUser.IsInRole(RoleNames.Admin))
             return;
-
-        if (_currentUser.IsInRole(RoleNames.InventoryManager))
-        {
-            if (item.Status == ComponentItemAvailable &&
-                (item.Cabinet is null || item.Cabinet.Room is null))
-                throw new ConflictException(
-                    "Linh kiện Available không có vị trí tủ và phòng lab hợp lệ trong kho");
-
-            return;
-        }
 
         if (_currentUser.IsInRole(RoleNames.LabStaff) &&
             await IsAssignedToRoomAsync(item.Cabinet.RoomId, userId, ct))
             return;
 
-        throw new ForbiddenException(
-            "Bạn chỉ ghi nhận được sự cố của thiết bị thuộc lab mình phụ trách");
+        throw new ForbiddenException("Bạn chỉ ghi nhận được sự cố của thiết bị thuộc lab mình phụ trách");
     }
 
     private Task<bool> IsAssignedToRoomAsync(Guid roomId, Guid userId, CancellationToken ct)

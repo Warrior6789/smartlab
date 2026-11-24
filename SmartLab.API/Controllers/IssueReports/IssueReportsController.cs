@@ -16,14 +16,14 @@ namespace SmartLab.API.Controllers.IssueReports;
 public class IssueReportsController : ControllerBase
 {
     /// <summary>
-    /// Students do not report damage themselves: they bring the unit to the lab, where staff check it, set its state and
-    /// take the photo.
+    /// Only lab staff record issues: students bring the unit to the lab, where staff check it, set its state and take the
+    /// photo. The inventory manager only reads the reports.
     /// </summary>
     private const string CreateRoles =
-        RoleNames.LabStaff + "," + RoleNames.InventoryManager + "," + RoleNames.Admin;
+        RoleNames.LabStaff + "," + RoleNames.Admin;
 
     private const string ReadRoles =
-        CreateRoles + "," + RoleNames.Student + "," + RoleNames.Lecturer;
+        CreateRoles + "," + RoleNames.InventoryManager + "," + RoleNames.Student + "," + RoleNames.Lecturer;
 
     private const string ResolveRoles =
         RoleNames.LabStaff + "," + RoleNames.Admin;
@@ -39,7 +39,7 @@ public class IssueReportsController : ControllerBase
     /// Ghi nhận một thiết bị REUSABLE/HIGH_VALUE bị hỏng, cháy (bắt buộc ảnh) hoặc mất. Sinh viên không tự báo: mang thiết bị
     /// tới lab để nhân viên kiểm tra; sinh viên vẫn xem được báo cáo liên quan tới mình.
     /// Nhân viên lab/Admin ghi nhận là Confirmed ngay: thiết bị Retired/Lost; đang mượn thì đóng luôn dòng mượn, gửi replace = true để
-    /// đổi con khác nếu lab còn (trả về replacementBorrowItemId). Quản lý kho chỉ báo thiết bị trong tủ, báo cáo Open chờ nhân viên lab.
+    /// đổi con khác nếu lab còn (trả về replacementBorrowItemId). Quản lý kho chỉ xem.
     /// </summary>
     [HttpPost]
     [Authorize(Roles = CreateRoles)]
@@ -57,7 +57,7 @@ public class IssueReportsController : ControllerBase
         return CreatedAtAction(
             nameof(GetById),
             new { id = report.IssueReportId },
-            ApiResponse<IssueReportDetailResponse>.Ok(report, report.Status == IssueReportStatuses.Confirmed ? "Đã ghi nhận sự cố" : "Đã gửi báo cáo sự cố, chờ nhân viên lab kiểm tra"));
+            ApiResponse<IssueReportDetailResponse>.Ok(report, "Đã ghi nhận sự cố"));
     }
 
     /// <summary>

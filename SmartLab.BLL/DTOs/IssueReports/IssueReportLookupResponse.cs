@@ -8,7 +8,7 @@ public class IssueReportLookupResponse
     /// <summary>Who is borrowing the unit; null when it is in its cabinet.</summary>
     public IssueReportBorrowContextResponse? BorrowContext { get; set; }
 
-    /// <summary>True when recording it is final (lab staff checked it); false when it waits for the lab staff (inventory manager).</summary>
+    /// <summary>Always true: only lab staff record issues and recording is final. Kept for older app versions.</summary>
     public bool ConfirmsImmediately { get; set; }
 
     /// <summary>Units of the same component free to give the borrower instead; always 0 when the unit is not lent.</summary>
