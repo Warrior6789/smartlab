@@ -38,4 +38,11 @@ public class BorrowItemResponse
     public string? ReturnCondition { get; set; }
 
     public Guid? ReturnPhotoId { get; set; }
+
+    /// <summary>The open return slip (Pending or Approved) this line is on; null when there is none.</summary>
+    public Guid? ReturnSlipId { get; set; }
+
+    public string? ReturnSlipCode { get; set; }
+
+    public string? ReturnSlipStatus { get; set; }
 }

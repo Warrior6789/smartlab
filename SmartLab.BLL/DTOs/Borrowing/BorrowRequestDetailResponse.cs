@@ -17,4 +17,10 @@ public class BorrowRequestDetailResponse : BorrowRequestResponse
 
     /// <summary>Due date extensions asked for this request, oldest first.</summary>
     public List<BorrowExtensionResponse> Extensions { get; set; } = new();
+
+    /// <summary>Newest first.</summary>
+    public List<ReturnSlipSummaryResponse> ReturnSlips { get; set; } = new();
+
+    /// <summary>The caller sent the request or leads its team, and the request is being borrowed.</summary>
+    public bool CanCreateReturnSlip { get; set; }
 }

@@ -39,6 +39,12 @@ public partial class User
 
     public virtual ICollection<BorrowRequest> BorrowRequests { get; set; } = new List<BorrowRequest>();
 
+    public virtual ICollection<BorrowReturnSlip> BorrowReturnSlipCreatedByNavigations { get; set; } = new List<BorrowReturnSlip>();
+
+    public virtual ICollection<BorrowReturnSlip> BorrowReturnSlipReceivedByNavigations { get; set; } = new List<BorrowReturnSlip>();
+
+    public virtual ICollection<BorrowReturnSlip> BorrowReturnSlipReviewedByNavigations { get; set; } = new List<BorrowReturnSlip>();
+
     public virtual ICollection<ComponentImage> ComponentImages { get; set; } = new List<ComponentImage>();
 
     public virtual ICollection<ComponentTutorial> ComponentTutorials { get; set; } = new List<ComponentTutorial>();

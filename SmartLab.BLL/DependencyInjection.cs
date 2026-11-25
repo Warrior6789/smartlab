@@ -132,6 +132,7 @@ public static class DependencyInjection
         services.AddScoped<IBorrowRequestService, BorrowRequestService>();
         services.AddScoped<IBorrowReminderService, BorrowReminderService>();
         services.AddScoped<IBorrowExtensionService, BorrowExtensionService>();
+        services.AddScoped<IReturnSlipService, ReturnSlipService>();
         services.AddHostedService<BorrowReminderWorker>();
         services.AddHostedService<BorrowOverdueWorker>();
 

@@ -63,6 +63,18 @@ public interface IBorrowNotifier
     /// </summary>
     Task StaffCancelledAsync(Guid borrowRequestId, Guid cancelledBy, CancellationToken ct = default);
 
+    /// <summary>A student wants to bring components back: tells the staff of the request's lab.</summary>
+    Task ReturnSlipCreatedAsync(Guid returnSlipId, CancellationToken ct = default);
+
+    /// <summary>The lab approved (come on that day) or rejected (reason) a return slip: tells the borrower.</summary>
+    Task ReturnSlipReviewedAsync(Guid returnSlipId, CancellationToken ct = default);
+
+    /// <summary>The lab moved an approved return slip to another day: tells the borrower.</summary>
+    Task ReturnSlipRescheduledAsync(Guid returnSlipId, CancellationToken ct = default);
+
+    /// <summary>The student dropped a return slip: tells the staff of the request's lab.</summary>
+    Task ReturnSlipCancelledAsync(Guid returnSlipId, CancellationToken ct = default);
+
     /// <summary>The borrower asked to extend the due date: tells the lecturer of the class.</summary>
     Task ExtensionRequestedAsync(Guid extensionId, CancellationToken ct = default);
 

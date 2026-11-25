@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -94,6 +95,7 @@ public class BorrowRequestService : IBorrowRequestService
         if (!await _uow.Repository<BorrowRequest>().QueryNoTracking().AnyAsync(r => r.BorrowRequestId == borrowRequestId, ct))
             throw new NotFoundException("Không tìm thấy đơn mượn");
 
+        var userId = _currentUser.UserId;
         var overdueBefore = OverdueBefore();
         return await VisibleRequests()
                    .Where(r => r.BorrowRequestId == borrowRequestId)
@@ -141,6 +143,18 @@ public class BorrowRequestService : IBorrowRequestService
                                ReturnedQuantity = i.ReturnedQuantity,
                                ReturnCondition = i.ReturnCondition,
                                ReturnPhotoId = i.ReturnPhotoId,
+                               ReturnSlipId = i.BorrowReturnSlipItems
+                                   .Where(s => ReturnSlipStatuses.Open.Contains(s.ReturnSlip.Status))
+                                   .Select(s => (Guid?)s.ReturnSlipId)
+                                   .FirstOrDefault(),
+                               ReturnSlipCode = i.BorrowReturnSlipItems
+                                   .Where(s => ReturnSlipStatuses.Open.Contains(s.ReturnSlip.Status))
+                                   .Select(s => s.ReturnSlip.SlipCode)
+                                   .FirstOrDefault(),
+                               ReturnSlipStatus = i.BorrowReturnSlipItems
+                                   .Where(s => ReturnSlipStatuses.Open.Contains(s.ReturnSlip.Status))
+                                   .Select(s => s.ReturnSlip.Status)
+                                   .FirstOrDefault(),
                            })
                            .ToList(),
                        Photos = r.BorrowHandoverPhotos
@@ -193,6 +207,22 @@ public class BorrowRequestService : IBorrowRequestService
                                ReviewedAt = e.ReviewedAt,
                            })
                            .ToList(),
+                       ReturnSlips = r.BorrowReturnSlips
+                           .OrderByDescending(s => s.CreatedAt).ThenBy(s => s.ReturnSlipId)
+                           .Select(s => new ReturnSlipSummaryResponse
+                           {
+                               ReturnSlipId = s.ReturnSlipId,
+                               SlipCode = s.SlipCode,
+                               Status = s.Status,
+                               AppointmentDate = s.AppointmentDate,
+                               ItemCount = s.BorrowReturnSlipItems.Count,
+                               CreatedAt = s.CreatedAt,
+                           })
+                           .ToList(),
+                       CanCreateReturnSlip = BorrowedStatuses.Contains(r.Status)
+                                             && (r.RequesterId == userId
+                                                 || (r.Project != null && r.Project.Team != null
+                                                     && r.Project.Team.Leader.UserId == userId)),
                    })
                    .AsSplitQuery()
                    .FirstOrDefaultAsync(ct)
@@ -468,6 +498,9 @@ public class BorrowRequestService : IBorrowRequestService
         var header = await GetHeaderAsync(borrowRequestId, ct);
         await EnsurePickupStaffAsync(header.RoomId, ct);
 
+        if (request.ReturnSlipId != null)
+            await EnsureApprovedSlipAsync(request.ReturnSlipId.Value, borrowRequestId, ct);
+
         var photoOk = await _uow.Repository<BorrowHandoverPhoto>().QueryNoTracking()
             .AnyAsync(p => p.PhotoId == request.PhotoId
                            && p.BorrowRequestId == borrowRequestId
@@ -622,6 +655,8 @@ public class BorrowRequestService : IBorrowRequestService
         }
 
         await SaveStockChangesAsync(ct);
+        if (request.ReturnSlipId != null)
+            await CompleteSlipsAsync(s => s.ReturnSlipId == request.ReturnSlipId, userId, now, ct);
         await CloseWhenAllBackAsync(borrowRequestId, now, ct);
 
         await tx.CommitAsync(ct);
@@ -987,12 +1022,65 @@ public class BorrowRequestService : IBorrowRequestService
             .Select(r => new RequestHeader(r.RoomId, r.RequestCode, r.Status))
             .FirstAsync(ct);
 
+    /// <summary>The slip must belong to this request and be approved. Call with the request locked.</summary>
+    private async Task EnsureApprovedSlipAsync(Guid returnSlipId, Guid borrowRequestId, CancellationToken ct)
+    {
+        var status = await _uow.Repository<BorrowReturnSlip>().QueryNoTracking()
+                         .Where(s => s.ReturnSlipId == returnSlipId && s.BorrowRequestId == borrowRequestId)
+                         .Select(s => s.Status)
+                         .FirstOrDefaultAsync(ct)
+                     ?? throw new BadRequestException("Phiếu trả không thuộc đơn mượn này");
+        if (status != ReturnSlipStatuses.Approved)
+            throw new ConflictException("Chỉ nhận đồ theo phiếu trả đã duyệt");
+    }
+
+    /// <summary>
+    /// Approved slips matching the filter become Completed. Lines on them that were not brought stay out and can go on a
+    /// new slip.
+    /// </summary>
+    private Task CompleteSlipsAsync(
+        Expression<Func<BorrowReturnSlip, bool>> filter, Guid userId, DateTime now, CancellationToken ct)
+        => _uow.Repository<BorrowReturnSlip>().Query()
+            .Where(filter)
+            .Where(s => s.Status == ReturnSlipStatuses.Approved)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(s => s.Status, ReturnSlipStatuses.Completed)
+                .SetProperty(s => s.ReceivedBy, userId)
+                .SetProperty(s => s.ReceivedAt, now)
+                .SetProperty(s => s.UpdatedAt, now), ct);
+
+    /// <summary>
+    /// Open slips with nothing left out (received without naming the slip, or recorded as damaged or lost): approved ones
+    /// become Completed, ones still waiting for approval are Cancelled.
+    /// </summary>
+    private async Task CloseFinishedSlipsAsync(Guid borrowRequestId, DateTime now, CancellationToken ct)
+    {
+        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+
+        await CompleteSlipsAsync(
+            s => s.BorrowRequestId == borrowRequestId
+                 && s.BorrowReturnSlipItems.All(i => i.BorrowItem.Status != BorrowItemStatuses.Issued),
+            userId, now, ct);
+
+        await _uow.Repository<BorrowReturnSlip>().Query()
+            .Where(s => s.BorrowRequestId == borrowRequestId
+                        && s.Status == ReturnSlipStatuses.Pending
+                        && s.BorrowReturnSlipItems.All(i => i.BorrowItem.Status != BorrowItemStatuses.Issued))
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(s => s.Status, ReturnSlipStatuses.Cancelled)
+                .SetProperty(s => s.ReviewComment, "Các món trong phiếu đã được lab xử lý, không cần duyệt")
+                .SetProperty(s => s.UpdatedAt, now), ct);
+    }
+
     /// <summary>
     /// Once no line is Issued and no replacement is Pending, the request becomes Returned and its Pending extensions are
-    /// rejected. Call inside the caller's transaction after saving the line changes.
+    /// rejected. Return slips with nothing left out are closed first. Call inside the caller's transaction after saving the
+    /// line changes.
     /// </summary>
     private async Task CloseWhenAllBackAsync(Guid borrowRequestId, DateTime now, CancellationToken ct)
     {
+        await CloseFinishedSlipsAsync(borrowRequestId, now, ct);
+
         var stillOut = await _uow.Repository<BorrowItem>().QueryNoTracking()
             .AnyAsync(i => i.BorrowRequestId == borrowRequestId
                            && (i.Status == BorrowItemStatuses.Issued || i.Status == BorrowItemStatuses.Pending), ct);

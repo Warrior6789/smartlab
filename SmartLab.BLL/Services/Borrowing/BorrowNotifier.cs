@@ -515,6 +515,146 @@ public class BorrowNotifier : IBorrowNotifier
         await SendAsync(info, subject, body);
     }
 
+    public async Task ReturnSlipCreatedAsync(Guid returnSlipId, CancellationToken ct = default)
+    {
+        var slip = await LoadSlipAsync(returnSlipId, ct);
+        if (slip == null)
+            return;
+
+        var info = await LoadStaffInfoAsync(slip.BorrowRequestId, ct);
+        if (info == null)
+            return;
+
+        var body =
+            $"<p>{RequesterText(info)} vừa gửi phiếu trả <b>{Encode(slip.SlipCode)}</b> cho đơn mượn <b>{Encode(info.RequestCode)}</b> " +
+            $"tại <b>{Encode(info.RoomCode)}</b>:</p>" +
+            SlipTable(slip.Lines);
+        if (!string.IsNullOrWhiteSpace(slip.Note))
+            body += $"<p>Ghi chú: {Encode(slip.Note)}</p>";
+        body += "<p>Hãy vào SmartLab để duyệt và chọn ngày hẹn, hoặc từ chối.</p>";
+
+        await SendToStaffAsync(info, info.RoomId, null, $"SmartLab - Phiếu trả {slip.SlipCode} chờ lab duyệt", body);
+    }
+
+    public async Task ReturnSlipReviewedAsync(Guid returnSlipId, CancellationToken ct = default)
+    {
+        var slip = await LoadSlipAsync(returnSlipId, ct);
+        if (slip == null)
+            return;
+
+        var info = await LoadAsync(slip.BorrowRequestId, ct);
+        if (info == null)
+            return;
+
+        string subject;
+        string body;
+        if (slip.Status == ReturnSlipStatuses.Approved)
+        {
+            subject = $"SmartLab - Phiếu trả {slip.SlipCode} đã được duyệt";
+            body =
+                Greeting(info) +
+                $"<p>Phiếu trả <b>{Encode(slip.SlipCode)}</b> của đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)} đã được duyệt.</p>" +
+                $"<p>Mời bạn mang các món sau đến <b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b> " +
+                $"ngày <b>{DateText(slip.AppointmentDate)}</b>:</p>" +
+                SlipTable(slip.Lines);
+            if (!string.IsNullOrWhiteSpace(slip.ReviewComment))
+                body += $"<p>Ghi chú của lab: {Encode(slip.ReviewComment)}</p>";
+            body += $"<p>Đồ chỉ được tính là đã trả khi lab nhận. Hạn trả của đơn là <b>{ToVietnamDate(info.DueDate)}</b>.</p>";
+        }
+        else
+        {
+            subject = $"SmartLab - Phiếu trả {slip.SlipCode} bị từ chối";
+            body =
+                Greeting(info) +
+                $"<p>Phiếu trả <b>{Encode(slip.SlipCode)}</b> của đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)} đã bị từ chối.</p>";
+            if (!string.IsNullOrWhiteSpace(slip.ReviewComment))
+                body += $"<p>Lý do: {Encode(slip.ReviewComment)}</p>";
+            body += $"<p>Hạn trả vẫn là <b>{ToVietnamDate(info.DueDate)}</b>, bạn hãy tạo phiếu trả khác.</p>";
+        }
+
+        await SendAsync(info, subject, body);
+    }
+
+    public async Task ReturnSlipRescheduledAsync(Guid returnSlipId, CancellationToken ct = default)
+    {
+        var slip = await LoadSlipAsync(returnSlipId, ct);
+        if (slip == null)
+            return;
+
+        var info = await LoadAsync(slip.BorrowRequestId, ct);
+        if (info == null)
+            return;
+
+        var body =
+            Greeting(info) +
+            $"<p>Lab đã đổi ngày hẹn của phiếu trả <b>{Encode(slip.SlipCode)}</b> (đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)}).</p>" +
+            $"<p>Mời bạn mang các món sau đến <b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b> " +
+            $"ngày <b>{DateText(slip.AppointmentDate)}</b>:</p>" +
+            SlipTable(slip.Lines);
+        if (!string.IsNullOrWhiteSpace(slip.ReviewComment))
+            body += $"<p>Ghi chú của lab: {Encode(slip.ReviewComment)}</p>";
+
+        await SendAsync(info, $"SmartLab - Phiếu trả {slip.SlipCode} đổi ngày hẹn", body);
+    }
+
+    public async Task ReturnSlipCancelledAsync(Guid returnSlipId, CancellationToken ct = default)
+    {
+        var slip = await LoadSlipAsync(returnSlipId, ct);
+        if (slip == null)
+            return;
+
+        var info = await LoadStaffInfoAsync(slip.BorrowRequestId, ct);
+        if (info == null)
+            return;
+
+        var body =
+            $"<p>{RequesterText(info)} đã hủy phiếu trả <b>{Encode(slip.SlipCode)}</b> của đơn mượn <b>{Encode(info.RequestCode)}</b>.</p>";
+        if (slip.AppointmentDate != null)
+            body += $"<p>Ngày đã hẹn: {DateText(slip.AppointmentDate)}</p>";
+
+        await SendToStaffAsync(info, info.RoomId, null, $"SmartLab - Phiếu trả {slip.SlipCode} đã bị hủy", body);
+    }
+
+    private sealed record SlipLine(
+        string ComponentCode, string ComponentName, string Unit, string? ItemCode, string? SerialNumber, int Quantity);
+
+    private sealed record SlipInfo(
+        Guid BorrowRequestId, string SlipCode, string Status, DateTime? AppointmentDate, string? Note, string? ReviewComment,
+        List<SlipLine> Lines);
+
+    private Task<SlipInfo?> LoadSlipAsync(Guid returnSlipId, CancellationToken ct)
+        => _uow.Repository<BorrowReturnSlip>().QueryNoTracking()
+            .Where(s => s.ReturnSlipId == returnSlipId)
+            .Select(s => new SlipInfo(
+                s.BorrowRequestId, s.SlipCode, s.Status, s.AppointmentDate, s.Note, s.ReviewComment,
+                s.BorrowReturnSlipItems
+                    .OrderBy(i => i.BorrowItem.Component.ComponentName)
+                    .Select(i => new SlipLine(
+                        i.BorrowItem.Component.ComponentCode, i.BorrowItem.Component.ComponentName, i.BorrowItem.Component.Unit,
+                        i.BorrowItem.ComponentItem != null ? i.BorrowItem.ComponentItem.ItemCode : null,
+                        i.BorrowItem.ComponentItem != null ? i.BorrowItem.ComponentItem.SerialNumber : null,
+                        i.Quantity))
+                    .ToList()))
+            .FirstOrDefaultAsync(ct);
+
+    private static string SlipTable(IEnumerable<SlipLine> lines)
+    {
+        var rows = string.Empty;
+        foreach (var line in lines)
+        {
+            var unit = string.Empty;
+            if (line.ItemCode != null)
+                unit = Encode(line.ItemCode);
+            if (line.ItemCode != null && line.SerialNumber != null)
+                unit += $" (S/N {Encode(line.SerialNumber)})";
+
+            rows += $"<tr><td>{Encode(line.ComponentCode)}</td><td>{Encode(line.ComponentName)}</td><td>{unit}</td>" +
+                    $"<td>{line.Quantity} {Encode(line.Unit)}</td></tr>";
+        }
+
+        return TableStart + "<tr><th>Mã</th><th>Linh kiện</th><th>Mã từng con</th><th>Số lượng</th></tr>" + rows + "</table>";
+    }
+
     private sealed record BorrowLine(
         Guid BorrowItemId, string ComponentCode, string ComponentName, string TrackingType, string Unit, int Quantity,
         string Status, string? ItemCode, string? SerialNumber, DateTime? IssuedAt, string? ReturnCondition, int? ReturnedQuantity);

@@ -29,6 +29,8 @@ public partial class BorrowItem
 
     public virtual BorrowRequest BorrowRequest { get; set; } = null!;
 
+    public virtual ICollection<BorrowReturnSlipItem> BorrowReturnSlipItems { get; set; } = new List<BorrowReturnSlipItem>();
+
     public virtual Component Component { get; set; } = null!;
 
     public virtual ComponentItem? ComponentItem { get; set; }

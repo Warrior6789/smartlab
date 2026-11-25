@@ -24,6 +24,10 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<BorrowRequest> BorrowRequests { get; set; }
 
+    public virtual DbSet<BorrowReturnSlip> BorrowReturnSlips { get; set; }
+
+    public virtual DbSet<BorrowReturnSlipItem> BorrowReturnSlipItems { get; set; }
+
     public virtual DbSet<Class> Classes { get; set; }
 
     public virtual DbSet<ClassStudent> ClassStudents { get; set; }
@@ -375,6 +379,87 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.RoomId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("borrow_requests_room_id_fkey");
+        });
+
+        modelBuilder.Entity<BorrowReturnSlip>(entity =>
+        {
+            entity.HasKey(e => e.ReturnSlipId).HasName("borrow_return_slips_pkey");
+
+            entity.ToTable("borrow_return_slips");
+
+            entity.HasIndex(e => e.SlipCode, "borrow_return_slips_slip_code_key").IsUnique();
+
+            entity.HasIndex(e => e.BorrowRequestId, "ix_borrow_return_slips_request");
+
+            entity.HasIndex(e => new { e.Status, e.AppointmentDate }, "ix_borrow_return_slips_status_date");
+
+            entity.Property(e => e.ReturnSlipId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("return_slip_id");
+            entity.Property(e => e.AppointmentDate).HasColumnName("appointment_date");
+            entity.Property(e => e.BorrowRequestId).HasColumnName("borrow_request_id");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("created_at");
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by");
+            entity.Property(e => e.Note)
+                .HasMaxLength(500)
+                .HasColumnName("note");
+            entity.Property(e => e.ReceivedAt).HasColumnName("received_at");
+            entity.Property(e => e.ReceivedBy).HasColumnName("received_by");
+            entity.Property(e => e.ReviewComment)
+                .HasMaxLength(500)
+                .HasColumnName("review_comment");
+            entity.Property(e => e.ReviewedAt).HasColumnName("reviewed_at");
+            entity.Property(e => e.ReviewedBy).HasColumnName("reviewed_by");
+            entity.Property(e => e.SlipCode)
+                .HasMaxLength(20)
+                .HasColumnName("slip_code");
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'Pending'::character varying")
+                .HasColumnName("status");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.BorrowRequest).WithMany(p => p.BorrowReturnSlips)
+                .HasForeignKey(d => d.BorrowRequestId)
+                .HasConstraintName("borrow_return_slips_borrow_request_id_fkey");
+
+            entity.HasOne(d => d.CreatedByNavigation).WithMany(p => p.BorrowReturnSlipCreatedByNavigations)
+                .HasForeignKey(d => d.CreatedBy)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("borrow_return_slips_created_by_fkey");
+
+            entity.HasOne(d => d.ReceivedByNavigation).WithMany(p => p.BorrowReturnSlipReceivedByNavigations)
+                .HasForeignKey(d => d.ReceivedBy)
+                .HasConstraintName("borrow_return_slips_received_by_fkey");
+
+            entity.HasOne(d => d.ReviewedByNavigation).WithMany(p => p.BorrowReturnSlipReviewedByNavigations)
+                .HasForeignKey(d => d.ReviewedBy)
+                .HasConstraintName("borrow_return_slips_reviewed_by_fkey");
+        });
+
+        modelBuilder.Entity<BorrowReturnSlipItem>(entity =>
+        {
+            entity.HasKey(e => new { e.ReturnSlipId, e.BorrowItemId }).HasName("borrow_return_slip_items_pkey");
+
+            entity.ToTable("borrow_return_slip_items");
+
+            entity.HasIndex(e => e.BorrowItemId, "ix_borrow_return_slip_items_item");
+
+            entity.Property(e => e.ReturnSlipId).HasColumnName("return_slip_id");
+            entity.Property(e => e.BorrowItemId).HasColumnName("borrow_item_id");
+            entity.Property(e => e.Quantity).HasColumnName("quantity");
+
+            entity.HasOne(d => d.BorrowItem).WithMany(p => p.BorrowReturnSlipItems)
+                .HasForeignKey(d => d.BorrowItemId)
+                .HasConstraintName("borrow_return_slip_items_borrow_item_id_fkey");
+
+            entity.HasOne(d => d.ReturnSlip).WithMany(p => p.BorrowReturnSlipItems)
+                .HasForeignKey(d => d.ReturnSlipId)
+                .HasConstraintName("borrow_return_slip_items_return_slip_id_fkey");
         });
 
         modelBuilder.Entity<Class>(entity =>

@@ -9,5 +9,8 @@ public class ReturnBorrowRequest
     /// <summary>Cabinet of the pickup lab for returned CONSUMABLE quantities; required when any is returned.</summary>
     public Guid? CabinetId { get; set; }
 
+    /// <summary>The approved return slip these goods were brought for; it becomes Completed. Empty when there is no slip.</summary>
+    public Guid? ReturnSlipId { get; set; }
+
     public List<ReturnLineRequest> Lines { get; set; } = new();
 }
