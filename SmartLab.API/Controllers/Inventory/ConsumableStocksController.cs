@@ -34,7 +34,7 @@ public class ConsumableStocksController : ControllerBase
     }
 
     /// <summary>
-    /// Chuyển hàng tiêu hao từ tủ này sang tủ khác. Có thể kèm lý do và phiếu nhập đang sửa (vd phiếu chọn nhầm tủ).
+    /// Chuyển hàng tiêu hao từ tủ này sang tủ khác trong cùng một lab; sang lab khác bị chặn (400). Có thể kèm lý do và phiếu nhập đang sửa (vd phiếu chọn nhầm tủ).
     /// Lab Staff (BORROW_ISSUE) chỉ chuyển được giữa các tủ của lab mình phụ trách, không gắn phiếu nhập; còn lại cần COMPONENT_MANAGE (403).
     /// </summary>
     [HttpPost("move")]

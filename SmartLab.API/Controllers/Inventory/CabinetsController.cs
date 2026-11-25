@@ -60,7 +60,7 @@ public class CabinetsController : ControllerBase
 
     /// <summary>
     /// Sửa tủ/kệ, bao gồm ngừng sử dụng (Inactive) khi tủ đã trống. Đổi sang phòng khác bị chặn (409)
-    /// nếu hàng trong tủ đang được giữ chỗ cho đơn mượn đã duyệt của phòng cũ.
+    /// khi tủ còn linh kiện, kể cả con đang mượn hoặc báo mất.
     /// </summary>
     [HttpPut("{id:guid}")]
     [Authorize(Policy = PermissionCodes.ComponentManage)]

@@ -80,15 +80,6 @@ public class ConsumableStockService : IConsumableStockService
         var now = DateTime.UtcNow;
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
-        if (!await RoomStock.SameRoomAsync(_uow, request.FromCabinetId, request.ToCabinetId, ct))
-        {
-            if (reason == null)
-                throw new BadRequestException(RoomStock.OtherLabReasonMessage);
-
-            await RoomStock.EnsureNotReservedAsync(_uow,
-                new[] { new StockRemoval(request.ComponentId, request.FromCabinetId, request.Quantity) }, ct);
-        }
-
         var taken = await stocks.Query()
             .Where(st => st.ComponentId == request.ComponentId
                          && st.CabinetId == request.FromCabinetId

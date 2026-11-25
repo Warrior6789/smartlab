@@ -157,10 +157,8 @@ public class CabinetService : ICabinetService
         if (request.TrackingType != null && request.TrackingType != cabinet.TrackingType)
             await CabinetRules.EnsureHoldsOnlyAsync(_uow, cabinetId, request.TrackingType, ct);
 
-        await using var tx = await _uow.BeginTransactionAsync(ct);
-
-        if (request.RoomId != cabinet.RoomId)
-            await RoomStock.EnsureNotReservedAsync(_uow, await GetLendableStockAsync(cabinetId, ct), ct);
+        if (request.RoomId != cabinet.RoomId && await HoldsGoodsAsync(cabinetId, ct))
+            throw new ConflictException("Tủ còn linh kiện (kể cả đang mượn hoặc báo mất) nên không chuyển sang lab khác được");
 
         cabinet.CabinetName = request.CabinetName.Trim();
         cabinet.RoomId = request.RoomId;
@@ -170,31 +168,22 @@ public class CabinetService : ICabinetService
             cabinet.TrackingType = request.TrackingType;
 
         await _uow.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
 
         return await ToResponses(cabinets.QueryNoTracking().Where(c => c.CabinetId == cabinetId)).FirstAsync(ct);
     }
 
     /// <summary>
-    /// Everything in the cabinet a lab could lend (CONSUMABLE quantity + Available units): moving the cabinet to
-    /// another room takes it out of the old room, so it must not be reserved there.
+    /// Goods that belong to the cabinet: units that are in it or will come back to it (borrowed, or lost and found again),
+    /// and CONSUMABLE stock. Moving such a cabinet to another lab would move the goods between labs.
     /// </summary>
-    private async Task<List<StockRemoval>> GetLendableStockAsync(Guid cabinetId, CancellationToken ct)
+    private async Task<bool> HoldsGoodsAsync(Guid cabinetId, CancellationToken ct)
     {
-        var removals = await _uow.Repository<ConsumableStock>().QueryNoTracking()
-            .Where(st => st.CabinetId == cabinetId && st.Quantity > 0)
-            .Select(st => new StockRemoval(st.ComponentId, cabinetId, st.Quantity))
-            .ToListAsync(ct);
+        if (await _uow.Repository<ComponentItem>().QueryNoTracking()
+                .AnyAsync(i => i.CabinetId == cabinetId && i.Status != ComponentItemStatuses.Retired, ct))
+            return true;
 
-        var units = await _uow.Repository<ComponentItem>().QueryNoTracking()
-            .Where(i => i.CabinetId == cabinetId && i.Status == ComponentItemStatuses.Available)
-            .GroupBy(i => i.ComponentId)
-            .Select(g => new { ComponentId = g.Key, Quantity = g.Count() })
-            .ToListAsync(ct);
-        foreach (var unit in units)
-            removals.Add(new StockRemoval(unit.ComponentId, cabinetId, unit.Quantity));
-
-        return removals;
+        return await _uow.Repository<ConsumableStock>().QueryNoTracking()
+            .AnyAsync(st => st.CabinetId == cabinetId && st.Quantity > 0, ct);
     }
 
     /// <summary>

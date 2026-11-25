@@ -16,17 +16,21 @@ namespace SmartLab.BLL.Services.Inventory;
 internal static class RoomStock
 {
     /// <summary>
-    /// Lab staff work inside a lab, so they may rearrange the cabinets of a lab they are assigned to: same room, and <paramref name="cabinetOnly"/>
-    /// means nothing but the cabinet changes. Anything wider needs COMPONENT_MANAGE.
+    /// Labs never pass goods to each other: a move stays inside one lab, whoever makes it. Lab staff may rearrange the cabinets of a lab
+    /// they are assigned to, where <paramref name="cabinetOnly"/> means nothing but the cabinet changes. Anything wider needs COMPONENT_MANAGE.
     /// </summary>
     public static async Task EnsureMayMoveAsync(
         IUnitOfWork uow, ICurrentUserService user, Guid fromCabinetId, Guid toCabinetId, bool cabinetOnly, CancellationToken ct)
     {
+        var sameRoom = await SameRoomAsync(uow, fromCabinetId, toCabinetId, ct);
         if (user.HasPermission(PermissionCodes.ComponentManage))
+        {
+            if (!sameRoom)
+                throw new BadRequestException("Không được chuyển đồ sang lab khác, chỉ chuyển giữa các tủ trong cùng một lab");
             return;
+        }
 
-        if (!user.HasPermission(PermissionCodes.BorrowIssue) || !cabinetOnly
-            || !await SameRoomAsync(uow, fromCabinetId, toCabinetId, ct))
+        if (!user.HasPermission(PermissionCodes.BorrowIssue) || !cabinetOnly || !sameRoom)
             throw new ForbiddenException("Chỉ được chuyển hàng giữa các tủ trong cùng một lab");
 
         var userId = user.UserId ?? throw new UnauthorizedException();
@@ -35,9 +39,6 @@ internal static class RoomStock
         if (!assigned)
             throw new ForbiddenException("Chỉ được chuyển hàng trong lab bạn phụ trách");
     }
-
-    /// <summary>Goods leaving a lab are only moved with a reason, so the ledger says why.</summary>
-    public const string OtherLabReasonMessage = "Chuyển sang lab khác phải ghi lý do";
 
     /// <summary>Borrow request statuses whose lines hold stock (nothing handed over yet).</summary>
     public static readonly string[] ReservingStatuses = { BorrowRequestStatuses.Approved, BorrowRequestStatuses.Ready };
@@ -309,7 +310,7 @@ internal static class RoomStock
     }
 
     /// <summary>
-    /// Stock removed from a lab by a staff decision (cancel a receipt, move to another lab, retire) may only come from the part not reserved by borrow requests; otherwise 409. Must run inside the caller's
+    /// Stock removed from a lab by a staff decision (cancel a receipt, retire) may only come from the part not reserved by borrow requests; otherwise 409. Must run inside the caller's
     /// transaction, before the removal. Facts (counted stock, Lost) are never blocked: callers report them
     /// with <see cref="GetShortagesAsync"/> instead.
     /// </summary>

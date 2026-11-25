@@ -181,15 +181,6 @@ public class ComponentItemService : IComponentItemService
         var now = DateTime.UtcNow;
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
-        var fromAvailable = request.FromStatus == ComponentItemStatuses.Available;
-        var sameRoom = await RoomStock.SameRoomAsync(_uow, request.FromCabinetId, toCabinetId, ct);
-        if (!sameRoom && string.IsNullOrWhiteSpace(request.Reason))
-            throw new BadRequestException(RoomStock.OtherLabReasonMessage);
-
-        if (fromAvailable && !sameRoom)
-            await RoomStock.EnsureNotReservedAsync(_uow,
-                new[] { new StockRemoval(request.ComponentId, request.FromCabinetId, itemIds.Count) }, ct);
-
         var movable = _uow.Repository<ComponentItem>().Query()
             .Where(i => itemIds.Contains(i.ItemId)
                         && i.CabinetId == request.FromCabinetId
