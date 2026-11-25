@@ -149,7 +149,7 @@ internal static class RoomStock
         var components = await uow.Repository<Component>().QueryNoTracking()
             .Where(c => shortIds.Contains(c.ComponentId))
             .OrderBy(c => c.ComponentCode)
-            .Select(c => new { c.ComponentId, c.ComponentCode, c.ComponentName })
+            .Select(c => new { c.ComponentId, Code = c.ShortCode ?? c.ComponentCode, c.ComponentName })
             .ToListAsync(ct);
 
         var shortages = new List<ReservationShortageResponse>();
@@ -158,7 +158,7 @@ internal static class RoomStock
             shortages.Add(new ReservationShortageResponse
             {
                 ComponentId = component.ComponentId,
-                ComponentCode = component.ComponentCode,
+                ComponentCode = component.Code,
                 ComponentName = component.ComponentName,
                 RoomId = roomId,
                 RoomCode = roomCode,
@@ -345,7 +345,7 @@ internal static class RoomStock
         var ids = shortages.Select(s => s.ComponentId).ToList();
         var codes = await uow.Repository<Component>().QueryNoTracking()
             .Where(c => ids.Contains(c.ComponentId))
-            .ToDictionaryAsync(c => c.ComponentId, c => c.ComponentCode, ct);
+            .ToDictionaryAsync(c => c.ComponentId, c => c.ShortCode ?? c.ComponentCode, ct);
         var details = shortages
             .Select(s => $"{codes[s.ComponentId]}: lấy {s.Taken}, chỉ còn {s.Free} chưa giữ chỗ")
             .ToArray();

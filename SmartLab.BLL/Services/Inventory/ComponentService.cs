@@ -235,12 +235,37 @@ public class ComponentService : IComponentService
         return component;
     }
 
-    /// <summary>The short code the user typed (upper-cased), or one made from the name (see ComponentShortCode).</summary>
-    private async Task<string?> ShortCodeForAsync(string? requested, string name, Guid categoryId, CancellationToken ct)
+    /// <summary>
+    /// The short code the user typed (upper-cased), or one made from the name (see ComponentShortCode). People only see this
+    /// code, so it is never the same as another component's: a number is added when it is taken.
+    /// </summary>
+    private async Task<string?> ShortCodeForAsync(
+        string? requested, string name, Guid categoryId, Guid? componentId, CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(requested))
-            return requested.Trim().ToUpperInvariant();
+        var code = requested?.Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(code))
+            code = await GenerateShortCodeAsync(name, categoryId, ct);
+        if (string.IsNullOrEmpty(code))
+            return null;
 
+        var candidate = code;
+        for (var number = 2; await IsShortCodeTakenAsync(candidate, componentId, ct); number++)
+        {
+            var suffix = $"-{number}";
+            var room = ComponentShortCode.MaxLength - suffix.Length;
+            candidate = (code.Length > room ? code[..room] : code) + suffix;
+        }
+
+        return candidate;
+    }
+
+    private Task<bool> IsShortCodeTakenAsync(string code, Guid? componentId, CancellationToken ct)
+        => _uow.Repository<Component>().QueryNoTracking()
+            .AnyAsync(c => c.ComponentId != componentId
+                           && ((c.ShortCode != null && c.ShortCode.ToUpper() == code) || c.ComponentCode.ToUpper() == code), ct);
+
+    private async Task<string?> GenerateShortCodeAsync(string name, Guid categoryId, CancellationToken ct)
+    {
         var categoryName = await _uow.Repository<ComponentCategory>().QueryNoTracking()
             .Where(c => c.CategoryId == categoryId)
             .Select(c => c.CategoryName)
@@ -263,7 +288,7 @@ public class ComponentService : IComponentService
             CategoryId = request.CategoryId,
             ComponentCode = await GenerateComponentCodeAsync(ct),
             ComponentName = name,
-            ShortCode = await ShortCodeForAsync(request.ShortCode, name, request.CategoryId, ct),
+            ShortCode = await ShortCodeForAsync(request.ShortCode, name, request.CategoryId, null, ct),
             Manufacturer = string.IsNullOrWhiteSpace(request.Manufacturer) ? null : request.Manufacturer.Trim(),
             Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
             DatasheetUrl = string.IsNullOrWhiteSpace(request.DatasheetUrl) ? null : request.DatasheetUrl.Trim(),
@@ -322,8 +347,17 @@ public class ComponentService : IComponentService
         var name = request.ComponentName.Trim();
         await EnsureNameNotTakenAsync(name, componentId, ct);
 
-        if (!string.IsNullOrWhiteSpace(request.ShortCode) || component.ComponentName != name || component.ShortCode == null)
-            component.ShortCode = await ShortCodeForAsync(request.ShortCode, name, request.CategoryId, ct);
+        var typedCode = request.ShortCode?.Trim().ToUpperInvariant();
+        if (!string.IsNullOrEmpty(typedCode) && typedCode != component.ShortCode?.ToUpperInvariant())
+        {
+            if (await IsShortCodeTakenAsync(typedCode, componentId, ct))
+                throw new ConflictException($"Mã viết tắt {typedCode} đã dùng cho linh kiện khác");
+            component.ShortCode = typedCode;
+        }
+        else if (string.IsNullOrEmpty(typedCode) && (component.ComponentName != name || component.ShortCode == null))
+        {
+            component.ShortCode = await ShortCodeForAsync(null, name, request.CategoryId, componentId, ct);
+        }
         component.CategoryId = request.CategoryId;
         component.ComponentName = name;
         component.Manufacturer = string.IsNullOrWhiteSpace(request.Manufacturer) ? null : request.Manufacturer.Trim();

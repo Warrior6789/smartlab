@@ -3,10 +3,15 @@ namespace SmartLab.BLL.DTOs.Inventory;
 public class ComponentResponse
 {
     public Guid ComponentId { get; set; }
+    /// <summary>System code (LK-0239): never changes, kept for searching and old Excel files. Screens show ShortCode instead.</summary>
     public string ComponentCode { get; set; } = string.Empty;
+
     public string ComponentName { get; set; } = string.Empty;
 
-    /// <summary>Short search code made from the name, like drug abbreviations (e.g. CBNDDA-DHT22).</summary>
+    /// <summary>
+    /// Code shown to users, made from the name like drug abbreviations (e.g. CBNDDA-DHT22), unique. Other responses return
+    /// this one as ComponentCode.
+    /// </summary>
     public string? ShortCode { get; set; }
     public Guid CategoryId { get; set; }
     public string CategoryName { get; set; } = string.Empty;

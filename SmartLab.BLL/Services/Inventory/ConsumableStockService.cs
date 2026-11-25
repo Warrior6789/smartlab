@@ -34,6 +34,7 @@ public class ConsumableStockService : IConsumableStockService
         {
             var keyword = query.Search.Trim().ToLower();
             stocks = stocks.Where(st => st.Component.ComponentCode.ToLower().Contains(keyword)
+                                     || (st.Component.ShortCode != null && st.Component.ShortCode.ToLower().Contains(keyword))
                                      || st.Component.ComponentName.ToLower().Contains(keyword));
         }
 
@@ -260,7 +261,7 @@ public class ConsumableStockService : IConsumableStockService
         stocks.Select(st => new ConsumableStockResponse
         {
             ComponentId = st.ComponentId,
-            ComponentCode = st.Component.ComponentCode,
+            ComponentCode = st.Component.ShortCode ?? st.Component.ComponentCode,
             ComponentName = st.Component.ComponentName,
             CabinetId = st.CabinetId,
             CabinetCode = st.Cabinet.CabinetCode,

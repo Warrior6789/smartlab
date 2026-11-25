@@ -158,7 +158,7 @@ public class ProjectService : IProjectService
                            .Select(pc => new ProjectComponentResponse
                            {
                                ComponentId = pc.ComponentId,
-                               ComponentCode = pc.Component.ComponentCode,
+                               ComponentCode = pc.Component.ShortCode ?? pc.Component.ComponentCode,
                                ComponentName = pc.Component.ComponentName,
                                TrackingType = pc.Component.TrackingType,
                                Unit = pc.Component.Unit,

@@ -128,7 +128,7 @@ public class BorrowRequestService : IBorrowRequestService
                            {
                                BorrowItemId = i.BorrowItemId,
                                ComponentId = i.ComponentId,
-                               ComponentCode = i.Component.ComponentCode,
+                               ComponentCode = i.Component.ShortCode ?? i.Component.ComponentCode,
                                ComponentName = i.Component.ComponentName,
                                TrackingType = i.Component.TrackingType,
                                Unit = i.Component.Unit,

@@ -133,6 +133,9 @@ public class ComponentSuggestionService : IComponentSuggestionService
     {
         public Guid ComponentId { get; init; }
         public string ComponentCode { get; init; } = string.Empty;
+
+        /// <summary>Code shown to users; the AI works with ComponentCode.</summary>
+        public string DisplayCode { get; init; } = string.Empty;
         public string ComponentName { get; init; } = string.Empty;
         public string CategoryName { get; init; } = string.Empty;
         public string? Description { get; init; }
@@ -157,6 +160,7 @@ public class ComponentSuggestionService : IComponentSuggestionService
             {
                 ComponentId = c.ComponentId,
                 ComponentCode = c.ComponentCode,
+                DisplayCode = c.ShortCode ?? c.ComponentCode,
                 ComponentName = c.ComponentName,
                 CategoryName = c.Category.CategoryName,
                 Description = c.Description,
@@ -180,7 +184,7 @@ public class ComponentSuggestionService : IComponentSuggestionService
         => new()
         {
             ComponentId = pick.Row.ComponentId,
-            ComponentCode = pick.Row.ComponentCode,
+            ComponentCode = pick.Row.DisplayCode,
             ComponentName = pick.Row.ComponentName,
             TrackingType = pick.Row.TrackingType,
             Unit = pick.Row.Unit,
@@ -192,7 +196,7 @@ public class ComponentSuggestionService : IComponentSuggestionService
         => new()
         {
             ComponentId = pick.Row.ComponentId,
-            ComponentCode = pick.Row.ComponentCode,
+            ComponentCode = pick.Row.DisplayCode,
             ComponentName = pick.Row.ComponentName,
             TrackingType = pick.Row.TrackingType,
             Unit = pick.Row.Unit,

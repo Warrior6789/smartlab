@@ -329,7 +329,7 @@ public class ComponentItemService : IComponentItemService
             ItemCode = i.ItemCode,
             SerialNumber = i.SerialNumber,
             ComponentId = i.ComponentId,
-            ComponentCode = i.Component.ComponentCode,
+            ComponentCode = i.Component.ShortCode ?? i.Component.ComponentCode,
             ComponentName = i.Component.ComponentName,
             TrackingType = i.Component.TrackingType,
             CabinetId = i.CabinetId,

@@ -26,10 +26,10 @@ internal static class CabinetRules
         var misfit = await uow.Repository<Component>().QueryNoTracking()
             .Where(c => componentIds.Contains(c.ComponentId) && c.TrackingType != cabinet.TrackingType)
             .OrderBy(c => c.ComponentCode)
-            .Select(c => new { c.ComponentCode, c.TrackingType })
+            .Select(c => new { Code = c.ShortCode ?? c.ComponentCode, c.TrackingType })
             .FirstOrDefaultAsync(ct);
         if (misfit != null)
-            throw new BadRequestException(MisfitMessage(misfit.ComponentCode, misfit.TrackingType, cabinet.CabinetCode, cabinet.TrackingType));
+            throw new BadRequestException(MisfitMessage(misfit.Code, misfit.TrackingType, cabinet.CabinetCode, cabinet.TrackingType));
     }
 
     /// <summary>409 when the cabinet already holds (or lent out) components of another kind than <paramref name="trackingType"/>.</summary>
@@ -39,11 +39,11 @@ internal static class CabinetRules
             .Where(i => i.CabinetId == cabinetId
                         && (i.Status == ComponentItemStatuses.Available || i.Status == ComponentItemStatuses.Borrowed)
                         && i.Component.TrackingType != trackingType)
-            .Select(i => i.Component.ComponentCode)
+            .Select(i => i.Component.ShortCode ?? i.Component.ComponentCode)
             .FirstOrDefaultAsync(ct);
         stored ??= await uow.Repository<ConsumableStock>().QueryNoTracking()
             .Where(st => st.CabinetId == cabinetId && st.Quantity > 0 && st.Component.TrackingType != trackingType)
-            .Select(st => st.Component.ComponentCode)
+            .Select(st => st.Component.ShortCode ?? st.Component.ComponentCode)
             .FirstOrDefaultAsync(ct);
         if (stored != null)
             throw new ConflictException($"Tủ đang chứa {stored} không thuộc loại {trackingType}, hãy chuyển sang tủ khác trước khi đổi loại tủ");

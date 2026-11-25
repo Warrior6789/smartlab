@@ -116,7 +116,7 @@ public class InventoryAuditService : IInventoryAuditService
                 .Select(st => new AuditConsumableLineResponse
                 {
                     ComponentId = st.ComponentId,
-                    ComponentCode = st.Component.ComponentCode,
+                    ComponentCode = st.Component.ShortCode ?? st.Component.ComponentCode,
                     ComponentName = st.Component.ComponentName,
                     SystemQuantity = st.Quantity,
                 })
@@ -131,7 +131,7 @@ public class InventoryAuditService : IInventoryAuditService
                     ItemCode = i.ItemCode,
                     SerialNumber = i.SerialNumber,
                     ComponentId = i.ComponentId,
-                    ComponentCode = i.Component.ComponentCode,
+                    ComponentCode = i.Component.ShortCode ?? i.Component.ComponentCode,
                     ComponentName = i.Component.ComponentName,
                     Status = i.Status,
                 })
@@ -145,7 +145,7 @@ public class InventoryAuditService : IInventoryAuditService
                 .Select(c => new AuditSubmittedCountResponse
                 {
                     ComponentId = c.ComponentId,
-                    ComponentCode = c.Component.ComponentCode,
+                    ComponentCode = c.Component.ShortCode ?? c.Component.ComponentCode,
                     ComponentName = c.Component.ComponentName,
                     SystemQuantity = c.SystemQuantity,
                     CountedQuantity = c.CountedQuantity,
@@ -163,7 +163,7 @@ public class InventoryAuditService : IInventoryAuditService
                     ItemCode = i.ItemCode,
                     SerialNumber = i.SerialNumber,
                     ComponentId = i.ComponentId,
-                    ComponentCode = i.Component.ComponentCode,
+                    ComponentCode = i.Component.ShortCode ?? i.Component.ComponentCode,
                     ComponentName = i.Component.ComponentName,
                     Status = i.Status,
                 })

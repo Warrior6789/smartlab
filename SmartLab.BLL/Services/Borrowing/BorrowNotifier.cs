@@ -409,7 +409,7 @@ public class BorrowNotifier : IBorrowNotifier
                 r.BorrowItems
                     .OrderBy(i => i.Component.ComponentName)
                     .Select(i => new StaffLine(
-                        i.Component.ComponentCode, i.Component.ComponentName, i.Component.Unit, i.Quantity))
+                        i.Component.ShortCode ?? i.Component.ComponentCode, i.Component.ComponentName, i.Component.Unit, i.Quantity))
                     .ToList()))
             .FirstOrDefaultAsync(ct);
 
@@ -698,7 +698,7 @@ public class BorrowNotifier : IBorrowNotifier
                 s.BorrowReturnSlipItems
                     .OrderBy(i => i.BorrowItem.Component.ComponentName)
                     .Select(i => new SlipLine(
-                        i.BorrowItem.Component.ComponentCode, i.BorrowItem.Component.ComponentName, i.BorrowItem.Component.Unit,
+                        i.BorrowItem.Component.ShortCode ?? i.BorrowItem.Component.ComponentCode, i.BorrowItem.Component.ComponentName, i.BorrowItem.Component.Unit,
                         i.BorrowItem.ComponentItem != null ? i.BorrowItem.ComponentItem.ItemCode : null,
                         i.BorrowItem.ComponentItem != null ? i.BorrowItem.ComponentItem.SerialNumber : null,
                         i.Quantity))
@@ -732,7 +732,7 @@ public class BorrowNotifier : IBorrowNotifier
             .Where(i => i.BorrowRequestId == borrowRequestId)
             .OrderBy(i => i.Component.ComponentName).ThenBy(i => i.ComponentItem != null ? i.ComponentItem.ItemCode : null)
             .Select(i => new BorrowLine(
-                i.BorrowItemId, i.Component.ComponentCode, i.Component.ComponentName, i.Component.TrackingType,
+                i.BorrowItemId, i.Component.ShortCode ?? i.Component.ComponentCode, i.Component.ComponentName, i.Component.TrackingType,
                 i.Component.Unit, i.Quantity, i.Status,
                 i.ComponentItem != null ? i.ComponentItem.ItemCode : null,
                 i.ComponentItem != null ? i.ComponentItem.SerialNumber : null,

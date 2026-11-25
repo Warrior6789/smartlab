@@ -79,7 +79,7 @@ public class InventoryTransactionService : IInventoryTransactionService
             TransactionId = t.TransactionId,
             Type = t.Type,
             ComponentId = t.ComponentId,
-            ComponentCode = t.Component.ComponentCode,
+            ComponentCode = t.Component.ShortCode ?? t.Component.ComponentCode,
             ComponentName = t.Component.ComponentName,
             CabinetId = t.CabinetId,
             CabinetCode = t.Cabinet != null ? t.Cabinet.CabinetCode : null,

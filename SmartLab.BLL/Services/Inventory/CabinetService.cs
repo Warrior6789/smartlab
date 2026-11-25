@@ -72,11 +72,17 @@ public class CabinetService : ICabinetService
             .Where(i => i.CabinetId == cabinetId
                         && i.Status != ComponentItemStatuses.Lost
                         && i.Status != ComponentItemStatuses.Retired)
-            .GroupBy(i => new { i.ComponentId, i.Component.ComponentCode, i.Component.ComponentName, i.Component.TrackingType })
+            .GroupBy(i => new
+            {
+                i.ComponentId,
+                Code = i.Component.ShortCode ?? i.Component.ComponentCode,
+                i.Component.ComponentName,
+                i.Component.TrackingType,
+            })
             .Select(g => new CabinetContentResponse
             {
                 ComponentId = g.Key.ComponentId,
-                ComponentCode = g.Key.ComponentCode,
+                ComponentCode = g.Key.Code,
                 ComponentName = g.Key.ComponentName,
                 TrackingType = g.Key.TrackingType,
                 TotalQuantity = g.Count(),
@@ -89,7 +95,7 @@ public class CabinetService : ICabinetService
             .Select(st => new CabinetContentResponse
             {
                 ComponentId = st.ComponentId,
-                ComponentCode = st.Component.ComponentCode,
+                ComponentCode = st.Component.ShortCode ?? st.Component.ComponentCode,
                 ComponentName = st.Component.ComponentName,
                 TrackingType = st.Component.TrackingType,
                 TotalQuantity = st.Quantity,

@@ -175,7 +175,7 @@ public class ReturnSlipService : IReturnSlipService
                            {
                                BorrowItemId = i.BorrowItemId,
                                ComponentId = i.BorrowItem.ComponentId,
-                               ComponentCode = i.BorrowItem.Component.ComponentCode,
+                               ComponentCode = i.BorrowItem.Component.ShortCode ?? i.BorrowItem.Component.ComponentCode,
                                ComponentName = i.BorrowItem.Component.ComponentName,
                                TrackingType = i.BorrowItem.Component.TrackingType,
                                Unit = i.BorrowItem.Component.Unit,

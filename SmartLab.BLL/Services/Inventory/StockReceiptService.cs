@@ -126,7 +126,7 @@ public class StockReceiptService : IStockReceiptService
                            {
                                ReceiptItemId = i.ReceiptItemId,
                                ComponentId = i.ComponentId,
-                               ComponentCode = i.Component.ComponentCode,
+                               ComponentCode = i.Component.ShortCode ?? i.Component.ComponentCode,
                                ComponentName = i.Component.ComponentName,
                                Manufacturer = i.Component.Manufacturer,
                                TrackingType = i.Component.TrackingType,
@@ -510,7 +510,7 @@ public class StockReceiptService : IStockReceiptService
         {
             var corrected = receipt.StockReceiptItems
                 .Where(i => correctedComponentIds.Contains(i.ComponentId))
-                .Select(i => $"{i.Component.ComponentCode}: đã được sửa ở kho (điều chỉnh/chuyển tủ/thanh lý) theo phiếu này")
+                .Select(i => $"{DisplayCode(i.Component)}: đã được sửa ở kho (điều chỉnh/chuyển tủ/thanh lý) theo phiếu này")
                 .Distinct()
                 .ToArray();
             throw new BadRequestException(
@@ -606,7 +606,7 @@ public class StockReceiptService : IStockReceiptService
             var component = components[line.ComponentId];
             if (cabinet.TrackingType != null && cabinet.TrackingType != component.TrackingType)
                 throw new BadRequestException(CabinetRules.MisfitMessage(
-                    component.ComponentCode, component.TrackingType, cabinet.CabinetCode, cabinet.TrackingType));
+                    DisplayCode(component), component.TrackingType, cabinet.CabinetCode, cabinet.TrackingType));
         }
     }
 
@@ -683,6 +683,9 @@ public class StockReceiptService : IStockReceiptService
         return nextNumbers;
     }
 
+    /// <summary>Code shown to users.</summary>
+    private static string DisplayCode(Component component) => component.ShortCode ?? component.ComponentCode;
+
     /// <summary>Internal item code: &lt;component code&gt;-&lt;nnnn&gt;, e.g. LK-0002-0011.</summary>
     private static string NextItemCode(Component component, Dictionary<Guid, int> nextUnitNumbers)
     {
@@ -733,7 +736,7 @@ public class StockReceiptService : IStockReceiptService
             .Where(i => i.ReceiptItemId != null && unitLineIds.Contains(i.ReceiptItemId.Value))
             .Select(i => new
             {
-                i.Component.ComponentCode,
+                Code = i.Component.ShortCode ?? i.Component.ComponentCode,
                 i.SerialNumber,
                 i.Status,
                 WasUsed = i.BorrowItems.Any() || i.IssueReports.Any(),
@@ -742,7 +745,7 @@ public class StockReceiptService : IStockReceiptService
         var unitProblems = new List<string>();
         foreach (var unit in units)
         {
-            var problem = UnitProblem(unit.ComponentCode, unit.SerialNumber, unit.Status, unit.WasUsed);
+            var problem = UnitProblem(unit.Code, unit.SerialNumber, unit.Status, unit.WasUsed);
             if (problem != null)
                 unitProblems.Add(problem);
         }
@@ -769,7 +772,7 @@ public class StockReceiptService : IStockReceiptService
                 .Select(st => st.Quantity)
                 .FirstOrDefaultAsync(ct);
             if (inStock < line.Quantity)
-                problems.Add($"{line.Component.ComponentCode}: cần trừ {line.Quantity} nhưng tủ {line.Cabinet.CabinetCode} chỉ còn {inStock}, hàng đã bị xuất hoặc chuyển bớt");
+                problems.Add($"{DisplayCode(line.Component)}: cần trừ {line.Quantity} nhưng tủ {line.Cabinet.CabinetCode} chỉ còn {inStock}, hàng đã bị xuất hoặc chuyển bớt");
         }
         return problems;
     }
@@ -852,13 +855,13 @@ public class StockReceiptService : IStockReceiptService
             if (component.TrackingType != ComponentTrackingTypes.HighValue)
             {
                 if (line.Units.Count > 0)
-                    errors[$"items[{i}].units"] = new[] { $"{component.ComponentCode} không phải thiết bị đắt tiền, không nhập serial" };
+                    errors[$"items[{i}].units"] = new[] { $"{DisplayCode(component)} không phải thiết bị đắt tiền, không nhập serial" };
                 continue;
             }
 
             if (line.Units.Count != line.Quantity)
             {
-                errors[$"items[{i}].units"] = new[] { $"{component.ComponentCode} là thiết bị đắt tiền, phải nhập thông tin cho đủ {line.Quantity} máy" };
+                errors[$"items[{i}].units"] = new[] { $"{DisplayCode(component)} là thiết bị đắt tiền, phải nhập thông tin cho đủ {line.Quantity} máy" };
                 continue;
             }
 

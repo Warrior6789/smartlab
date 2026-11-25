@@ -90,7 +90,7 @@ public class ReportService : IReportService
 
         var component = await _uow.Repository<Component>().QueryNoTracking()
             .Where(c => c.ComponentId == componentId)
-            .Select(c => new { c.ComponentCode, c.ComponentName, c.Unit })
+            .Select(c => new { c.ComponentCode, c.ShortCode, c.ComponentName, c.Unit })
             .SingleOrDefaultAsync(ct)
             ?? throw new NotFoundException("Không tìm thấy linh kiện");
 
@@ -133,7 +133,7 @@ public class ReportService : IReportService
         return new StockMovementResponse
         {
             ComponentId = componentId,
-            ComponentCode = component.ComponentCode,
+            ComponentCode = component.ShortCode ?? component.ComponentCode,
             ComponentName = component.ComponentName,
             Unit = component.Unit,
             FromDate = period.FromDate,
@@ -268,7 +268,7 @@ public class ReportService : IReportService
             lines.Add(new LossLineResponse
             {
                 ComponentId = componentId,
-                ComponentCode = component.ComponentCode,
+                ComponentCode = component.ShortCode ?? component.ComponentCode,
                 ComponentName = component.ComponentName,
                 TrackingType = component.TrackingType,
                 LostUnits = componentUnits.Count(u => u.Status == ComponentItemStatuses.Lost),
@@ -315,7 +315,7 @@ public class ReportService : IReportService
                 ItemId = i.ItemId,
                 ItemCode = i.ItemCode,
                 SerialNumber = i.SerialNumber,
-                ComponentCode = i.Component.ComponentCode,
+                ComponentCode = i.Component.ShortCode ?? i.Component.ComponentCode,
                 ComponentName = i.Component.ComponentName,
                 CabinetCode = i.Cabinet.CabinetCode,
                 RoomCode = i.Cabinet.Room.RoomCode,
@@ -449,7 +449,7 @@ public class ReportService : IReportService
                 RequesterName = i.BorrowRequest.Requester.FullName,
                 RequesterUsername = i.BorrowRequest.Requester.Username,
                 ClassCode = i.BorrowRequest.Class != null ? i.BorrowRequest.Class.ClassCode : null,
-                ComponentCode = i.Component.ComponentCode,
+                ComponentCode = i.Component.ShortCode ?? i.Component.ComponentCode,
                 ComponentName = i.Component.ComponentName,
                 ItemCode = i.ComponentItem != null ? i.ComponentItem.ItemCode : null,
                 ReturnCondition = i.ReturnCondition!,
@@ -484,8 +484,12 @@ public class ReportService : IReportService
             .ToListAsync(ct);
 
         var topComponents = await issues
-            .GroupBy(r => new { r.ComponentItem.Component.ComponentCode, r.ComponentItem.Component.ComponentName })
-            .Select(g => new CountGroupResponse { Key = g.Key.ComponentCode, Name = g.Key.ComponentName, Count = g.Count() })
+            .GroupBy(r => new
+            {
+                Code = r.ComponentItem.Component.ShortCode ?? r.ComponentItem.Component.ComponentCode,
+                r.ComponentItem.Component.ComponentName,
+            })
+            .Select(g => new CountGroupResponse { Key = g.Key.Code, Name = g.Key.ComponentName, Count = g.Count() })
             .OrderByDescending(g => g.Count).ThenBy(g => g.Key)
             .Take(10)
             .ToListAsync(ct);
@@ -534,7 +538,7 @@ public class ReportService : IReportService
                     .OrderBy(i => i.Component.ComponentCode)
                     .Select(i => new OverdueItemResponse
                     {
-                        ComponentCode = i.Component.ComponentCode,
+                        ComponentCode = i.Component.ShortCode ?? i.Component.ComponentCode,
                         ComponentName = i.Component.ComponentName,
                         ItemCode = i.ComponentItem != null ? i.ComponentItem.ItemCode : null,
                         Quantity = i.Quantity,
@@ -577,7 +581,7 @@ public class ReportService : IReportService
         return stats.Select(s => new TopComponentResponse
         {
             ComponentId = s.ComponentId,
-            ComponentCode = components[s.ComponentId].ComponentCode,
+            ComponentCode = components[s.ComponentId].ShortCode ?? components[s.ComponentId].ComponentCode,
             ComponentName = components[s.ComponentId].ComponentName,
             Unit = components[s.ComponentId].Unit,
             TimesBorrowed = s.TimesBorrowed,
@@ -713,13 +717,14 @@ public class ReportService : IReportService
         {
             var keyword = query.Search.Trim().ToLower();
             components = components.Where(c => c.ComponentCode.ToLower().Contains(keyword)
+                                            || (c.ShortCode != null && c.ShortCode.ToLower().Contains(keyword))
                                             || c.ComponentName.ToLower().Contains(keyword));
         }
 
         return components.Select(c => new StockSummaryResponse
         {
             ComponentId = c.ComponentId,
-            ComponentCode = c.ComponentCode,
+            ComponentCode = c.ShortCode ?? c.ComponentCode,
             ComponentName = c.ComponentName,
             CategoryName = c.Category.CategoryName,
             TrackingType = c.TrackingType,
