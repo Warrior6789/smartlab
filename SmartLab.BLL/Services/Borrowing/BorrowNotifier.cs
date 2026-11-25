@@ -74,6 +74,34 @@ public class BorrowNotifier : IBorrowNotifier
         await SendAsync(info, $"SmartLab - Đơn {info.RequestCode} đã sẵn sàng, mời đến nhận", body);
     }
 
+    public async Task PickupDateChangedAsync(Guid borrowRequestId, CancellationToken ct = default)
+    {
+        var info = await LoadAsync(borrowRequestId, ct);
+        if (info == null)
+            return;
+
+        var body =
+            Greeting(info) +
+            $"<p>Lab đổi ngày nhận đồ của đơn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)}.</p>" +
+            $"<p>Mời bạn đến <b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b>{BorrowDateText(info)}, nhớ mang theo <b>thẻ sinh viên</b>.</p>";
+
+        await SendAsync(info, $"SmartLab - Đơn {info.RequestCode} đổi ngày nhận sang {DateText(info.BorrowDate)}", body);
+    }
+
+    public async Task PickupTomorrowAsync(Guid borrowRequestId, CancellationToken ct = default)
+    {
+        var info = await LoadAsync(borrowRequestId, ct);
+        if (info == null)
+            return;
+
+        var body =
+            Greeting(info) +
+            $"<p><b>Ngày mai {DateText(info.BorrowDate)}</b> bạn đến <b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b> nhận đồ " +
+            $"của đơn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)}. Nhớ mang theo <b>thẻ sinh viên</b>.</p>";
+
+        await SendAsync(info, $"SmartLab - Ngày mai đến nhận đồ đơn {info.RequestCode}", body);
+    }
+
     public async Task SubmittedAsync(Guid borrowRequestId, CancellationToken ct = default)
     {
         var info = await _uow.Repository<BorrowRequest>().QueryNoTracking()
@@ -85,7 +113,6 @@ public class BorrowNotifier : IBorrowNotifier
                 StudentCode = r.Requester.StudentProfile != null ? r.Requester.StudentProfile.StudentCode : null,
                 ProjectTitle = r.Project != null ? r.Project.Title : null,
                 ClassCode = r.Class != null ? r.Class.ClassCode : null,
-                r.BorrowDate,
                 r.DueDate,
                 Approvers = r.BorrowApprovals
                     .Where(a => a.Status == BorrowApprovalStatuses.Pending)
@@ -114,7 +141,7 @@ public class BorrowNotifier : IBorrowNotifier
                 $"<p>Xin chào <b>{Encode(approver.FullName)}</b>,</p>" +
                 $"<p>Sinh viên {requester}{classText} vừa gửi đơn mượn <b>{Encode(info.RequestCode)}</b> cần thầy/cô duyệt.</p>" +
                 projectText +
-                $"<p>Ngày mượn: <b>{DateText(info.BorrowDate)}</b> - Hạn trả: <b>{ToVietnamDate(info.DueDate)}</b></p>" +
+                $"<p>Hạn trả: <b>{ToVietnamDate(info.DueDate)}</b></p>" +
                 ItemsTable(lines, false) +
                 "<p>Thầy/cô vào SmartLab, mục <b>Project chờ duyệt</b> để duyệt hoặc từ chối.</p>";
 
@@ -370,7 +397,7 @@ public class BorrowNotifier : IBorrowNotifier
 
     private sealed record StaffMailInfo(
         Guid BorrowRequestId, string RequestCode, string RequesterName, string? StudentCode, Guid RoomId, string RoomCode,
-        string RoomName, string? Reason, DateTime? BorrowDate, List<StaffLine> Lines);
+        string RoomName, string? Reason, List<StaffLine> Lines);
 
     private Task<StaffMailInfo?> LoadStaffInfoAsync(Guid borrowRequestId, CancellationToken ct)
         => _uow.Repository<BorrowRequest>().QueryNoTracking()
@@ -378,7 +405,7 @@ public class BorrowNotifier : IBorrowNotifier
             .Select(r => new StaffMailInfo(
                 r.BorrowRequestId, r.RequestCode, r.Requester.FullName,
                 r.Requester.StudentProfile != null ? r.Requester.StudentProfile.StudentCode : null,
-                r.RoomId, r.Room.RoomCode, r.Room.RoomName, r.RejectReason, r.BorrowDate,
+                r.RoomId, r.Room.RoomCode, r.Room.RoomName, r.RejectReason,
                 r.BorrowItems
                     .OrderBy(i => i.Component.ComponentName)
                     .Select(i => new StaffLine(
@@ -427,14 +454,6 @@ public class BorrowNotifier : IBorrowNotifier
 
         return "<table border=\"1\" cellpadding=\"6\" style=\"border-collapse:collapse\">" +
                "<tr><th>Mã</th><th>Linh kiện</th><th>Số lượng</th></tr>" + rows + "</table>";
-    }
-
-    private static string BorrowDateText(DateTime? borrowDate, string prefix)
-    {
-        if (borrowDate == null)
-            return string.Empty;
-
-        return $" {prefix} <b>{ToVietnamDate(borrowDate.Value)}</b>";
     }
 
     public async Task ExtensionRequestedAsync(Guid extensionId, CancellationToken ct = default)
@@ -859,7 +878,7 @@ public class BorrowNotifier : IBorrowNotifier
         if (info.BorrowDate == null)
             return string.Empty;
 
-        return $" từ ngày <b>{ToVietnamDate(info.BorrowDate.Value)}</b>";
+        return $" ngày <b>{ToVietnamDate(info.BorrowDate.Value)}</b>";
     }
 
     private static string ToVietnamDate(DateTime utc) => utc.Add(VietnamUtcOffset).ToString("dd/MM/yyyy");

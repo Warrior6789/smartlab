@@ -39,8 +39,16 @@ public interface IBorrowRequestService
     Task<BorrowRequestDetailResponse> CancelReplacementAsync(
         Guid borrowRequestId, CancelReplacementRequest request, CancellationToken ct = default);
 
-    /// <summary>The pickup lab checked the goods: Approved becomes Ready and the student is told to come.</summary>
-    Task<BorrowRequestDetailResponse> LabAcceptAsync(Guid borrowRequestId, CancellationToken ct = default);
+    /// <summary>
+    /// The pickup lab checked the goods and picks the day to come, from today to the due date (today when none is sent):
+    /// Approved becomes Ready and the student is told.
+    /// </summary>
+    Task<BorrowRequestDetailResponse> LabAcceptAsync(
+        Guid borrowRequestId, LabAcceptRequest request, CancellationToken ct = default);
+
+    /// <summary>The lab moves the pickup day of a Ready request; the student is told.</summary>
+    Task<BorrowRequestDetailResponse> ChangePickupDateAsync(
+        Guid borrowRequestId, ChangePickupDateRequest request, CancellationToken ct = default);
 
     Task<BorrowRequestDetailResponse> CancelAsync(
         Guid borrowRequestId, CancelBorrowRequest request, CancellationToken ct = default);

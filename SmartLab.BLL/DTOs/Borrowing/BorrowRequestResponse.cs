@@ -34,6 +34,7 @@ public class BorrowRequestResponse
 
     public DateTime? ApprovedAt { get; set; }
 
+    /// <summary>Day the lab asks the student to come and take the components; null until the lab accepts the request.</summary>
     public DateTime? BorrowDate { get; set; }
 
     public DateTime DueDate { get; set; }

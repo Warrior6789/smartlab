@@ -597,7 +597,6 @@ public class ProjectService : IProjectService
                         var roomId = await CourseRoom.GetForClassAsync(_uow, project.ClassId, token);
                         await EnsureRoomStockAsync(roomId, lines, token);
                         var dueDate = await BorrowDeadline.GetDueDateForNewRequestAsync(_uow, project.ClassId, token);
-                        var borrowDate = ResolveBorrowDate(request.BorrowDate, now, dueDate);
 
                         borrowRequest = new BorrowRequest
                         {
@@ -608,7 +607,6 @@ public class ProjectService : IProjectService
                             Purpose = $"Mượn linh kiện cho project: {project.Title}",
                             Status = BorrowRequestStatuses.Pending,
                             RequestDate = now,
-                            BorrowDate = borrowDate,
                             DueDate = dueDate,
                             RoomId = roomId,
                         };
@@ -693,7 +691,6 @@ public class ProjectService : IProjectService
 
         var roomId = await CourseRoom.GetForClassAsync(_uow, project.ClassId, ct);
         var dueDate = await BorrowDeadline.GetDueDateForNewRequestAsync(_uow, project.ClassId, ct);
-        var borrowDate = ResolveBorrowDate(request.BorrowDate, now, dueDate);
 
         var lecturerId = await _uow.Repository<Class>().QueryNoTracking()
             .Where(c => c.ClassId == project.ClassId && c.Instructor != null)
@@ -740,7 +737,6 @@ public class ProjectService : IProjectService
                             Purpose = purpose,
                             Status = BorrowRequestStatuses.Pending,
                             RequestDate = now,
-                            BorrowDate = borrowDate,
                             DueDate = dueDate,
                             RoomId = roomId,
                         };
@@ -996,26 +992,6 @@ public class ProjectService : IProjectService
         return studentId.Value;
     }
 
-    /// <summary>
-    /// The day the team wants to pick the components up (a Vietnam calendar date): today when not given. It cannot be in
-    /// the past or after the last day to return (<paramref name="dueDate"/>, from the semester the Admin set up).
-    /// </summary>
-    private static DateTime ResolveBorrowDate(DateTime? requested, DateTime now, DateTime dueDate)
-    {
-        var today = ToVietnamDateUtc(now);
-        if (requested == null)
-            return today;
-
-        var borrowDate = ToVietnamDateUtc(requested.Value);
-        if (borrowDate < today)
-            throw new BadRequestException("Ngày mượn không được ở trong quá khứ");
-        if (borrowDate > dueDate)
-            throw new BadRequestException(
-                $"Ngày mượn phải trước hạn trả của học kỳ ({(dueDate + VietnamUtcOffset):dd/MM/yyyy})");
-
-        return borrowDate;
-    }
-
     /// <summary>The project, after checking that the current user leads its team and still studies in the class.</summary>
     private async Task<Project> GetProjectForLeaderAsync(Guid projectId, CancellationToken ct)
     {
@@ -1159,19 +1135,6 @@ public class ProjectService : IProjectService
         }
 
         return $"{prefix}{maxNumber + 1:D3}";
-    }
-
-    /// <summary>
-    /// Start of the Vietnam calendar day, in UTC. A plain date ("2026-10-28") is that day. A value with "Z" or an offset
-    /// (and DateTime.UtcNow) is first turned into Vietnam time, so the server time zone never shifts the day.
-    /// </summary>
-    private static DateTime ToVietnamDateUtc(DateTime vietnamDate)
-    {
-        var date = vietnamDate.Date;
-        if (vietnamDate.Kind != DateTimeKind.Unspecified)
-            date = (vietnamDate.ToUniversalTime() + VietnamUtcOffset).Date;
-
-        return DateTime.SpecifyKind(date - VietnamUtcOffset, DateTimeKind.Utc);
     }
 
     private static ProjectComponent ToProjectComponent(ProjectComponentRequest line) => new()

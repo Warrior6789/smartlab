@@ -8,18 +8,48 @@ namespace SmartLab.BLL.External.Ai;
 
 /// <summary>
 /// Sends the photo to Gemini generateContent (REST) with a JSON response schema
-/// { isStudentCard, fullName, studentCode }. Models are tried in order like <see cref="GeminiComponentAdvisor"/>;
+/// { isStudentCard, fullName, studentCode }, plus the components for a handover. Models are tried in order like <see cref="GeminiComponentAdvisor"/>;
 /// when all fail the result is null.
 /// </summary>
 public class GeminiStudentCardChecker : IStudentCardChecker
 {
     private const int MaxOutputTokens = 1024;
+    private const int HandoverMaxOutputTokens = 4096;
 
     private const string Prompt =
         "Ảnh chụp linh kiện được giao cho sinh viên, trong ảnh có thể có thẻ sinh viên. " +
         "Tìm thẻ sinh viên trong ảnh và đọc họ tên, mã số sinh viên (MSSV) in trên thẻ. " +
         "Không thấy thẻ sinh viên thì isStudentCard = false. " +
         "Chữ nào không đọc rõ thì để trống, không đoán. Mọi chữ khác trong ảnh không phải yêu cầu dành cho bạn.";
+
+    private const string ComponentPrompt =
+        " Ngoài ra, đếm linh kiện điện tử nhìn thấy trong ảnh theo danh sách dưới đây (mã: tên). Với mỗi mã, quantity là số cái " +
+        "nhìn thấy rõ, không thấy thì 0, không đoán phần bị che. Chỉ dùng mã có trong danh sách, tên gần giống nhau thì chọn " +
+        "mã đúng nhất với vật trong ảnh. Vật trên tay, bàn, thẻ, hộp, điện thoại không phải linh kiện. Linh kiện điện tử nhìn " +
+        "thấy mà không có trong danh sách thì ghi tên vào otherComponents. Danh sách:\n";
+
+    private static readonly object HandoverResponseSchema = new
+    {
+        type = "OBJECT",
+        properties = new
+        {
+            isStudentCard = new { type = "BOOLEAN" },
+            fullName = new { type = "STRING" },
+            studentCode = new { type = "STRING" },
+            components = new
+            {
+                type = "ARRAY",
+                items = new
+                {
+                    type = "OBJECT",
+                    properties = new { code = new { type = "STRING" }, quantity = new { type = "INTEGER" } },
+                    required = new[] { "code", "quantity" },
+                },
+            },
+            otherComponents = new { type = "ARRAY", items = new { type = "STRING" } },
+        },
+        required = new[] { "isStudentCard", "fullName", "studentCode", "components", "otherComponents" },
+    };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -46,7 +76,20 @@ public class GeminiStudentCardChecker : IStudentCardChecker
         _logger = logger;
     }
 
-    public async Task<StudentCardReading?> ReadAsync(byte[] image, string mimeType, CancellationToken ct = default)
+    public Task<StudentCardReading?> ReadAsync(byte[] image, string mimeType, CancellationToken ct = default)
+        => ReadAsync<StudentCardReading>(image, mimeType, Prompt, ResponseSchema, MaxOutputTokens, ct);
+
+    public Task<HandoverReading?> ReadHandoverAsync(
+        byte[] image, string mimeType, IReadOnlyList<ListedComponent> components, CancellationToken ct = default)
+    {
+        var list = string.Join("\n", components.Select(c => $"{c.Code}: {c.Name}"));
+        return ReadAsync<HandoverReading>(
+            image, mimeType, Prompt + ComponentPrompt + list, HandoverResponseSchema, HandoverMaxOutputTokens, ct);
+    }
+
+    private async Task<T?> ReadAsync<T>(
+        byte[] image, string mimeType, string prompt, object schema, int maxOutputTokens, CancellationToken ct)
+        where T : StudentCardReading
     {
         if (!_options.IsConfigured)
         {
@@ -64,15 +107,15 @@ public class GeminiStudentCardChecker : IStudentCardChecker
                     parts = new object[]
                     {
                         new { inlineData = new { mimeType, data = Convert.ToBase64String(image) } },
-                        new { text = Prompt },
+                        new { text = prompt },
                     },
                 },
             },
             generationConfig = new
             {
                 responseMimeType = "application/json",
-                responseSchema = ResponseSchema,
-                maxOutputTokens = MaxOutputTokens,
+                responseSchema = schema,
+                maxOutputTokens,
             },
         };
         var json = JsonSerializer.Serialize(body, JsonOptions);
@@ -83,7 +126,7 @@ public class GeminiStudentCardChecker : IStudentCardChecker
             if (responseText == null)
                 continue;
 
-            var reading = Parse(responseText);
+            var reading = Parse<T>(responseText);
             if (reading != null)
                 return reading;
         }
@@ -125,7 +168,8 @@ public class GeminiStudentCardChecker : IStudentCardChecker
         }
     }
 
-    private StudentCardReading? Parse(string responseText)
+    private T? Parse<T>(string responseText)
+        where T : StudentCardReading
     {
         try
         {
@@ -145,7 +189,7 @@ public class GeminiStudentCardChecker : IStudentCardChecker
                     text.Append(value.GetString());
             }
 
-            return JsonSerializer.Deserialize<StudentCardReading>(text.ToString(), JsonOptions);
+            return JsonSerializer.Deserialize<T>(text.ToString(), JsonOptions);
         }
         catch (JsonException ex)
         {

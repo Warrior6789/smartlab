@@ -12,7 +12,8 @@ namespace SmartLab.BLL.Services.Borrowing;
 /// Every day from the hour in system_settings BORROW_REMINDER_HOUR (Vietnam time): "create a return slip" 7 and 3 days
 /// before the due date while some component is on no open return slip, "due tomorrow" to borrowers whose due date is
 /// tomorrow, "overdue" on the 1st, 3rd and 7th day after the due date, then every 7 days, while components are still out;
-/// and "bring it tomorrow" for approved return slips whose appointment is tomorrow. The run of a day is claimed in
+/// "come tomorrow" for Ready requests the lab asked to pick up tomorrow; and "bring it tomorrow" for approved return slips
+/// whose appointment is tomorrow. The run of a day is claimed in
 /// system_settings (BORROW_REMINDER_LAST_RUN) so a restart or a second instance never sends it twice.
 /// </summary>
 public class BorrowReminderService : IBorrowReminderService
@@ -100,10 +101,28 @@ public class BorrowReminderService : IBorrowReminderService
             }
         }
 
+        sent += await RemindPickupsAsync(today.AddDays(1), ct);
         sent += await RemindAppointmentsAsync(today.AddDays(1), ct);
 
         _logger.LogInformation("Borrow reminders for {Day:yyyy-MM-dd}: {Count} sent", today, sent);
         return sent;
+    }
+
+    /// <summary>Ready requests to be picked up on the given Vietnam day.</summary>
+    private async Task<int> RemindPickupsAsync(DateTime vietnamDay, CancellationToken ct)
+    {
+        var from = DateTime.SpecifyKind(vietnamDay - VietnamUtcOffset, DateTimeKind.Utc);
+        var to = from.AddDays(1);
+        var ids = await _uow.Repository<BorrowRequest>().QueryNoTracking()
+            .Where(r => r.Status == BorrowRequestStatuses.Ready && r.BorrowDate >= from && r.BorrowDate < to)
+            .OrderBy(r => r.RequestCode)
+            .Select(r => r.BorrowRequestId)
+            .ToListAsync(ct);
+
+        foreach (var id in ids)
+            await _notifier.PickupTomorrowAsync(id, ct);
+
+        return ids.Count;
     }
 
     /// <summary>Approved return slips to be brought on the given Vietnam day.</summary>

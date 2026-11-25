@@ -1,5 +1,4 @@
 using System.Linq.Expressions;
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -248,8 +247,8 @@ public class BorrowRequestService : IBorrowRequestService
 
     /// <summary>
     /// Stores a handover photo. An Issue photo (request Ready, or a request being borrowed with a replacement at the pickup
-    /// lab) is also read by the AI: the student code on the card is compared with the borrower's. The AI never blocks:
-    /// when it fails the result is Unreadable.
+    /// lab) is also read by the AI: the student code on the card is compared with the borrower's, and the components still to
+    /// hand over are counted. The AI never blocks: when it fails the result is Unreadable and the counts are unknown.
     /// </summary>
     public async Task<HandoverPhotoResponse> UploadPhotoAsync(
         Guid borrowRequestId, UploadHandoverPhotoRequest request, CancellationToken ct = default)
@@ -288,16 +287,11 @@ public class BorrowRequestService : IBorrowRequestService
         string? aiDetail = null;
         if (photoType == HandoverPhotoTypes.Issue)
         {
-            var reading = await _cardChecker.ReadAsync(bytes, request.File.ContentType, ct);
+            var lines = await LoadPhotoLinesAsync(borrowRequestId, ct);
+            var listed = lines.Select(l => new ListedComponent(l.ComponentCode, l.ComponentName)).ToList();
+            var reading = await _cardChecker.ReadHandoverAsync(bytes, request.File.ContentType, listed, ct);
             aiResult = CompareStudentCard(reading, info.StudentCode);
-            aiDetail = JsonSerializer.Serialize(new
-            {
-                isStudentCard = reading?.IsStudentCard,
-                fullName = reading?.FullName,
-                studentCode = reading?.StudentCode,
-                expectedStudentCode = info.StudentCode,
-                aiAvailable = reading != null,
-            });
+            aiDetail = HandoverPhotoCheck.ToDetail(reading, info.StudentCode, lines);
         }
 
         StoredFile stored;
@@ -920,8 +914,10 @@ public class BorrowRequestService : IBorrowRequestService
     /// The pickup lab checked the goods after the lecturer approved: Approved becomes Ready and the student is told to come.
     /// If the goods are not usable, staff cancel the request instead (<see cref="CancelAsync"/>).
     /// </summary>
-    public async Task<BorrowRequestDetailResponse> LabAcceptAsync(Guid borrowRequestId, CancellationToken ct = default)
+    public async Task<BorrowRequestDetailResponse> LabAcceptAsync(
+        Guid borrowRequestId, LabAcceptRequest request, CancellationToken ct = default)
     {
+        var now = DateTime.UtcNow;
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
         await LockRequestAsync(borrowRequestId, new[] { BorrowRequestStatuses.Approved },
@@ -929,9 +925,14 @@ public class BorrowRequestService : IBorrowRequestService
         var header = await GetHeaderAsync(borrowRequestId, ct);
         await EnsurePickupStaffAsync(header.RoomId, ct);
 
+        var pickupDate = VietnamDay.StartUtc(request.PickupDate ?? now);
+        await EnsurePickupDateAsync(borrowRequestId, pickupDate, now, ct);
+
         await _uow.Repository<BorrowRequest>().Query()
             .Where(r => r.BorrowRequestId == borrowRequestId)
-            .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, BorrowRequestStatuses.Ready), ct);
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(r => r.Status, BorrowRequestStatuses.Ready)
+                .SetProperty(r => r.BorrowDate, pickupDate), ct);
 
         await tx.CommitAsync(ct);
 
@@ -939,6 +940,52 @@ public class BorrowRequestService : IBorrowRequestService
         await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
+    }
+
+    public async Task<BorrowRequestDetailResponse> ChangePickupDateAsync(
+        Guid borrowRequestId, ChangePickupDateRequest request, CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+        var pickupDate = VietnamDay.StartUtc(request.PickupDate!.Value);
+
+        await using var tx = await _uow.BeginTransactionAsync(ct);
+
+        await LockRequestAsync(borrowRequestId, new[] { BorrowRequestStatuses.Ready },
+            "Chỉ đổi ngày hẹn nhận khi đơn đã sẵn sàng và chưa giao", ct);
+        var header = await GetHeaderAsync(borrowRequestId, ct);
+        await EnsurePickupStaffAsync(header.RoomId, ct);
+        await EnsurePickupDateAsync(borrowRequestId, pickupDate, now, ct);
+
+        var changed = await _uow.Repository<BorrowRequest>().Query()
+            .Where(r => r.BorrowRequestId == borrowRequestId && r.BorrowDate != pickupDate)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.BorrowDate, pickupDate), ct);
+
+        await tx.CommitAsync(ct);
+
+        if (changed > 0)
+        {
+            await _notifier.PickupDateChangedAsync(borrowRequestId, ct);
+            await _changes.BorrowRequestChangedAsync(borrowRequestId);
+        }
+
+        return await GetRequestByIdAsync(borrowRequestId, ct);
+    }
+
+    /// <summary>Today or later, and not after the due date unless that day has already passed.</summary>
+    private async Task EnsurePickupDateAsync(Guid borrowRequestId, DateTime pickupDate, DateTime now, CancellationToken ct)
+    {
+        var dueDate = await _uow.Repository<BorrowRequest>().QueryNoTracking()
+            .Where(r => r.BorrowRequestId == borrowRequestId)
+            .Select(r => r.DueDate)
+            .FirstAsync(ct);
+
+        var today = VietnamDay.StartUtc(now);
+        var lastDay = VietnamDay.StartUtc(dueDate);
+
+        if (pickupDate < today)
+            throw new BadRequestException("Ngày hẹn nhận không được ở quá khứ");
+        if (lastDay >= today && pickupDate > lastDay)
+            throw new BadRequestException($"Ngày hẹn nhận không được sau hạn trả {VietnamDay.Text(lastDay)}");
     }
 
     /// <summary>
@@ -1378,6 +1425,29 @@ public class BorrowRequestService : IBorrowRequestService
     };
 
     /// <summary>Student code on the card vs the borrower's (spaces and case ignored).</summary>
+    /// <summary>Components still to hand over (the whole Ready request, or the replacements), one line per component.</summary>
+    private async Task<List<HandoverPhotoCheck.Line>> LoadPhotoLinesAsync(Guid borrowRequestId, CancellationToken ct)
+    {
+        var items = await _uow.Repository<BorrowItem>().QueryNoTracking()
+            .Where(i => i.BorrowRequestId == borrowRequestId && i.Status == BorrowItemStatuses.Pending)
+            .Select(i => new
+            {
+                i.Component.ComponentCode,
+                i.Component.ComponentName,
+                i.Component.Unit,
+                i.Component.TrackingType,
+                i.Quantity,
+            })
+            .ToListAsync(ct);
+
+        return items
+            .GroupBy(i => new { i.ComponentCode, i.ComponentName, i.Unit, i.TrackingType })
+            .Select(g => new HandoverPhotoCheck.Line(
+                g.Key.ComponentCode, g.Key.ComponentName, g.Key.Unit, g.Key.TrackingType, g.Sum(i => i.Quantity)))
+            .OrderBy(l => l.ComponentName)
+            .ToList();
+    }
+
     private static string CompareStudentCard(StudentCardReading? reading, string? expectedStudentCode)
     {
         if (reading == null || !reading.IsStudentCard

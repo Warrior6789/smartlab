@@ -1,6 +1,6 @@
 namespace SmartLab.BLL.Interfaces.Borrowing;
 
-/// <summary>Daily reminders to borrowers: create a return slip, due tomorrow, overdue, appointment tomorrow.</summary>
+/// <summary>Daily reminders to borrowers: create a return slip, due tomorrow, overdue, pickup or return appointment tomorrow.</summary>
 public interface IBorrowReminderService
 {
     /// <summary>

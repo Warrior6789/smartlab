@@ -14,7 +14,10 @@ public class HandoverPhotoResponse
     /// <summary>Issue photos only: Match, Mismatch or Unreadable (student card vs borrower).</summary>
     public string? AiResult { get; set; }
 
-    /// <summary>Issue photos only: what the AI read (JSON text).</summary>
+    /// <summary>
+    /// Issue photos only: what the AI read (JSON text): isStudentCard, fullName, studentCode, expectedStudentCode, aiAvailable,
+    /// components [{ componentCode, componentName, unit, trackingType, expected, seen, matches }], otherComponents [names].
+    /// </summary>
     public string? AiDetail { get; set; }
 
     /// <summary>Why the staff handed over although the AI did not confirm the card.</summary>

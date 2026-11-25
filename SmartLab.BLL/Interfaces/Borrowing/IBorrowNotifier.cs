@@ -17,6 +17,12 @@ public interface IBorrowNotifier
     /// <summary>Everything is at the pickup lab: come and pick it up with the student card.</summary>
     Task ReadyAsync(Guid borrowRequestId, CancellationToken ct = default);
 
+    /// <summary>The lab moved the pickup day.</summary>
+    Task PickupDateChangedAsync(Guid borrowRequestId, CancellationToken ct = default);
+
+    /// <summary>The components of a Ready request are to be picked up tomorrow.</summary>
+    Task PickupTomorrowAsync(Guid borrowRequestId, CancellationToken ct = default);
+
     /// <summary>Receipt after handover: every component and unit taken, and the due date.</summary>
     Task IssuedAsync(Guid borrowRequestId, CancellationToken ct = default);
 

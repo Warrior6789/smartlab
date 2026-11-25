@@ -63,7 +63,7 @@ public class BorrowRequestsController : ControllerBase
     /// Tải ảnh giao đồ (photoType = Issue, đơn Ready hoặc đơn đang mượn có món thay thế đã về lab nhận đồ) hoặc ảnh nhận trả
     /// (Return, đơn đang mượn): ảnh chụp linh kiện kèm thẻ
     /// sinh viên (JPG/PNG/WEBP, tối đa 5 MB). Ảnh giao đồ được AI đọc MSSV trên thẻ và so với người mượn
-    /// (Match / Mismatch / Unreadable). AI lỗi thì trả Unreadable, không chặn việc giao.
+    /// (Match / Mismatch / Unreadable) và đếm linh kiện cần giao trong ảnh (chỉ để nhắc). AI lỗi thì trả Unreadable, không chặn việc giao.
     /// </summary>
     [HttpPost("{id:guid}/photos")]
     [Authorize(Policy = PermissionCodes.BorrowIssue)]
@@ -183,17 +183,35 @@ public class BorrowRequestsController : ControllerBase
         return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Đã hủy món thay thế"));
     }
 
-    /// <summary>Nhân viên lab của đơn đã chuẩn bị và kiểm tra hàng: đơn Approved sang Ready và báo sinh viên đến nhận.</summary>
+    /// <summary>
+    /// Nhân viên lab của đơn đã chuẩn bị, kiểm tra hàng và chọn ngày hẹn nhận (từ hôm nay tới hạn trả, không gửi thì lấy hôm nay):
+    /// đơn Approved sang Ready và báo sinh viên đến nhận.
+    /// </summary>
     [HttpPost("{id:guid}/lab-accept")]
     [Authorize(Policy = PermissionCodes.BorrowIssue)]
     [ProducesResponseType(typeof(ApiResponse<BorrowRequestDetailResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> LabAccept(Guid id, CancellationToken ct)
+    public async Task<IActionResult> LabAccept(
+        Guid id, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] LabAcceptRequest? request, CancellationToken ct)
     {
-        var result = await _borrowRequestService.LabAcceptAsync(id, ct);
+        var result = await _borrowRequestService.LabAcceptAsync(id, request ?? new LabAcceptRequest(), ct);
         return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Đã chấp nhận đơn mượn"));
+    }
+
+    /// <summary>Lab đổi ngày hẹn nhận khi đơn Ready chưa giao; sinh viên được báo.</summary>
+    [HttpPut("{id:guid}/pickup-date")]
+    [Authorize(Policy = PermissionCodes.BorrowIssue)]
+    [ProducesResponseType(typeof(ApiResponse<BorrowRequestDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ChangePickupDate(Guid id, [FromBody] ChangePickupDateRequest request, CancellationToken ct)
+    {
+        var result = await _borrowRequestService.ChangePickupDateAsync(id, request, ct);
+        return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Đã đổi ngày hẹn nhận"));
     }
 
     /// <summary>
