@@ -44,8 +44,9 @@ public class CreateComponentRequestValidator : AbstractValidator<CreateComponent
             .MaximumLength(20).WithMessage("Đơn vị tính tối đa 20 ký tự");
 
         RuleFor(x => x.MinStock)
-            .GreaterThanOrEqualTo(0).When(x => x.MinStock.HasValue)
-            .WithMessage("Tồn kho tối thiểu không được âm");
+            .Cascade(CascadeMode.Stop)
+            .NotNull().WithMessage("Tồn kho tối thiểu là bắt buộc, nhập 0 nếu không cần giữ sẵn")
+            .GreaterThanOrEqualTo(0).WithMessage("Tồn kho tối thiểu không được âm");
 
         RuleFor(x => x.Specs)
             .Cascade(CascadeMode.Stop)

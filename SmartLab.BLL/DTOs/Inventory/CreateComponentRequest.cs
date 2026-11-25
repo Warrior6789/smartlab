@@ -21,7 +21,7 @@ public class CreateComponentRequest
     /// <summary>Unit of measure (đơn vị tính), e.g. cái, mét, cuộn; empty = "cái".</summary>
     public string? Unit { get; set; }
 
-    /// <summary>Low-stock warning level; null = no warning.</summary>
+    /// <summary>Low-stock warning level, required; 0 = nothing needs to be kept in stock.</summary>
     public int? MinStock { get; set; }
     public List<ComponentSpecRequest> Specs { get; set; } = new();
 }
