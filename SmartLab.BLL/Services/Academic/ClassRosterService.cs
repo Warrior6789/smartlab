@@ -59,6 +59,10 @@ public class ClassRosterService : IClassRosterService
     private sealed class RosterRowOutcome
     {
         public string? Error { get; init; }
+
+        /// <summary>The row failed only because the student is already studying in the class.</summary>
+        public bool AlreadyInClass { get; init; }
+
         public User? User { get; init; }
         public StudentProfile? Student { get; init; }
         public string? Password { get; init; }
@@ -85,6 +89,7 @@ public class ClassRosterService : IClassRosterService
 
         var newAccounts = new List<(User User, string Password, string Token)>();
         var enrolled = new List<(ImportRosterRowResult Line, User User)>();
+        var alreadyInClass = 0;
 
         using var stream = request.File.OpenReadStream();
         XLWorkbook workbook;
@@ -159,6 +164,8 @@ public class ClassRosterService : IClassRosterService
 
                 if (outcome.Error != null)
                 {
+                    if (outcome.AlreadyInClass)
+                        alreadyInClass++;
                     SkipRow(result, line, outcome.Error);
                     continue;
                 }
@@ -186,6 +193,9 @@ public class ClassRosterService : IClassRosterService
                 result.EnrolledStudents++;
             }
         }
+
+        if (alreadyInClass > 0 && alreadyInClass == result.TotalRows)
+            throw new ConflictException($"Danh sách này đã được nhập rồi, cả {alreadyInClass} sinh viên đều đã có trong lớp");
 
         await _uow.SaveChangesAsync(ct);
 
@@ -409,9 +419,12 @@ public class ClassRosterService : IClassRosterService
         var existing = classEntity.ClassStudents
             .FirstOrDefault(cs => cs.StudentId == user.StudentProfile.StudentProfileId);
         if (existing != null)
-            return RosterRowOutcome.Fail(existing.Status == ClassStudentStatuses.Dropped
-                ? "Sinh viên đang ở trạng thái Dropped, hãy đổi trạng thái để cho học lại."
-                : "Sinh viên đã có trong lớp.");
+        {
+            if (existing.Status == ClassStudentStatuses.Dropped)
+                return RosterRowOutcome.Fail("Sinh viên đang ở trạng thái Dropped, hãy đổi trạng thái để cho học lại.");
+
+            return new RosterRowOutcome { Error = "Sinh viên đã có trong lớp.", AlreadyInClass = true };
+        }
 
         if (batch.Studying >= classEntity.MaxStudents)
             return RosterRowOutcome.Fail($"Lớp đã đủ {classEntity.MaxStudents} sinh viên.");
