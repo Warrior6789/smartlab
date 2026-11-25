@@ -31,4 +31,10 @@ public class ComponentResponse
 
     /// <summary>Unit price on the newest non-cancelled stock receipt; null when the component was never received.</summary>
     public decimal? LatestUnitPrice { get; set; }
+
+    /// <summary>When the component was added to the catalog.</summary>
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>Last receipt entered for this component; only for users who manage stock receipts, null when never received.</summary>
+    public ComponentLatestReceiptResponse? LatestReceipt { get; set; }
 }

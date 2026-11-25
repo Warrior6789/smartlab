@@ -5,6 +5,7 @@ using SmartLab.BLL.Common;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Inventory;
+using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.External.Storage;
 using SmartLab.BLL.Interfaces.Inventory;
 using SmartLab.DAL.Entities;
@@ -29,12 +30,15 @@ public class ComponentService : IComponentService
 
     private readonly IUnitOfWork _uow;
     private readonly IFileStorage _fileStorage;
+    private readonly ICurrentUserService _currentUser;
     private readonly ILogger<ComponentService> _logger;
 
-    public ComponentService(IUnitOfWork uow, IFileStorage fileStorage, ILogger<ComponentService> logger)
+    public ComponentService(
+        IUnitOfWork uow, IFileStorage fileStorage, ICurrentUserService currentUser, ILogger<ComponentService> logger)
     {
         _uow = uow;
         _fileStorage = fileStorage;
+        _currentUser = currentUser;
         _logger = logger;
     }
 
@@ -100,13 +104,22 @@ public class ComponentService : IComponentService
                     .OrderByDescending(i => i.Receipt.ReceivedAt)
                     .Select(i => (decimal?)i.UnitPrice)
                     .FirstOrDefault(),
+                CreatedAt = c.CreatedAt,
             });
 
         var page = await PagedResult<ComponentResponse>.CreateAsync(result, paging, ct);
+        var componentIds = page.Items.Select(c => c.ComponentId).ToList();
 
-        var borrowable = await RoomStock.GetTotalAvailableAsync(_uow, page.Items.Select(c => c.ComponentId).ToList(), ct);
+        var borrowable = await RoomStock.GetTotalAvailableAsync(_uow, componentIds, ct);
         foreach (var component in page.Items)
             component.BorrowableQuantity = borrowable.GetValueOrDefault(component.ComponentId);
+
+        if (_currentUser.HasPermission(PermissionCodes.StockReceiptManage))
+        {
+            var latestReceipts = await GetLatestReceiptsAsync(componentIds, ct);
+            foreach (var component in page.Items)
+                component.LatestReceipt = latestReceipts.GetValueOrDefault(component.ComponentId);
+        }
 
         return page;
     }
@@ -470,4 +483,44 @@ public class ComponentService : IComponentService
         Unit = string.IsNullOrWhiteSpace(spec.Unit) ? null : spec.Unit.Trim(),
         IsAiExtracted = false,
     };
+
+    /// <summary>The completed receipt entered last for each component; components never received are left out.</summary>
+    private async Task<Dictionary<Guid, ComponentLatestReceiptResponse>> GetLatestReceiptsAsync(
+        List<Guid> componentIds, CancellationToken ct)
+    {
+        var lines = await _uow.Repository<StockReceiptItem>().QueryNoTracking()
+            .Where(i => componentIds.Contains(i.ComponentId)
+                     && i.ReceiptId == i.Component.StockReceiptItems
+                            .Where(x => x.Receipt.Status == StockReceiptStatuses.Completed)
+                            .OrderByDescending(x => x.Receipt.CreatedAt).ThenByDescending(x => x.ReceiptId)
+                            .Select(x => x.ReceiptId)
+                            .FirstOrDefault())
+            .OrderBy(i => i.Cabinet.CabinetCode).ThenBy(i => i.ReceiptItemId)
+            .Select(i => new
+            {
+                i.ComponentId,
+                i.ReceiptId,
+                i.Receipt.ReceiptCode,
+                i.Receipt.CreatedAt,
+                i.Quantity,
+                i.UnitPrice,
+                i.Cabinet.CabinetCode,
+            })
+            .ToListAsync(ct);
+
+        return lines
+            .GroupBy(l => l.ComponentId)
+            .ToDictionary(g => g.Key, g => new ComponentLatestReceiptResponse
+            {
+                ReceiptId = g.First().ReceiptId,
+                ReceiptCode = g.First().ReceiptCode,
+                CreatedAt = g.First().CreatedAt,
+                Lines = g.Select(l => new ComponentReceiptLineResponse
+                {
+                    Quantity = l.Quantity,
+                    UnitPrice = l.UnitPrice,
+                    CabinetCode = l.CabinetCode,
+                }).ToList(),
+            });
+    }
 }
