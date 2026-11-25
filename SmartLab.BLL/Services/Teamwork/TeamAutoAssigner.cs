@@ -8,6 +8,8 @@ namespace SmartLab.BLL.Services.Teamwork;
 ///    when there is no room left, beyond the maximum (needs confirmation).
 /// 4. Teams that are still below the minimum are merged whole, so friends stay together: first with each other, then into
 ///    a team that has room for all of them. A team that fits nowhere is left to the lecturer with a warning.
+/// 5. Students placed here (never the members who chose their team) are moved from bigger to smaller teams while that
+///    makes the sizes more even.
 /// </summary>
 internal static class TeamAutoAssigner
 {
@@ -73,7 +75,47 @@ internal static class TeamAutoAssigner
         }
 
         MergeSmallTeams(plan, teams, counts, min, max);
+        Balance(plan, counts);
         return plan;
+    }
+
+    private static void Balance(Plan plan, Dictionary<Guid, int> counts)
+    {
+        while (true)
+        {
+            // Each team as (size, the students placed into it here).
+            var groups = counts
+                .Select(c => (Size: c.Value, TeamId: (Guid?)c.Key, Placed: plan.ToExistingTeams.GetValueOrDefault(c.Key)))
+                .Concat(plan.NewTeams.Select(t => (Size: t.Count, TeamId: (Guid?)null, Placed: (List<Guid>?)t)))
+                .ToList();
+            var biggest = groups.Where(g => g.Placed is { Count: > 0 }).OrderByDescending(g => g.Size).FirstOrDefault();
+            if (biggest.Placed == null)
+                return;
+            var smallest = groups.OrderBy(g => g.Size).First();
+            if (biggest.Size - smallest.Size < 2)
+                return;
+
+            var student = biggest.Placed[^1];
+            biggest.Placed.RemoveAt(biggest.Placed.Count - 1);
+            if (biggest.TeamId is { } from)
+            {
+                counts[from]--;
+                if (biggest.Placed.Count == 0)
+                    plan.ToExistingTeams.Remove(from);
+            }
+
+            if (smallest.TeamId is { } to)
+            {
+                counts[to]++;
+                if (!plan.ToExistingTeams.TryGetValue(to, out var list))
+                    plan.ToExistingTeams[to] = list = new List<Guid>();
+                list.Add(student);
+            }
+            else
+            {
+                smallest.Placed!.Add(student);
+            }
+        }
     }
 
     private static void MergeSmallTeams(
