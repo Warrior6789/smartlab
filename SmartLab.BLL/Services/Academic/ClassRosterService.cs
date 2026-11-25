@@ -1,4 +1,3 @@
-using System.Net;
 using ClosedXML.Excel;
 using System.Text.RegularExpressions;
 
@@ -11,10 +10,10 @@ using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Academic;
 using SmartLab.BLL.DTOs.ClassSetupDTO;
 using SmartLab.BLL.External.CurrentUser;
-using SmartLab.BLL.External.Email;
 using SmartLab.BLL.External.Security;
 using SmartLab.BLL.Interfaces.Academic;
 using SmartLab.BLL.Interfaces.Borrowing;
+using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
 
@@ -24,17 +23,17 @@ public class ClassRosterService : IClassRosterService
 {
     private readonly IUnitOfWork _uow;
     private readonly IPasswordHasher _passwordHasher;
-    private readonly IEmailSender _email;
+    private readonly IAccountActivationService _activation;
     private readonly ICurrentUserService _currentUser;
     private readonly IBorrowNotifier _borrowNotifier;
 
     public ClassRosterService(
-        IUnitOfWork uow, IPasswordHasher passwordHasher, IEmailSender email, ICurrentUserService currentUser,
+        IUnitOfWork uow, IPasswordHasher passwordHasher, IAccountActivationService activation, ICurrentUserService currentUser,
         IBorrowNotifier borrowNotifier)
     {
         _uow = uow;
         _passwordHasher = passwordHasher;
-        _email = email;
+        _activation = activation;
         _currentUser = currentUser;
         _borrowNotifier = borrowNotifier;
     }
@@ -56,13 +55,15 @@ public class ClassRosterService : IClassRosterService
         public int Studying { get; set; }
     }
 
-    /// <summary>Result of one row: an error message (nothing was changed), or the student that was enrolled and the password when the account is new.</summary>
+    /// <summary>Result of one row: an error message (nothing was changed), or the student that was enrolled, with the password and activation link secret when the account is new.</summary>
     private sealed class RosterRowOutcome
     {
         public string? Error { get; init; }
         public User? User { get; init; }
         public StudentProfile? Student { get; init; }
         public string? Password { get; init; }
+        public string? ActivationToken { get; init; }
+        public bool ActivationPending { get; init; }
 
         public static RosterRowOutcome Fail(string error) => new() { Error = error };
     }
@@ -82,7 +83,8 @@ public class ClassRosterService : IClassRosterService
         var seenCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var seenEmails = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var newAccounts = new List<(User User, string Password)>();
+        var newAccounts = new List<(User User, string Password, string Token)>();
+        var enrolled = new List<(ImportRosterRowResult Line, User User)>();
 
         using var stream = request.File.OpenReadStream();
         XLWorkbook workbook;
@@ -163,10 +165,10 @@ public class ClassRosterService : IClassRosterService
 
                 if (outcome.Password != null)
                 {
-                    newAccounts.Add((outcome.User!, outcome.Password));
+                    newAccounts.Add((outcome.User!, outcome.Password, outcome.ActivationToken!));
                     result.CreatedUsers++;
                     line.Outcome = RosterRowOutcomes.NewAccount;
-                    line.Message = "Đã tạo tài khoản và gửi email đăng nhập";
+                    line.Message = "Đã tạo tài khoản và gửi email kích hoạt";
                 }
                 else
                 {
@@ -175,6 +177,9 @@ public class ClassRosterService : IClassRosterService
                     line.Message = "Đã có tài khoản, thêm vào lớp";
                 }
 
+                enrolled.Add((line, outcome.User!));
+                line.IsActive = outcome.User!.IsActive;
+                line.ActivationPending = outcome.ActivationPending;
                 if (string.IsNullOrWhiteSpace(line.FullName))
                     line.FullName = outcome.User!.FullName;
 
@@ -184,8 +189,11 @@ public class ClassRosterService : IClassRosterService
 
         await _uow.SaveChangesAsync(ct);
 
-        foreach (var (account, password) in newAccounts)
-            await SendAccountEmailAsync(account, password, ct);
+        foreach (var (line, user) in enrolled)
+            line.UserId = user.UserId;
+
+        foreach (var (account, password, token) in newAccounts)
+            await _activation.SendEmailAsync(account, password, token, ct);
 
         return result;
     }
@@ -242,7 +250,7 @@ public class ClassRosterService : IClassRosterService
         }
 
         if (outcome.Password != null)
-            await SendAccountEmailAsync(outcome.User!, outcome.Password, ct);
+            await _activation.SendEmailAsync(outcome.User!, outcome.Password, outcome.ActivationToken!, ct);
 
         return await GetClassStudentAsync(classId, outcome.Student!.StudentProfileId, ct);
     }
@@ -361,7 +369,6 @@ public class ClassRosterService : IClassRosterService
                 Email = row.Email,
                 FullName = row.FullName,
                 PasswordHash = _passwordHasher.Hash(password),
-                IsActive = true,
                 CreatedAt = now,
                 UpdatedAt = now,
                 StudentProfile = new StudentProfile
@@ -379,9 +386,17 @@ public class ClassRosterService : IClassRosterService
                 Status = ClassStudentStatuses.Studying,
             });
 
+            var token = _activation.Prepare(user);
             await _uow.Repository<User>().AddAsync(user, ct);
             batch.Studying++;
-            return new RosterRowOutcome { User = user, Student = user.StudentProfile, Password = password };
+            return new RosterRowOutcome
+            {
+                User = user,
+                Student = user.StudentProfile,
+                Password = password,
+                ActivationToken = token,
+                ActivationPending = true,
+            };
         }
 
         if (user.StudentProfile == null)
@@ -409,7 +424,10 @@ public class ClassRosterService : IClassRosterService
             Status = ClassStudentStatuses.Studying,
         }, ct);
         batch.Studying++;
-        return new RosterRowOutcome { User = user, Student = user.StudentProfile };
+
+        var pending = !user.IsActive && await _uow.Repository<VerificationCode>().QueryNoTracking()
+            .AnyAsync(c => c.UserId == user.UserId && c.Purpose == VerificationPurposes.EmailVerification && c.UsedAt == null, ct);
+        return new RosterRowOutcome { User = user, Student = user.StudentProfile, ActivationPending = pending };
     }
 
     private async Task<Role> GetStudentRoleAsync(CancellationToken ct)
@@ -436,6 +454,9 @@ public class ClassRosterService : IClassRosterService
                 FullName = cs.Student.User.FullName,
                 Email = cs.Student.User.Email,
                 AvatarUrl = cs.Student.User.AvatarUrl,
+                IsActive = cs.Student.User.IsActive,
+                ActivationPending = !cs.Student.User.IsActive
+                                    && cs.Student.User.VerificationCodes.Any(c => c.Purpose == VerificationPurposes.EmailVerification && c.UsedAt == null),
                 Major = cs.Student.Major,
                 Cohort = cs.Student.Cohort,
                 Status = cs.Status,
@@ -458,7 +479,6 @@ public class ClassRosterService : IClassRosterService
                 .Where(cs => cs.ClassId == classId && cs.StudentId == studentProfileId))
             .FirstAsync(ct);
 
-    // ↓↓↓ từ đây trở xuống là code cũ, GIỮ NGUYÊN: AssignInstructorAsync, SendAccountEmailAsync ↓↓↓
     public async Task<AssignInstructorResponse> AssignInstructorAsync(AssignInstructorRequest request, CancellationToken ct = default)
     {
         // 1. Validate lớp tồn tại
@@ -509,7 +529,6 @@ public class ClassRosterService : IClassRosterService
                     "Hãy chọn đúng giảng viên đó hoặc dùng mã khác.");
 
             var now = DateTime.UtcNow;
-            // Lỗi 1: mật khẩu ngẫu nhiên cho GV mới
             var password = PasswordGenerator.Generate();
             user = new User
             {
@@ -517,7 +536,6 @@ public class ClassRosterService : IClassRosterService
                 Email = emailNorm,
                 FullName = request.FullName.Trim(),
                 PasswordHash = _passwordHasher.Hash(password),
-                IsActive = true,
                 CreatedAt = now,
                 UpdatedAt = now,
                 InstructorProfile = new InstructorProfile
@@ -528,14 +546,14 @@ public class ClassRosterService : IClassRosterService
             };
             user.UserRoles.Add(new UserRole { RoleId = lecturerRole.RoleId, AssignedAt = now });
 
+            var token = _activation.Prepare(user);
             await _uow.Repository<User>().AddAsync(user, ct);
             await _uow.SaveChangesAsync(ct);
 
             instructorProfile = user.InstructorProfile!;
             accountCreated = true;
 
-            // Lỗi 1: gửi mail cho GV mới sau SaveChanges
-            await SendAccountEmailAsync(user, password, ct);
+            await _activation.SendEmailAsync(user, password, token, ct);
         }
         else
         {
@@ -575,17 +593,5 @@ public class ClassRosterService : IClassRosterService
             PreviousInstructorName = previousName,
             AccountCreated = accountCreated,
         };
-    }
-
-    private Task SendAccountEmailAsync(User user, string password, CancellationToken ct)
-    {
-        var body =
-            $"<p>Xin chào <b>{WebUtility.HtmlEncode(user.FullName)}</b>,</p>" +
-            "<p>Tài khoản SmartLab của bạn đã được tạo:</p>" +
-            $"<p>Tên đăng nhập: <b>{WebUtility.HtmlEncode(user.Username)}</b><br/>" +
-            $"Mật khẩu: <b>{WebUtility.HtmlEncode(password)}</b></p>" +
-            "<p>Bạn có thể đổi mật khẩu trong trang cá nhân sau khi đăng nhập.</p>";
-
-        return _email.SendAsync(user.Email, "SmartLab - Tài khoản của bạn", body, ct);
     }
 }

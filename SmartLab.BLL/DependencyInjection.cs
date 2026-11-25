@@ -56,6 +56,7 @@ public static class DependencyInjection
         services.AddSingleton<IFileStorage, CloudinaryFileStorage>();
 
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
+        services.Configure<WebOptions>(configuration.GetSection(WebOptions.SectionName));
         services.AddSingleton<SmtpEmailSender>();
         services.AddHttpClient(BrevoEmailSender.HttpClientName, client =>
         {
@@ -98,6 +99,7 @@ public static class DependencyInjection
         services.AddScoped<IActiveUserChecker, ActiveUserChecker>();
 
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IAccountActivationService, AccountActivationService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<ITeamService, TeamService>();

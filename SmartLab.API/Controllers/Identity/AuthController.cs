@@ -12,10 +12,23 @@ namespace SmartLab.API.Controllers.Identity;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IAccountActivationService _activationService;
 
-    public AuthController(IAuthService authService)
+    public AuthController(IAuthService authService, IAccountActivationService activationService)
     {
         _authService = authService;
+        _activationService = activationService;
+    }
+
+    /// <summary>Kích hoạt tài khoản mới bằng mã trong link của email.</summary>
+    [AllowAnonymous]
+    [HttpPost("activate")]
+    [ProducesResponseType(typeof(ApiResponse<ActivateAccountResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> Activate([FromBody] ActivateAccountRequest request, CancellationToken ct)
+    {
+        var result = await _activationService.ActivateAsync(request, ct);
+        return Ok(ApiResponse<ActivateAccountResponse>.Ok(result, "Kích hoạt tài khoản thành công"));
     }
 
     /// <summary>Gửi mã đặt lại mật khẩu tới email.</summary>

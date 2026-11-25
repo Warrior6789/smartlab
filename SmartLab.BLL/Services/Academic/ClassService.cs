@@ -166,6 +166,9 @@ public class ClassService : IClassService
                 cs.Student.User.FullName,
                 cs.Student.User.Email,
                 cs.Student.User.AvatarUrl,
+                cs.Student.User.IsActive,
+                ActivationPending = !cs.Student.User.IsActive
+                                    && cs.Student.User.VerificationCodes.Any(c => c.Purpose == VerificationPurposes.EmailVerification && c.UsedAt == null),
                 cs.Student.Major,
                 cs.Student.Cohort,
                 cs.Status,
@@ -193,6 +196,8 @@ public class ClassService : IClassService
                     FullName = s.FullName,
                     Email = s.Email,
                     AvatarUrl = s.AvatarUrl,
+                    IsActive = s.IsActive,
+                    ActivationPending = s.ActivationPending,
                     Major = s.Major,
                     Cohort = s.Cohort,
                     Status = s.Status,

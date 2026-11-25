@@ -14,10 +14,12 @@ namespace SmartLab.API.Controllers.Identity;
 public class UsersController : ControllerBase
 {
     private readonly IUserService _userService;
+    private readonly IAccountActivationService _activationService;
 
-    public UsersController(IUserService userService)
+    public UsersController(IUserService userService, IAccountActivationService activationService)
     {
         _userService = userService;
+        _activationService = activationService;
     }
 
     /// <summary>Danh sách người dùng (phân trang, tìm kiếm, lọc theo role/trạng thái).</summary>
@@ -79,6 +81,18 @@ public class UsersController : ControllerBase
     {
         var user = await _userService.UpdateUserAsync(id, request, ct);
         return Ok(ApiResponse<UserDetailResponse>.Ok(user, "Cập nhật người dùng thành công"));
+    }
+
+    /// <summary>Gửi lại email kích hoạt (mật khẩu mới, link mới) cho tài khoản đang chờ kích hoạt; link cũ hết hiệu lực.</summary>
+    [HttpPost("{id:guid}/resend-activation")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ResendActivation(Guid id, CancellationToken ct)
+    {
+        await _activationService.ResendAsync(id, ct);
+        return Ok(ApiResponse.Ok("Đã gửi lại email kích hoạt"));
     }
 
     /// <summary>

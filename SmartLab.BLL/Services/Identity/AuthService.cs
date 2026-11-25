@@ -67,6 +67,14 @@ public class AuthService : IAuthService
 
         if (!user.IsActive)
         {
+            var waitsForActivation = await _uow.Repository<VerificationCode>().QueryNoTracking()
+                .AnyAsync(c => c.UserId == user.UserId && c.Purpose == VerificationPurposes.EmailVerification && c.UsedAt == null, ct);
+            if (waitsForActivation)
+            {
+                await LogFailedLoginAsync(user, identifier, "Tài khoản chưa được kích hoạt", ct);
+                throw new ForbiddenException("Tài khoản chưa được kích hoạt, vui lòng mở email SmartLab để kích hoạt");
+            }
+
             await LogFailedLoginAsync(user, identifier, "Tài khoản đã bị khóa", ct);
             throw new ForbiddenException("Tài khoản đã bị khóa");
         }

@@ -243,6 +243,7 @@ public class UserService : IUserService
                 FullName = u.FullName,
                 AvatarUrl = u.AvatarUrl,
                 IsActive = u.IsActive,
+                ActivationPending = !u.IsActive && u.VerificationCodes.Any(c => c.Purpose == VerificationPurposes.EmailVerification && c.UsedAt == null),
                 LastLoginAt = u.LastLoginAt,
                 CreatedAt = u.CreatedAt,
                 Roles = u.UserRoles.Select(ur => ur.Role.RoleName).OrderBy(r => r).ToList(),
@@ -257,6 +258,8 @@ public class UserService : IUserService
                        .Include(u => u.StudentProfile)
                        .Include(u => u.InstructorProfile)
                        .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
+                       .Include(u => u.VerificationCodes
+                           .Where(c => c.Purpose == VerificationPurposes.EmailVerification && c.UsedAt == null))
                        .AsSplitQuery()
                        .FirstOrDefaultAsync(u => u.UserId == userId, ct)
                    ?? throw new NotFoundException("Không tìm thấy người dùng");

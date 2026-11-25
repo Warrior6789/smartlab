@@ -45,6 +45,6 @@ public class AssignInstructorResponse
     /// <summary>Lecturer the class had before this assignment; null when it had none or it is the same person.</summary>
     public string? PreviousInstructorName { get; set; }
 
-    /// <summary>A Lecturer account was created and its login was emailed.</summary>
+    /// <summary>A Lecturer account was created and its activation email was sent.</summary>
     public bool AccountCreated { get; set; }
 }

@@ -1,3 +1,4 @@
+using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Identity;
 using SmartLab.DAL.Entities;
 
@@ -21,7 +22,7 @@ public static class UserMappings
         Permissions = GetPermissionCodes(user),
     };
 
-    /// <summary>Requires UserRoles.Role, StudentProfile and InstructorProfile to be loaded.</summary>
+    /// <summary>Requires UserRoles.Role, StudentProfile, InstructorProfile and the open activation codes to be loaded.</summary>
     public static UserDetailResponse ToDetailResponse(User user) => new()
     {
         UserId = user.UserId,
@@ -30,6 +31,8 @@ public static class UserMappings
         FullName = user.FullName,
         AvatarUrl = user.AvatarUrl,
         IsActive = user.IsActive,
+        ActivationPending = !user.IsActive
+                            && user.VerificationCodes.Any(c => c.Purpose == VerificationPurposes.EmailVerification && c.UsedAt == null),
         LastLoginAt = user.LastLoginAt,
         CreatedAt = user.CreatedAt,
         Roles = GetRoleNames(user),

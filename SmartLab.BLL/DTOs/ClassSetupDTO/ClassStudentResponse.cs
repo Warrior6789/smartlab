@@ -9,6 +9,13 @@ public class ClassStudentResponse
     public string FullName { get; set; } = null!;
     public string Email { get; set; } = null!;
     public string? AvatarUrl { get; set; }
+
+    /// <summary>The account can sign in.</summary>
+    public bool IsActive { get; set; }
+
+    /// <summary>Not active because the student has not opened the activation link yet (not locked).</summary>
+    public bool ActivationPending { get; set; }
+
     public string? Major { get; set; }
     public string? Cohort { get; set; }
 

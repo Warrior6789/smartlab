@@ -13,6 +13,7 @@ public class ChangeBroadcaster : IChangeBroadcaster
     private static readonly string[] NoPermissions = Array.Empty<string>();
     private static readonly string[] StaffPermissions = { PermissionCodes.BorrowIssue };
     private static readonly string[] EveryonePermissions = { PermissionCodes.ComponentView };
+    private static readonly string[] AccountPermissions = { PermissionCodes.UserManage, PermissionCodes.AcademicManage };
     private static readonly HashSet<Guid> NoUsers = new();
 
     private readonly IUnitOfWork _uow;
@@ -150,6 +151,18 @@ public class ChangeBroadcaster : IChangeBroadcaster
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not broadcast change of {Entity}", entity);
+        }
+    }
+
+    public async Task AccountChangedAsync(Guid userId)
+    {
+        try
+        {
+            await PushAsync(NoUsers, AccountPermissions, RealtimeEntities.Account, userId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not broadcast change of account {UserId}", userId);
         }
     }
 

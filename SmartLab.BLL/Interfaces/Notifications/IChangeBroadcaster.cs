@@ -27,4 +27,7 @@ public interface IChangeBroadcaster
     /// every role has COMPONENT_VIEW. The event carries no data, and <paramref name="id"/> may be empty for a list-wide change.
     /// </summary>
     Task SharedDataChangedAsync(string entity, Guid id);
+
+    /// <summary>An account was activated: tells everyone who manages users or classes.</summary>
+    Task AccountChangedAsync(Guid userId);
 }

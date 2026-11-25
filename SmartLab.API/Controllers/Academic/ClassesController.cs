@@ -78,7 +78,7 @@ public class ClassesController : ControllerBase
         return NoContent();
     }
 
-    /// <summary>Import danh sách sinh viên từ Excel.</summary>
+    /// <summary>Import danh sách sinh viên từ Excel. Tài khoản mới phải được kích hoạt bằng link trong email mới đăng nhập được.</summary>
     [HttpPost("{id:guid}/roster")]
     [Authorize(Policy = PermissionCodes.AcademicManage)]
     [Consumes("multipart/form-data")]
@@ -90,7 +90,7 @@ public class ClassesController : ControllerBase
         var result = await _rosterService.ImportStudentsAsync(id, request, ct);
         return Ok(ApiResponse<ImportRosterResult>.Ok(result, "Import hoàn tất"));
     }
-    /// <summary>Thêm 1 sinh viên vào lớp; chưa có tài khoản thì tạo và gửi mật khẩu qua email như roster import.</summary>
+    /// <summary>Thêm 1 sinh viên vào lớp; chưa có tài khoản thì tạo và gửi email kích hoạt như import danh sách lớp.</summary>
     [HttpPost("{classId:guid}/students")]
     [Authorize(Policy = PermissionCodes.AcademicManage)]
     [ProducesResponseType(typeof(ApiResponse<ClassStudentResponse>), StatusCodes.Status201Created)]

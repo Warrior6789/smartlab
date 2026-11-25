@@ -18,4 +18,7 @@ public static class RealtimeEntities
 
     /// <summary>Classes, rosters, courses and semesters.</summary>
     public const string Academic = "Academic";
+
+    /// <summary>User accounts, e.g. one was just activated. Only sent to people who manage users or classes.</summary>
+    public const string Account = "Account";
 }
