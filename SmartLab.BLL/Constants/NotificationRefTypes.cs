@@ -8,4 +8,7 @@ public static class NotificationRefTypes
     public const string BorrowExtension = "BorrowExtension";
     public const string Project = "Project";
     public const string Team = "Team";
+
+    /// <summary>A class, e.g. its team formation deadline.</summary>
+    public const string Class = "Class";
 }

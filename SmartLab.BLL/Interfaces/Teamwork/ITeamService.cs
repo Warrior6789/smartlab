@@ -12,6 +12,7 @@ public interface ITeamService
     Task<TeamResponse> RemoveUnacceptedMemberAsync(Guid teamId, Guid studentProfileId, CancellationToken ct = default);
     Task<IReadOnlyList<TeamInvitationResponse>> GetMyInvitationsAsync(CancellationToken ct = default);
     Task<TeamResponse> RespondToInvitationAsync(Guid teamId, RespondTeamInvitationRequest request, CancellationToken ct = default);
+    /// <summary>An Accepted member leaves before the team has a project. A leader who is alone dissolves the team; otherwise the leader hands over first.</summary>
     Task<TeamResponse> LeaveTeamAsync(Guid teamId, CancellationToken ct = default);
     Task<TeamResponse> RemoveMemberAsync(Guid teamId, Guid studentProfileId, CancellationToken ct = default);
     Task<TeamResponse> TransferLeaderAsync(Guid teamId, TransferTeamLeaderRequest request, CancellationToken ct = default);

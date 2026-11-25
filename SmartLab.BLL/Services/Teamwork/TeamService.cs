@@ -335,6 +335,13 @@ public class TeamService : ITeamService
     {
         var student = await GetCurrentStudentAsync(ct);
         var observed = await TeamMutationLock.ReadAsync(_uow, teamId, ct);
+        var leaderIsAlone = observed.LeaderId == student.StudentProfileId
+            && !await _uow.Repository<TeamMember>().QueryNoTracking()
+                .AnyAsync(m => m.TeamId == teamId && m.StudentId != student.StudentProfileId
+                               && m.Status == TeamMemberStatuses.Accepted, ct);
+        if (leaderIsAlone)
+            return await DissolveTeamAsync(observed, student.StudentProfileId, ct);
+
         var result = await MutateTeamAsync(observed, async (team, _, _) =>
         {
             if (team.LeaderId == student.StudentProfileId)
@@ -347,6 +354,32 @@ public class TeamService : ITeamService
             _uow.Repository<TeamMember>().Remove(member);
         }, ct);
         await _changes.TeamChangedAsync(teamId, student.StudentProfileId);
+        return result;
+    }
+
+    /// <summary>The leader is the only member left: leaving removes the team and its open invitations.</summary>
+    private async Task<TeamResponse> DissolveTeamAsync(Team observed, Guid leaderId, CancellationToken ct)
+    {
+        var result = await TeamMutationLock.RunAsync(_uow, observed, async token =>
+        {
+            await EnsureMembershipEditableAsync(observed.TeamId, token);
+            await TeamFormationGate.EnsureOpenForStudentsAsync(_uow, observed.ClassId, token);
+
+            var response = TeamMappings.ToResponse(await LoadTeamAsync(observed.TeamId, token));
+            var team = await _uow.Repository<Team>().Query()
+                .Include(t => t.TeamMembers)
+                .SingleAsync(t => t.TeamId == observed.TeamId, token);
+            if (team.TeamMembers.Any(m => m.StudentId != leaderId && m.Status == TeamMemberStatuses.Accepted))
+                throw new ConflictException(TeamMutationLock.ChangedMessage);
+
+            foreach (var member in team.TeamMembers.ToList())
+                _uow.Repository<TeamMember>().Remove(member);
+            _uow.Repository<Team>().Remove(team);
+            await _uow.SaveChangesAsync(token);
+            return response;
+        }, ct);
+
+        await _changes.SharedDataChangedAsync(RealtimeEntities.Academic, observed.ClassId);
         return result;
     }
 
@@ -392,10 +425,18 @@ public class TeamService : ITeamService
             if (!team.TeamMembers.Any(m => m.StudentId == team.LeaderId && m.Status == TeamMemberStatuses.Accepted))
                 throw new ConflictException("Dữ liệu trưởng nhóm hiện tại không nhất quán, vui lòng kiểm tra lại");
 
-            await EnsureMembershipEditableAsync(teamId, ct);
-            // The lecturer and Admin may still change the leader after the lock; a student leader only while it is open.
-            if (!lecturer && !_currentUser.IsInRole(RoleNames.Admin))
+            if (lecturer || _currentUser.IsInRole(RoleNames.Admin))
+            {
+                var approved = await _uow.Repository<Project>().QueryNoTracking()
+                    .AnyAsync(p => p.TeamId == teamId && p.Status == ProjectStatuses.Approved, ct);
+                if (approved)
+                    throw new ConflictException("Đề tài của nhóm đã được duyệt, không đổi trưởng nhóm được");
+            }
+            else
+            {
+                await EnsureMembershipEditableAsync(teamId, ct);
                 await TeamFormationGate.EnsureOpenForStudentsAsync(_uow, team.ClassId, ct);
+            }
             team.LeaderId = target.StudentId;
         }, ct);
         await _changes.TeamChangedAsync(teamId);

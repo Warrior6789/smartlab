@@ -13,10 +13,12 @@ namespace SmartLab.BLL.Services.Teamwork;
 /// </summary>
 internal static class TeamFormationGate
 {
-    /// <summary>Student self-service (create, invite, accept, leave, remove): the deadline, if any, has not passed.</summary>
+    /// <summary>Student self-service (create, invite, accept, leave, remove): the lecturer set the team size and the deadline has not passed.</summary>
     public static async Task<Class> EnsureOpenForStudentsAsync(IUnitOfWork uow, Guid classId, CancellationToken ct)
     {
         var cls = await HoldClassAsync(uow, classId, ct);
+        if (cls.MinTeamSize is null || cls.MaxTeamSize is null)
+            throw new ConflictException("Giảng viên chưa mở chọn nhóm cho lớp này");
         if (cls.TeamFormationDeadline is { } deadline && deadline <= DateTime.UtcNow)
             throw new ConflictException("Đã hết hạn tự chọn nhóm, vui lòng liên hệ giảng viên");
         return cls;
@@ -52,6 +54,23 @@ internal static class TeamFormationGate
     {
         if (cls.MaxTeamSize is { } max && occupied >= max)
             throw new ConflictException(string.Format(fullMessage, max));
+    }
+
+    /// <summary>The time students had to choose is over, so the lecturer may complete the teams.</summary>
+    public static bool IsClosed(Class cls) => cls.TeamFormationDeadline is { } deadline && deadline <= DateTime.UtcNow;
+
+    /// <summary>Invitations nobody answered in time are rejected; returns the teams that had some.</summary>
+    public static async Task<List<Guid>> RejectPendingInvitationsAsync(IUnitOfWork uow, Guid classId, DateTime now, CancellationToken ct)
+    {
+        var pending = uow.Repository<TeamMember>().Query()
+            .Where(m => m.Team.ClassId == classId && m.Status == TeamMemberStatuses.Pending);
+        var teamIds = await pending.Select(m => m.TeamId).Distinct().ToListAsync(ct);
+        if (teamIds.Count > 0)
+            await pending.ExecuteUpdateAsync(s => s
+                .SetProperty(m => m.Status, TeamMemberStatuses.Rejected)
+                .SetProperty(m => m.RespondedAt, now), ct);
+
+        return teamIds;
     }
 
     private static async Task<Class> ReadAsync(IUnitOfWork uow, Guid classId, CancellationToken ct)

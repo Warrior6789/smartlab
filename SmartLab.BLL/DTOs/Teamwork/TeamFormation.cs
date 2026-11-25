@@ -1,6 +1,9 @@
 namespace SmartLab.BLL.DTOs.Teamwork;
 
-/// <summary>Lecturer sets the team size of the class. Deadline only blocks student actions; it does not lock the class.</summary>
+/// <summary>
+/// Lecturer sets the team size and the deadline of the class: students choose their team until then, afterwards only the
+/// lecturer places and moves them.
+/// </summary>
 public class UpdateTeamFormationSettingsRequest
 {
     public int MinTeamSize { get; set; }
@@ -17,8 +20,11 @@ public class TeamFormationResponse
     public int? MaxTeamSize { get; set; }
     public DateTime? OpenedAt { get; set; }
     public DateTime? Deadline { get; set; }
-    /// <summary>Open and the deadline has not passed: students may create, invite, accept and leave.</summary>
+    /// <summary>The team size is set and the deadline has not passed: students may create, invite, accept and leave.</summary>
     public bool StudentsCanChangeTeams { get; set; }
+
+    /// <summary>Sizes of the teams when the whole class is split evenly, biggest first; empty while the team size is not set.</summary>
+    public IReadOnlyList<int> SuggestedSizes { get; set; } = Array.Empty<int>();
 
     public int StudyingStudents { get; set; }
     public int TeamCount { get; set; }
@@ -42,6 +48,10 @@ public class TeamFormationTeamItem
     public int AcceptedCount { get; set; }
     public int PendingCount { get; set; }
     public bool HasProject { get; set; }
+
+    /// <summary>The project is approved: members can no longer be moved to another team, only added or removed.</summary>
+    public bool ProjectApproved { get; set; }
+
     public bool IsUnderMin { get; set; }
     public bool IsFull { get; set; }
     public IReadOnlyList<TeamFormationStudentItem> Members { get; set; } = Array.Empty<TeamFormationStudentItem>();
@@ -55,13 +65,17 @@ public class TeamFormationStudentItem
 }
 
 /// <summary>
-/// Lecturer places students without a team, at any time: into existing teams without a project and/or into new teams.
+/// Lecturer places students without a team, at any time: into existing teams and/or into new teams.
 /// Used for manual placement and to apply the auto-assign preview after the lecturer reviewed it.
 /// </summary>
 public class ApplyTeamAssignmentsRequest
 {
     public List<ExistingTeamAssignment> ExistingTeams { get; set; } = new();
     public List<NewTeamAssignment> NewTeams { get; set; } = new();
+
+    /// <summary>Teams below the minimum to dissolve into another team; only after the deadline.</summary>
+    public List<TeamMergeItem> Merges { get; set; } = new();
+
     /// <summary>The lecturer confirmed that some teams end up with more members than MaxTeamSize.</summary>
     public bool AllowExceedMax { get; set; }
 }
@@ -80,7 +94,7 @@ public class NewTeamAssignment
     public List<Guid> StudentProfileIds { get; set; } = new();
 }
 
-/// <summary>Lecturer moves a student who already has a team into another team; neither team may have a project.</summary>
+/// <summary>Lecturer moves a student who already has a team into another team; neither team may have an approved project.</summary>
 public class MoveTeamMemberRequest
 {
     public Guid StudentProfileId { get; set; }
@@ -93,6 +107,7 @@ public class AutoAssignPreviewResponse
 {
     public IReadOnlyList<AutoAssignExistingTeam> ExistingTeams { get; set; } = Array.Empty<AutoAssignExistingTeam>();
     public IReadOnlyList<AutoAssignNewTeam> NewTeams { get; set; } = Array.Empty<AutoAssignNewTeam>();
+    public IReadOnlyList<AutoAssignMerge> Merges { get; set; } = Array.Empty<AutoAssignMerge>();
     /// <summary>True when applying the preview needs AllowExceedMax = true.</summary>
     public bool RequiresExceedMax { get; set; }
     public IReadOnlyList<string> Warnings { get; set; } = Array.Empty<string>();

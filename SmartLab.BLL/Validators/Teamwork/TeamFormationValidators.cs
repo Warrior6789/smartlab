@@ -17,6 +17,7 @@ public class UpdateTeamFormationSettingsRequestValidator : AbstractValidator<Upd
             .GreaterThanOrEqualTo(x => x.MinTeamSize)
             .WithMessage("Số thành viên tối đa phải lớn hơn hoặc bằng số tối thiểu");
         RuleFor(x => x.Deadline)
+            .NotNull().WithMessage("Hạn chót chọn nhóm là bắt buộc")
             .Must(d => d == null || d.Value.ToUniversalTime() > DateTime.UtcNow)
             .WithMessage("Hạn chót chia nhóm phải ở tương lai");
     }
@@ -34,6 +35,11 @@ public class ApplyTeamAssignmentsRequestValidator : AbstractValidator<ApplyTeamA
             .Cascade(CascadeMode.Stop)
             .NotNull().WithMessage("Danh sách nhóm mới không được null")
             .Must(teams => teams.All(t => t != null && t.StudentProfileIds != null)).WithMessage("Nhóm mới không hợp lệ");
+        RuleFor(x => x.Merges)
+            .Cascade(CascadeMode.Stop)
+            .NotNull().WithMessage("Danh sách nhóm gộp không được null")
+            .Must(merges => merges.All(m => m != null && m.SourceTeamId != Guid.Empty && m.TargetTeamId != Guid.Empty))
+            .WithMessage("Nhóm gộp không hợp lệ");
         RuleFor(x => x)
             .Must(HasAssignment)
             .WithMessage("Chưa có sinh viên nào được xếp nhóm");
@@ -58,7 +64,7 @@ public class ApplyTeamAssignmentsRequestValidator : AbstractValidator<ApplyTeamA
 
     private static bool HasAssignment(ApplyTeamAssignmentsRequest request)
     {
-        if (request.NewTeams?.Count > 0)
+        if (request.NewTeams?.Count > 0 || request.Merges?.Count > 0)
             return true;
 
         return request.ExistingTeams?.Any(t => t?.StudentProfileIds?.Count > 0) == true;

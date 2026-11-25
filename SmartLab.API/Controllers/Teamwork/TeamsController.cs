@@ -101,7 +101,7 @@ public class TeamsController : ControllerBase
         return Ok(ApiResponse<TeamResponse>.Ok(team, "Xóa lời mời thành công"));
     }
 
-    /// <summary>Thành viên Accepted rời nhóm khi chưa đăng ký project; trưởng nhóm phải chuyển quyền trước.</summary>
+    /// <summary>Thành viên Accepted rời nhóm khi chưa đăng ký project; trưởng nhóm phải chuyển quyền trước, còn một mình thì nhóm bị giải tán.</summary>
     [HttpPost("teams/{teamId:guid}/leave")]
     [Authorize(Roles = RoleNames.Student)]
     [ProducesResponseType(typeof(ApiResponse<TeamResponse>), StatusCodes.Status200OK)]
@@ -125,7 +125,7 @@ public class TeamsController : ControllerBase
     public async Task<IActionResult> RemoveMember(Guid teamId, Guid studentProfileId, CancellationToken ct)
         => Ok(ApiResponse<TeamResponse>.Ok(await _teamService.RemoveMemberAsync(teamId, studentProfileId, ct), "Xóa thành viên thành công"));
 
-    /// <summary>Trưởng nhóm, giảng viên phụ trách lớp hoặc Admin chuyển quyền cho thành viên Accepted đang Studying trước khi đăng ký project.</summary>
+    /// <summary>Trưởng nhóm, giảng viên phụ trách lớp hoặc Admin chuyển quyền cho thành viên Accepted đang Studying. Trưởng nhóm: trước khi đăng ký project; giảng viên, Admin: trước khi đề tài được duyệt.</summary>
     [HttpPut("teams/{teamId:guid}/leader")]
     [Authorize(Roles = RoleNames.Student + "," + RoleNames.Lecturer + "," + RoleNames.Admin)]
     [ProducesResponseType(typeof(ApiResponse<TeamResponse>), StatusCodes.Status200OK)]

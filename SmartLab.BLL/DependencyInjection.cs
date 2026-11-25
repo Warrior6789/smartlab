@@ -105,6 +105,8 @@ public static class DependencyInjection
         services.AddScoped<ITeamService, TeamService>();
         services.AddScoped<ITeamNotifier, TeamNotifier>();
         services.AddScoped<ITeamFormationService, TeamFormationService>();
+        services.AddScoped<ITeamFormationDeadlineService, TeamFormationDeadlineService>();
+        services.AddHostedService<TeamFormationWorker>();
         services.AddScoped<IIssueReportService, IssueReportService>();
         services.AddScoped<IIssueReportBorrowingIntegration, IssueReportBorrowingIntegrationService>();
 
