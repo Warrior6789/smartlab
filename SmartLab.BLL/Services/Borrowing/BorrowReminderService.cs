@@ -9,13 +9,16 @@ using SmartLab.DAL.UnitOfWork;
 namespace SmartLab.BLL.Services.Borrowing;
 
 /// <summary>
-/// Every day from the hour in system_settings BORROW_REMINDER_HOUR (Vietnam time): "due tomorrow" to borrowers whose due date is tomorrow, and "overdue" on the 1st,
-/// 3rd and 7th day after the due date, then every 7 days, while components are still out. The run of a day is claimed
-/// in system_settings (BORROW_REMINDER_LAST_RUN) so a restart or a second instance never sends it twice.
+/// Every day from the hour in system_settings BORROW_REMINDER_HOUR (Vietnam time): "create a return slip" 7 and 3 days
+/// before the due date while some component is on no open return slip, "due tomorrow" to borrowers whose due date is
+/// tomorrow, "overdue" on the 1st, 3rd and 7th day after the due date, then every 7 days, while components are still out;
+/// and "bring it tomorrow" for approved return slips whose appointment is tomorrow. The run of a day is claimed in
+/// system_settings (BORROW_REMINDER_LAST_RUN) so a restart or a second instance never sends it twice.
 /// </summary>
 public class BorrowReminderService : IBorrowReminderService
 {
     private static readonly TimeSpan VietnamUtcOffset = TimeSpan.FromHours(7);
+    private static readonly int[] ReturnSlipReminderDays = { 7, 3 };
     private static readonly string[] BorrowedStatuses = { BorrowRequestStatuses.Borrowing, BorrowRequestStatuses.Overdue };
 
     private readonly IUnitOfWork _uow;
@@ -67,7 +70,7 @@ public class BorrowReminderService : IBorrowReminderService
         if (!await ClaimTodayAsync(today, ct))
             return 0;
 
-        var dueBefore = DateTime.SpecifyKind(today.AddDays(2) - VietnamUtcOffset, DateTimeKind.Utc);
+        var dueBefore = DateTime.SpecifyKind(today.AddDays(ReturnSlipReminderDays.Max() + 1) - VietnamUtcOffset, DateTimeKind.Utc);
         var requests = await _uow.Repository<BorrowRequest>().QueryNoTracking()
             .Where(r => BorrowedStatuses.Contains(r.Status) && r.DueDate < dueBefore)
             .OrderBy(r => r.DueDate)
@@ -80,7 +83,12 @@ public class BorrowReminderService : IBorrowReminderService
             var dueDay = request.DueDate.Add(VietnamUtcOffset).Date;
             var daysOverdue = (today - dueDay).Days;
 
-            if (daysOverdue == -1)
+            if (ReturnSlipReminderDays.Contains(-daysOverdue))
+            {
+                if (await _notifier.ReturnSlipNeededAsync(request.BorrowRequestId, -daysOverdue, ct))
+                    sent++;
+            }
+            else if (daysOverdue == -1)
             {
                 await _notifier.DueSoonAsync(request.BorrowRequestId, ct);
                 sent++;
@@ -92,8 +100,27 @@ public class BorrowReminderService : IBorrowReminderService
             }
         }
 
+        sent += await RemindAppointmentsAsync(today.AddDays(1), ct);
+
         _logger.LogInformation("Borrow reminders for {Day:yyyy-MM-dd}: {Count} sent", today, sent);
         return sent;
+    }
+
+    /// <summary>Approved return slips to be brought on the given Vietnam day.</summary>
+    private async Task<int> RemindAppointmentsAsync(DateTime vietnamDay, CancellationToken ct)
+    {
+        var from = DateTime.SpecifyKind(vietnamDay - VietnamUtcOffset, DateTimeKind.Utc);
+        var to = from.AddDays(1);
+        var slipIds = await _uow.Repository<BorrowReturnSlip>().QueryNoTracking()
+            .Where(s => s.Status == ReturnSlipStatuses.Approved && s.AppointmentDate >= from && s.AppointmentDate < to)
+            .OrderBy(s => s.SlipCode)
+            .Select(s => s.ReturnSlipId)
+            .ToListAsync(ct);
+
+        foreach (var slipId in slipIds)
+            await _notifier.ReturnSlipTomorrowAsync(slipId, ct);
+
+        return slipIds.Count;
     }
 
     private static bool IsOverdueReminderDay(int daysOverdue)

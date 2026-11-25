@@ -75,6 +75,15 @@ public interface IBorrowNotifier
     /// <summary>The student dropped a return slip: tells the staff of the request's lab.</summary>
     Task ReturnSlipCancelledAsync(Guid returnSlipId, CancellationToken ct = default);
 
+    /// <summary>
+    /// The due date is near and some components are on no open return slip: asks the borrower to create one. False when
+    /// every component out is already on a slip, so nothing was sent.
+    /// </summary>
+    Task<bool> ReturnSlipNeededAsync(Guid borrowRequestId, int daysLeft, CancellationToken ct = default);
+
+    /// <summary>The goods of an approved return slip must be brought tomorrow.</summary>
+    Task ReturnSlipTomorrowAsync(Guid returnSlipId, CancellationToken ct = default);
+
     /// <summary>The borrower asked to extend the due date: tells the lecturer of the class.</summary>
     Task ExtensionRequestedAsync(Guid extensionId, CancellationToken ct = default);
 

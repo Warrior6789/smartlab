@@ -615,6 +615,55 @@ public class BorrowNotifier : IBorrowNotifier
         await SendToStaffAsync(info, info.RoomId, null, $"SmartLab - Phiếu trả {slip.SlipCode} đã bị hủy", body);
     }
 
+    public async Task<bool> ReturnSlipNeededAsync(Guid borrowRequestId, int daysLeft, CancellationToken ct = default)
+    {
+        var info = await LoadAsync(borrowRequestId, ct);
+        if (info == null)
+            return false;
+
+        var lineIds = await _uow.Repository<BorrowItem>().QueryNoTracking()
+            .Where(i => i.BorrowRequestId == borrowRequestId
+                        && i.Status == BorrowItemStatuses.Issued
+                        && !i.BorrowReturnSlipItems.Any(s => ReturnSlipStatuses.Open.Contains(s.ReturnSlip.Status)))
+            .Select(i => i.BorrowItemId)
+            .ToListAsync(ct);
+        if (lineIds.Count == 0)
+            return false;
+
+        var lines = (await LoadLinesAsync(borrowRequestId, ct)).Where(l => lineIds.Contains(l.BorrowItemId)).ToList();
+        var body =
+            Greeting(info) +
+            $"<p>Đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)} còn <b>{daysLeft} ngày</b> là tới hạn trả " +
+            $"<b>{ToVietnamDate(info.DueDate)}</b>. Các món sau chưa có phiếu trả:</p>" +
+            ItemsTable(lines, true) +
+            $"<p>Hãy vào SmartLab, mở đơn mượn và bấm <b>Trả linh kiện</b>. Lab <b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b> " +
+            "sẽ duyệt và báo ngày mang đồ lên.</p>";
+
+        await SendAsync(info, $"SmartLab - Đơn {info.RequestCode} còn {daysLeft} ngày, hãy tạo phiếu trả", body);
+        return true;
+    }
+
+    public async Task ReturnSlipTomorrowAsync(Guid returnSlipId, CancellationToken ct = default)
+    {
+        var slip = await LoadSlipAsync(returnSlipId, ct);
+        if (slip == null)
+            return;
+
+        var info = await LoadAsync(slip.BorrowRequestId, ct);
+        if (info == null)
+            return;
+
+        var body =
+            Greeting(info) +
+            $"<p><b>Ngày mai {DateText(slip.AppointmentDate)}</b> bạn mang các món của phiếu trả <b>{Encode(slip.SlipCode)}</b> đến " +
+            $"<b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b>:</p>" +
+            SlipTable(slip.Lines);
+        if (!string.IsNullOrWhiteSpace(slip.ReviewComment))
+            body += $"<p>Ghi chú của lab: {Encode(slip.ReviewComment)}</p>";
+
+        await SendAsync(info, $"SmartLab - Ngày mai mang đồ trả theo phiếu {slip.SlipCode}", body);
+    }
+
     private sealed record SlipLine(
         string ComponentCode, string ComponentName, string Unit, string? ItemCode, string? SerialNumber, int Quantity);
 
