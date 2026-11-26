@@ -75,6 +75,19 @@ public class BorrowRequestService : IBorrowRequestService
         return ToPagedResponses(Filter(requests, query), paging, ct);
     }
 
+    public Task<PagedResult<BorrowRequestResponse>> GetTeachingRequestsAsync(
+        BorrowRequestQueryParams query, PageParams paging, CancellationToken ct = default)
+    {
+        var requests = _uow.Repository<BorrowRequest>().QueryNoTracking();
+        if (!_currentUser.IsInRole(RoleNames.Admin))
+        {
+            var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+            requests = requests.Where(r => r.Class != null && r.Class.Instructor != null && r.Class.Instructor.UserId == userId);
+        }
+
+        return ToPagedResponses(Filter(requests, query), paging, ct);
+    }
+
     public Task<PagedResult<BorrowRequestResponse>> GetRequestsAsync(
         BorrowRequestQueryParams query, PageParams paging, CancellationToken ct = default)
     {
@@ -1299,6 +1312,7 @@ public class BorrowRequestService : IBorrowRequestService
                 ClassCode = r.Class != null ? r.Class.ClassCode : null,
                 ProjectId = r.ProjectId,
                 ProjectTitle = r.Project != null ? r.Project.Title : null,
+                TeamName = r.Project != null && r.Project.Team != null ? r.Project.Team.TeamName : null,
                 RoomId = r.RoomId,
                 RoomCode = r.Room.RoomCode,
                 RoomName = r.Room.RoomName,

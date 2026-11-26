@@ -8,6 +8,10 @@ public interface IBorrowRequestService
     Task<PagedResult<BorrowRequestResponse>> GetMyRequestsAsync(
         BorrowRequestQueryParams query, PageParams paging, CancellationToken ct = default);
 
+    /// <summary>Requests of the classes the lecturer teaches (Admin: all), to follow how their students borrow.</summary>
+    Task<PagedResult<BorrowRequestResponse>> GetTeachingRequestsAsync(
+        BorrowRequestQueryParams query, PageParams paging, CancellationToken ct = default);
+
     Task<PagedResult<BorrowRequestResponse>> GetRequestsAsync(
         BorrowRequestQueryParams query, PageParams paging, CancellationToken ct = default);
 

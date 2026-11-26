@@ -23,6 +23,8 @@ public class BorrowRequestResponse
 
     public string? ProjectTitle { get; set; }
 
+    public string? TeamName { get; set; }
+
     /// <summary>The pickup lab: where the student picks up and returns.</summary>
     public Guid RoomId { get; set; }
 

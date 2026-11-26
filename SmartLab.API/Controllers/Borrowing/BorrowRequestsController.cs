@@ -30,6 +30,17 @@ public class BorrowRequestsController : ControllerBase
         return Ok(ApiResponse<PagedResult<BorrowRequestResponse>>.Ok(result));
     }
 
+    /// <summary>Đơn mượn của các lớp giảng viên phụ trách (Admin thấy tất cả), chỉ để theo dõi. Lọc như danh sách của lab.</summary>
+    [HttpGet("teaching")]
+    [Authorize(Roles = RoleNames.Lecturer + "," + RoleNames.Admin)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<BorrowRequestResponse>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetTeachingRequests(
+        [FromQuery] BorrowRequestQueryParams query, [FromQuery] PageParams paging, CancellationToken ct)
+    {
+        var result = await _borrowRequestService.GetTeachingRequestsAsync(query, paging, ct);
+        return Ok(ApiResponse<PagedResult<BorrowRequestResponse>>.Ok(result));
+    }
+
     /// <summary>
     /// Danh sách đơn cho nhân viên lab: đơn thuộc lab mình phụ trách (Admin thấy tất cả).
     /// Lọc theo trạng thái, quá hạn (overdue=true), tìm theo mã đơn, tên project, tên người mượn.
