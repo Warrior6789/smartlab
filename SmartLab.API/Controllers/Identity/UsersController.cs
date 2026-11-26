@@ -96,6 +96,21 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
+    /// Kích hoạt thủ công tài khoản đang chờ kích hoạt (không cần email): Admin đặt mật khẩu tạm và đưa trực tiếp cho
+    /// người dùng, người dùng phải đổi mật khẩu ở lần đăng nhập đầu. Link trong email cũ hết hiệu lực.
+    /// </summary>
+    [HttpPost("{id:guid}/activate")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Activate(Guid id, [FromBody] ActivateUserRequest request, CancellationToken ct)
+    {
+        await _activationService.ActivateByAdminAsync(id, request, ct);
+        return Ok(ApiResponse.Ok("Đã kích hoạt tài khoản"));
+    }
+
+    /// <summary>
     /// Đặt lại mật khẩu ngẫu nhiên cho người dùng (không áp dụng cho Admin): gửi qua email và trả trong response
     /// để Admin đưa trực tiếp. Mọi phiên đăng nhập cũ của người dùng hết hiệu lực.
     /// </summary>

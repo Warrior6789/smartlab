@@ -9,6 +9,7 @@ public static class AuditActions
     public const string UpdateUser = "UPDATE_USER";
     public const string AssignRoles = "ASSIGN_ROLES";
     public const string ResetPassword = "RESET_PASSWORD";
+    public const string ActivateUser = "ACTIVATE_USER";
     public const string AddPermission = "ADD_PERMISSION";
     public const string RemovePermission = "REMOVE_PERMISSION";
     public const string UpdateSetting = "UPDATE_SETTING";

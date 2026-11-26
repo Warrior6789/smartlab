@@ -8,6 +8,7 @@ using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Identity;
 using SmartLab.BLL.External.Email;
 using SmartLab.BLL.External.Security;
+using SmartLab.BLL.Interfaces.AuditLogs;
 using SmartLab.BLL.Interfaces.Identity;
 using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.DAL.Entities;
@@ -27,17 +28,19 @@ public class AccountActivationService : IAccountActivationService
     private readonly IEmailSender _email;
     private readonly IActiveUserChecker _sessionChecker;
     private readonly IChangeBroadcaster _broadcaster;
+    private readonly IAuditLogger _auditLogger;
     private readonly WebOptions _web;
 
     public AccountActivationService(
         IUnitOfWork uow, IPasswordHasher passwordHasher, IEmailSender email, IActiveUserChecker sessionChecker,
-        IChangeBroadcaster broadcaster, IOptions<WebOptions> web)
+        IChangeBroadcaster broadcaster, IAuditLogger auditLogger, IOptions<WebOptions> web)
     {
         _uow = uow;
         _passwordHasher = passwordHasher;
         _email = email;
         _sessionChecker = sessionChecker;
         _broadcaster = broadcaster;
+        _auditLogger = auditLogger;
         _web = web.Value;
     }
 
@@ -148,6 +151,42 @@ public class AccountActivationService : IAccountActivationService
         }
 
         await SendEmailAsync(user, password, token, ct);
+    }
+
+    public async Task ActivateByAdminAsync(Guid userId, ActivateUserRequest request, CancellationToken ct = default)
+    {
+        await using (var tx = await _uow.BeginTransactionAsync(ct))
+        {
+            await LockUserAsync(userId, ct);
+
+            var user = await _uow.Repository<User>().Query()
+                           .Include(u => u.VerificationCodes
+                               .Where(c => c.Purpose == VerificationPurposes.EmailVerification && c.UsedAt == null))
+                           .FirstOrDefaultAsync(u => u.UserId == userId, ct)
+                       ?? throw new NotFoundException("Không tìm thấy người dùng");
+            if (user.IsActive)
+                throw new ConflictException("Tài khoản đã được kích hoạt");
+
+            var openCodes = user.VerificationCodes.ToList();
+            if (openCodes.Count == 0)
+                throw new ConflictException("Tài khoản đã bị khóa, không kích hoạt thủ công được");
+
+            var now = DateTime.UtcNow;
+            foreach (var open in openCodes)
+                open.UsedAt = now;
+            user.IsActive = true;
+            user.PasswordHash = _passwordHasher.Hash(request.TemporaryPassword);
+            user.MustChangePassword = true;
+            user.TokenVersion++;
+            user.UpdatedAt = now;
+            await _auditLogger.AddAsync(AuditActions.ActivateUser, nameof(User), user.UserId.ToString(), ct: ct);
+
+            await _uow.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        }
+
+        _sessionChecker.Forget(userId);
+        await _broadcaster.AccountChangedAsync(userId);
     }
 
     /// <summary>Locks the user row (no-op UPDATE) so activating and resending at the same time run one after the other.</summary>

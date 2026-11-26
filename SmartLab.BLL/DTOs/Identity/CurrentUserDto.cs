@@ -10,6 +10,9 @@ public class CurrentUserDto
     public string? AvatarUrl { get; set; }
     public bool IsActive { get; set; }
     public DateTime? LastLoginAt { get; set; }
+
+    /// <summary>The password was set by Admin; FE makes the user change it before doing anything else.</summary>
+    public bool MustChangePassword { get; set; }
     public string? StudentCode { get; set; }
     public IReadOnlyList<string> Roles { get; set; } = Array.Empty<string>();
     public IReadOnlyList<string> Permissions { get; set; } = Array.Empty<string>();

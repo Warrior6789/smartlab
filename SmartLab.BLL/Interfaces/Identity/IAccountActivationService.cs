@@ -26,4 +26,11 @@ public interface IAccountActivationService
     /// account is already active or locked, 400 when the last email is less than a minute old.
     /// </summary>
     Task ResendAsync(Guid userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Admin activates an account that waits for activation without the email, e.g. the address is wrong: the account gets the
+    /// temporary password and must change it at first login; the emailed link stops working. 409 when the account is already
+    /// active or locked.
+    /// </summary>
+    Task ActivateByAdminAsync(Guid userId, ActivateUserRequest request, CancellationToken ct = default);
 }

@@ -156,6 +156,7 @@ public class AuthService : IAuthService
             throw new BadRequestException("Mật khẩu hiện tại không đúng");
 
         user.PasswordHash = _passwordHasher.Hash(request.NewPassword);
+        user.MustChangePassword = false;
         user.TokenVersion++;
         user.UpdatedAt = DateTime.UtcNow;
         await _auditLogger.AddAsync(AuditActions.ChangePassword, nameof(User), user.UserId.ToString(), ct: ct);
@@ -201,6 +202,7 @@ public class AuthService : IAuthService
         await ConsumeCodeAsync(user.UserId, VerificationPurposes.PasswordReset, request.Code, now, ct);
 
         user.PasswordHash = _passwordHasher.Hash(request.NewPassword);
+        user.MustChangePassword = false;
         user.TokenVersion++;
         user.UpdatedAt = now;
         await _uow.SaveChangesAsync(ct);

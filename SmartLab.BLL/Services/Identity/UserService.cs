@@ -188,6 +188,7 @@ public class UserService : IUserService
 
         var password = PasswordGenerator.Generate();
         user.PasswordHash = _passwordHasher.Hash(password);
+        user.MustChangePassword = true;
         user.TokenVersion++;
         user.UpdatedAt = DateTime.UtcNow;
         await _auditLogger.AddAsync(AuditActions.ResetPassword, nameof(User), user.UserId.ToString(), ct: ct);
