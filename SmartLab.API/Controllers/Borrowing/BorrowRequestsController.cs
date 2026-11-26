@@ -1,0 +1,235 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
+using SmartLab.BLL.Common;
+using SmartLab.BLL.Constants;
+using SmartLab.BLL.DTOs.Borrowing;
+using SmartLab.BLL.Interfaces.Borrowing;
+
+namespace SmartLab.API.Controllers.Borrowing;
+
+[ApiController]
+[Route("api/borrow-requests")]
+[Produces("application/json")]
+public class BorrowRequestsController : ControllerBase
+{
+    private readonly IBorrowRequestService _borrowRequestService;
+
+    public BorrowRequestsController(IBorrowRequestService borrowRequestService)
+    {
+        _borrowRequestService = borrowRequestService;
+    }
+
+    /// <summary>Đơn mượn của tôi: đơn mình gửi và đơn của nhóm mình. Mới nhất lên trước.</summary>
+    [HttpGet("my")]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<BorrowRequestResponse>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetMyRequests(
+        [FromQuery] BorrowRequestQueryParams query, [FromQuery] PageParams paging, CancellationToken ct)
+    {
+        var result = await _borrowRequestService.GetMyRequestsAsync(query, paging, ct);
+        return Ok(ApiResponse<PagedResult<BorrowRequestResponse>>.Ok(result));
+    }
+
+    /// <summary>
+    /// Danh sách đơn cho nhân viên lab: đơn thuộc lab mình phụ trách (Admin thấy tất cả).
+    /// Lọc theo trạng thái, quá hạn (overdue=true), tìm theo mã đơn, tên project, tên người mượn.
+    /// </summary>
+    [HttpGet]
+    [Authorize(Policy = PermissionCodes.BorrowIssue)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<BorrowRequestResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetRequests(
+        [FromQuery] BorrowRequestQueryParams query, [FromQuery] PageParams paging, CancellationToken ct)
+    {
+        var result = await _borrowRequestService.GetRequestsAsync(query, paging, ct);
+        return Ok(ApiResponse<PagedResult<BorrowRequestResponse>>.Ok(result));
+    }
+
+    /// <summary>
+    /// Chi tiết đơn: các dòng linh kiện (con nào đã giao), ảnh giao / trả, lịch sử duyệt.
+    /// Người mượn, nhóm, giảng viên của lớp, nhân viên lab liên quan và Admin xem được.
+    /// </summary>
+    [HttpGet("{id:guid}")]
+    [ProducesResponseType(typeof(ApiResponse<BorrowRequestDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetRequest(Guid id, CancellationToken ct)
+    {
+        var request = await _borrowRequestService.GetRequestByIdAsync(id, ct);
+        return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(request));
+    }
+
+    /// <summary>
+    /// Tải ảnh giao đồ (photoType = Issue, đơn Ready hoặc đơn đang mượn có món thay thế đã về lab nhận đồ) hoặc ảnh nhận trả
+    /// (Return, đơn đang mượn): ảnh chụp linh kiện kèm thẻ
+    /// sinh viên (JPG/PNG/WEBP, tối đa 5 MB). Ảnh giao đồ được AI đọc MSSV trên thẻ và so với người mượn
+    /// (Match / Mismatch / Unreadable) và đếm linh kiện cần giao trong ảnh (chỉ để nhắc). AI lỗi thì trả Unreadable, không chặn việc giao.
+    /// </summary>
+    [HttpPost("{id:guid}/photos")]
+    [Authorize(Policy = PermissionCodes.BorrowIssue)]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(6 * 1024 * 1024)]
+    [ProducesResponseType(typeof(ApiResponse<HandoverPhotoResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UploadPhoto(Guid id, [FromForm] UploadHandoverPhotoRequest request, CancellationToken ct)
+    {
+        var photo = await _borrowRequestService.UploadPhotoAsync(id, request, ct);
+        return StatusCode(StatusCodes.Status201Created, ApiResponse<HandoverPhotoResponse>.Ok(photo, "Tải ảnh thành công"));
+    }
+
+    /// <summary>
+    /// AI đọc MSSV trên ảnh thẻ để staff tìm đơn nhanh. Ảnh không được lưu. AI lỗi thì trả aiAvailable = false, staff tự nhập.
+    /// </summary>
+    [HttpPost("read-student-card")]
+    [Authorize(Policy = PermissionCodes.BorrowIssue)]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(6 * 1024 * 1024)]
+    [ProducesResponseType(typeof(ApiResponse<StudentCardReadResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ReadStudentCard([FromForm] ReadStudentCardRequest request, CancellationToken ct)
+    {
+        var result = await _borrowRequestService.ReadStudentCardAsync(request, ct);
+        return Ok(ApiResponse<StudentCardReadResponse>.Ok(result, "Đọc thẻ thành công"));
+    }
+
+    /// <summary>
+    /// Giao đồ cho sinh viên (Ready → Borrowing). Cần ảnh giao đồ của đơn; AI không xác nhận được thẻ thì phải ghi lý do.
+    /// Hàng theo từng con: chọn đúng các con đem giao (đang ở lab nhận đồ). Vật tư tiêu hao tự lấy từ tủ nhiều hàng nhất.
+    /// </summary>
+    [HttpPost("{id:guid}/issue")]
+    [Authorize(Policy = PermissionCodes.BorrowIssue)]
+    [ProducesResponseType(typeof(ApiResponse<BorrowRequestDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Issue(Guid id, [FromBody] IssueBorrowRequest request, CancellationToken ct)
+    {
+        var result = await _borrowRequestService.IssueAsync(id, request, ct);
+        return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Giao đồ thành công"));
+    }
+
+    /// <summary>
+    /// Nhận trả tại lab nhận đồ (trả được nhiều lần), cần ảnh nhận trả. Hàng theo từng con: Good / Damaged / Lost; Damaged phải kèm damagePhotoId (ảnh Return chụp riêng con đó, lưu vào báo cáo sự cố).
+    /// Vật tư tiêu hao: số lượng mang trả (phần còn lại coi như đã dùng hết) cất vào tủ đã chọn. Trả hết thì đơn thành Returned.
+    /// </summary>
+    [HttpPost("{id:guid}/return")]
+    [Authorize(Policy = PermissionCodes.BorrowIssue)]
+    [ProducesResponseType(typeof(ApiResponse<BorrowRequestDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Return(Guid id, [FromBody] ReturnBorrowRequest request, CancellationToken ct)
+    {
+        var result = await _borrowRequestService.ReturnAsync(id, request, ct);
+        return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Nhận trả thành công"));
+    }
+
+    /// <summary>
+    /// Đổi 1 con bị hỏng trong lúc mượn (đơn đang mượn), cần ảnh nhận trả chụp con hỏng. Con hỏng được ghi nhận Damaged
+    /// (loại khỏi kho, báo cáo sự cố Open của nó chuyển Confirmed). Hệ thống thêm 1 dòng món thay thế cùng loại vào đơn:
+    /// chỉ lấy ở lab của đơn nếu còn (giao được ngay). Lab đó hết thì không có món thay thế (replacementBorrowItemId = null),
+    /// sinh viên chịu thiếu, vì các lab không chuyển đồ cho nhau.
+    /// </summary>
+    [HttpPost("{id:guid}/replace-damaged")]
+    [Authorize(Policy = PermissionCodes.BorrowIssue)]
+    [ProducesResponseType(typeof(ApiResponse<ReplaceDamagedResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ReplaceDamaged(Guid id, [FromBody] ReplaceDamagedRequest request, CancellationToken ct)
+    {
+        var result = await _borrowRequestService.ReplaceDamagedAsync(id, request, ct);
+        return Ok(ApiResponse<ReplaceDamagedResponse>.Ok(result, "Đã ghi nhận con hỏng"));
+    }
+
+    /// <summary>
+    /// Giao món thay thế đã về lab nhận đồ: quét đúng 1 con cùng loại đang ở lab nhận đồ. Cần ảnh giao đồ chụp sau khi món
+    /// thay thế về lab; AI không xác nhận được thẻ thì phải ghi lý do. Hạn trả giữ nguyên.
+    /// </summary>
+    [HttpPost("{id:guid}/replacements/issue")]
+    [Authorize(Policy = PermissionCodes.BorrowIssue)]
+    [ProducesResponseType(typeof(ApiResponse<BorrowRequestDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> IssueReplacement(Guid id, [FromBody] IssueReplacementRequest request, CancellationToken ct)
+    {
+        var result = await _borrowRequestService.IssueReplacementAsync(id, request, ct);
+        return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Giao món thay thế thành công"));
+    }
+
+    /// <summary>
+    /// Hủy món thay thế chưa giao (ví dụ con đó cũng hỏng), phải ghi lý do để gửi mail cho sinh
+    /// viên. Hàng đã mang về lab nhận đồ thì để luôn ở đó. Không còn gì đang mượn thì đơn thành Returned.
+    /// </summary>
+    [HttpPost("{id:guid}/replacements/cancel")]
+    [Authorize(Policy = PermissionCodes.BorrowIssue)]
+    [ProducesResponseType(typeof(ApiResponse<BorrowRequestDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CancelReplacement(Guid id, [FromBody] CancelReplacementRequest request, CancellationToken ct)
+    {
+        var result = await _borrowRequestService.CancelReplacementAsync(id, request, ct);
+        return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Đã hủy món thay thế"));
+    }
+
+    /// <summary>
+    /// Nhân viên lab của đơn đã chuẩn bị, kiểm tra hàng và chọn ngày hẹn nhận (từ hôm nay tới hạn trả, không gửi thì lấy hôm nay):
+    /// đơn Approved sang Ready và báo sinh viên đến nhận.
+    /// </summary>
+    [HttpPost("{id:guid}/lab-accept")]
+    [Authorize(Policy = PermissionCodes.BorrowIssue)]
+    [ProducesResponseType(typeof(ApiResponse<BorrowRequestDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> LabAccept(
+        Guid id, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] LabAcceptRequest? request, CancellationToken ct)
+    {
+        var result = await _borrowRequestService.LabAcceptAsync(id, request ?? new LabAcceptRequest(), ct);
+        return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Đã chấp nhận đơn mượn"));
+    }
+
+    /// <summary>Lab đổi ngày hẹn nhận khi đơn Ready chưa giao; sinh viên được báo.</summary>
+    [HttpPut("{id:guid}/pickup-date")]
+    [Authorize(Policy = PermissionCodes.BorrowIssue)]
+    [ProducesResponseType(typeof(ApiResponse<BorrowRequestDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ChangePickupDate(Guid id, [FromBody] ChangePickupDateRequest request, CancellationToken ct)
+    {
+        var result = await _borrowRequestService.ChangePickupDateAsync(id, request, ct);
+        return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Đã đổi ngày hẹn nhận"));
+    }
+
+    /// <summary>
+    /// Hủy đơn đã duyệt mà chưa giao đồ (Approved / Ready): người mượn, nhân viên lab nhận đồ hoặc Admin.
+    /// Nhân viên / Admin hủy phải ghi lý do (ví dụ lab kho phát hiện hàng hỏng, mất sau khi duyệt); lý do lưu vào rejectReason
+    /// và được gửi mail cho sinh viên. Hàng hết được giữ; hàng đã mang về lab nhận đồ thì để luôn ở đó.
+    /// Project về Draft để nhóm sửa và gửi duyệt lại.
+    /// </summary>
+    [HttpPost("{id:guid}/cancel")]
+    [ProducesResponseType(typeof(ApiResponse<BorrowRequestDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Cancel(
+        Guid id, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] CancelBorrowRequest? request, CancellationToken ct)
+    {
+        var result = await _borrowRequestService.CancelAsync(id, request ?? new CancelBorrowRequest(), ct);
+        return Ok(ApiResponse<BorrowRequestDetailResponse>.Ok(result, "Hủy đơn mượn thành công"));
+    }
+}

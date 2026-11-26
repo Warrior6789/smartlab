@@ -37,9 +37,13 @@ public partial class User
 
     public virtual ICollection<BorrowHandoverPhoto> BorrowHandoverPhotos { get; set; } = new List<BorrowHandoverPhoto>();
 
-    public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
-
     public virtual ICollection<BorrowRequest> BorrowRequests { get; set; } = new List<BorrowRequest>();
+
+    public virtual ICollection<BorrowReturnSlip> BorrowReturnSlipCreatedByNavigations { get; set; } = new List<BorrowReturnSlip>();
+
+    public virtual ICollection<BorrowReturnSlip> BorrowReturnSlipReceivedByNavigations { get; set; } = new List<BorrowReturnSlip>();
+
+    public virtual ICollection<BorrowReturnSlip> BorrowReturnSlipReviewedByNavigations { get; set; } = new List<BorrowReturnSlip>();
 
     public virtual ICollection<ComponentImage> ComponentImages { get; set; } = new List<ComponentImage>();
 
@@ -47,7 +51,9 @@ public partial class User
 
     public virtual InstructorProfile? InstructorProfile { get; set; }
 
-    public virtual ICollection<InventoryAudit> InventoryAudits { get; set; } = new List<InventoryAudit>();
+    public virtual ICollection<InventoryAudit> InventoryAuditAuditors { get; set; } = new List<InventoryAudit>();
+
+    public virtual ICollection<InventoryAudit> InventoryAuditReviewedByNavigations { get; set; } = new List<InventoryAudit>();
 
     public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
 

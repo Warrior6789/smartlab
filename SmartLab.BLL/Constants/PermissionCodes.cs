@@ -12,18 +12,22 @@ public static class PermissionCodes
     public const string ProjectCreate = "PROJECT_CREATE";
     public const string ComponentView = "COMPONENT_VIEW";
     public const string ComponentManage = "COMPONENT_MANAGE";
-    public const string PurchaseManage = "PURCHASE_MANAGE";
+    public const string StockReceiptManage = "STOCK_RECEIPT_MANAGE";
     public const string InventoryAudit = "INVENTORY_AUDIT";
+
+    /// <summary>Approve or send back an inventory count (Inventory Manager, Admin). Lab Staff only count.</summary>
+    public const string InventoryAuditApprove = "INVENTORY_AUDIT_APPROVE";
     public const string BorrowCreate = "BORROW_CREATE";
     public const string BorrowApprove = "BORROW_APPROVE";
     public const string BorrowIssue = "BORROW_ISSUE";
     public const string IssueResolve = "ISSUE_RESOLVE";
     public const string ReportView = "REPORT_VIEW";
     public const string AuditLogView = "AUDITLOG_VIEW";
+    public const string TutorialManage = "TUTORIAL_MANAGE";
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>
     {
-        UserManage, RoleManage, AcademicManage, ProjectCreate, ComponentView, ComponentManage, PurchaseManage,
-        InventoryAudit, BorrowCreate, BorrowApprove, BorrowIssue, IssueResolve, ReportView, AuditLogView,
+        UserManage, RoleManage, AcademicManage, ProjectCreate, ComponentView, ComponentManage, StockReceiptManage,
+        InventoryAudit, InventoryAuditApprove, BorrowCreate, BorrowApprove, BorrowIssue, IssueResolve, ReportView, AuditLogView, TutorialManage,
     };
 }

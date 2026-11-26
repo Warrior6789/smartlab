@@ -45,6 +45,9 @@ public class ExceptionMiddleware
             ForbiddenException e => (StatusCodes.Status403Forbidden, ApiResponse.Fail(e.Message)),
             NotFoundException e => (StatusCodes.Status404NotFound, ApiResponse.Fail(e.Message)),
             ConflictException e => (StatusCodes.Status409Conflict, ApiResponse.Fail(e.Message, e.Errors)),
+            ServiceUnavailableException e => (StatusCodes.Status503ServiceUnavailable, ApiResponse.Fail(e.Message)),
+            _ when DbErrors.IsInvalidText(ex) => (StatusCodes.Status400BadRequest,
+                ApiResponse.Fail("Dữ liệu chứa ký tự không hợp lệ")),
             _ => (StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống")),
         };
 

@@ -1,0 +1,359 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using SmartLab.API.Extensions;
+using SmartLab.BLL.Common;
+using SmartLab.BLL.Constants;
+using SmartLab.BLL.DTOs.Academic;
+using SmartLab.BLL.Interfaces.Academic;
+
+namespace SmartLab.API.Controllers.Academic;
+
+[ApiController]
+[Route("api/projects")]
+[Produces("application/json")]
+public class ProjectsController : ControllerBase
+{
+    private readonly IProjectService _projectService;
+    private readonly IComponentSuggestionService _suggestionService;
+    private readonly IProjectReviewService _reviewService;
+
+    public ProjectsController(
+        IProjectService projectService, IComponentSuggestionService suggestionService, IProjectReviewService reviewService)
+    {
+        _projectService = projectService;
+        _suggestionService = suggestionService;
+        _reviewService = reviewService;
+    }
+
+    /// <summary>
+    /// Project đang chờ mình duyệt (đã đến lượt: các bước trước đã duyệt xong). Admin thấy mọi project đang chờ.
+    /// Tìm theo tên project, tên nhóm, mã đơn mượn. Gửi sớm nhất lên trước.
+    /// </summary>
+    [HttpGet("pending-approval")]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<PendingApprovalProjectResponse>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetPendingApproval(
+        [FromQuery] PendingApprovalQueryParams query, [FromQuery] PageParams paging, CancellationToken ct)
+    {
+        var result = await _reviewService.GetPendingAsync(query, paging, ct);
+        return Ok(ApiResponse<PagedResult<PendingApprovalProjectResponse>>.Ok(result));
+    }
+
+    /// <summary>
+    /// Giảng viên của lớp duyệt (Admin duyệt thay được), kể cả đơn có HIGH_VALUE.
+    /// Có thể duyệt kèm giảm số lượng: <c>adjustments</c> = [{ componentId, quantity }] (chỉ được giảm, 0 = bỏ món đó,
+    /// phải còn ít nhất 1 món) và bắt buộc ghi <c>comment</c> lý do; danh sách linh kiện của project cũng đổi theo.
+    /// Muốn tăng số lượng thì nhóm rút đơn và gửi lại.
+    /// Duyệt xong thì project thành Approved; mọi dòng lấy ở lab của môn học (các lab không chuyển đồ cho nhau), lab thiếu thì báo 400.
+    /// Đơn mượn thành Approved, chờ nhân viên lab đó chấp nhận (lab-accept) để thành Ready.
+    /// Với đơn mượn thêm (isSupplementary = true trong danh sách chờ duyệt) chỉ đơn mượn được duyệt, project giữ nguyên.
+    /// Project không có đơn mượn (borrowRequestId = null, chỉ dùng đồ tự chuẩn bị) thì chỉ project chuyển Approved.
+    /// </summary>
+    [HttpPost("{id:guid}/approve")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ApproveProject(Guid id, [FromBody] ApproveProjectRequest request, CancellationToken ct)
+    {
+        var project = await _reviewService.ApproveAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Duyệt project thành công"));
+    }
+
+    /// <summary>
+    /// Từ chối (bắt buộc ghi lý do): project và đơn mượn thành Rejected, nhóm sửa rồi gửi duyệt lại.
+    /// Với đơn mượn thêm chỉ đơn mượn bị từ chối, project vẫn Approved.
+    /// </summary>
+    [HttpPost("{id:guid}/reject")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RejectProject(Guid id, [FromBody] RejectProjectRequest request, CancellationToken ct)
+    {
+        var project = await _reviewService.RejectAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã từ chối project"));
+    }
+
+    /// <summary>
+    /// Danh sách project (phân trang, tìm theo tên project/nhóm, lọc theo lớp, trạng thái).
+    /// Admin thấy tất cả; sinh viên thấy project nhóm mình; giảng viên thấy project các lớp mình dạy và các đơn mình duyệt.
+    /// </summary>
+    [HttpGet]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<ProjectResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetProjects(
+        [FromQuery] ProjectQueryParams query, [FromQuery] PageParams paging, CancellationToken ct)
+    {
+        var result = await _projectService.GetProjectsAsync(query, paging, ct);
+        return Ok(ApiResponse<PagedResult<ProjectResponse>>.Ok(result));
+    }
+
+    /// <summary>Chi tiết project: linh kiện cần dùng, nhận xét của giảng viên, các đơn mượn và tiến độ duyệt.</summary>
+    [HttpGet("{id:guid}")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetProject(Guid id, CancellationToken ct)
+    {
+        var project = await _projectService.GetProjectByIdAsync(id, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project));
+    }
+
+    /// <summary>Nhóm trưởng lưu nháp project của nhóm (trạng thái Draft). Mỗi nhóm chỉ có 1 project.</summary>
+    [HttpPost("/api/teams/{teamId:guid}/project")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CreateProject(Guid teamId, [FromBody] CreateProjectRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.CreateProjectAsync(teamId, request, ct);
+        return StatusCode(StatusCodes.Status201Created, ApiResponse<ProjectDetailResponse>.Ok(project, "Lưu nháp project thành công"));
+    }
+
+    /// <summary>
+    /// AI đọc mô tả project và gợi ý linh kiện; AI chỉ gợi ý, nhóm tự chốt. Gửi <c>classId</c> thì kiểm tồn ở lab của môn
+    /// học (lab đơn sẽ đi tới); không gửi thì chọn lab có nhiều món cần nhất. Trả về lab và 3 nhóm theo tồn của lab đó:
+    /// mượn được, lab có nhưng không đủ, và món tự mua (ngoài danh mục, hoặc lab đó không có dù lab khác có).
+    /// Không lưu gì: nhóm trưởng chọn món, chỉnh số lượng rồi lưu bằng PUT /api/projects/{id}.
+    /// Mỗi tài khoản tối đa 10 lần / giờ (quá thì 429).
+    /// </summary>
+    [HttpPost("suggest-components")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [EnableRateLimiting(RateLimitExtensions.AiSuggestionPolicy)]
+    [ProducesResponseType(typeof(ApiResponse<ComponentSuggestionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> SuggestComponents([FromBody] SuggestComponentsRequest request, CancellationToken ct)
+    {
+        var suggestion = await _suggestionService.SuggestAsync(request, ct);
+        return Ok(ApiResponse<ComponentSuggestionResponse>.Ok(suggestion));
+    }
+
+    /// <summary>Nhóm trưởng sửa tên, mô tả, toàn bộ danh sách linh kiện mượn kho và món tự mua (chỉ khi Draft hoặc Rejected).</summary>
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateProject(Guid id, [FromBody] UpdateProjectRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.UpdateProjectAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Sửa project thành công"));
+    }
+
+    /// <summary>Nhóm trưởng cập nhật link GitHub, slide, video demo (không sửa được khi bài nộp đang chờ hoặc đã được xác nhận).</summary>
+    [HttpPut("{id:guid}/links")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateProjectLinks(Guid id, [FromBody] UpdateProjectLinksRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.UpdateProjectLinksAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Cập nhật link thành công"));
+    }
+
+    /// <summary>Nhóm trưởng tải file báo cáo PDF (tối đa 10 MB, bắt buộc trước khi nộp bài cuối). Thay file cũ nếu có.</summary>
+    [HttpPut("{id:guid}/report")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UploadReport(Guid id, [FromForm] UploadProjectReportRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.UploadReportAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Tải báo cáo thành công"));
+    }
+
+    /// <summary>Nhóm trưởng xóa file báo cáo.</summary>
+    [HttpDelete("{id:guid}/report")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteReport(Guid id, CancellationToken ct)
+    {
+        var project = await _projectService.DeleteReportAsync(id, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã xóa file báo cáo"));
+    }
+
+    /// <summary>Nhóm trưởng tải mã nguồn dạng ZIP (tối đa 10 MB, không bắt buộc). Thay file cũ nếu có.</summary>
+    [HttpPut("{id:guid}/source-code")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UploadSourceCode(Guid id, [FromForm] UploadProjectSourceCodeRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.UploadSourceCodeAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Tải mã nguồn thành công"));
+    }
+
+    /// <summary>Nhóm trưởng xóa file mã nguồn.</summary>
+    [HttpDelete("{id:guid}/source-code")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteSourceCode(Guid id, CancellationToken ct)
+    {
+        var project = await _projectService.DeleteSourceCodeAsync(id, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã xóa file mã nguồn"));
+    }
+
+    /// <summary>Hạn trả linh kiện của project: theo học kỳ của lớp, sinh viên không chọn ngày.</summary>
+    [HttpGet("{id:guid}/borrow-deadline")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<BorrowDeadlineResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetBorrowDeadline(Guid id, CancellationToken ct)
+    {
+        var deadline = await _projectService.GetBorrowDeadlineAsync(id, ct);
+        return Ok(ApiResponse<BorrowDeadlineResponse>.Ok(deadline));
+    }
+
+    /// <summary>
+    /// Gửi duyệt: project thành Submitted và tạo luôn đơn mượn (Pending) từ danh sách linh kiện, ở lab của môn học
+    /// (Admin gán lab cho môn; môn chưa có lab thì 400). Lab đó phải đủ mọi dòng (đã trừ các đơn đã duyệt chưa giao); các lab
+    /// không chuyển đồ cho nhau nên thiếu thì 400, nhóm giảm số lượng hoặc đưa món thiếu vào danh sách tự mua.
+    /// Người duyệt là giảng viên của lớp, kể cả khi có thiết bị HIGH_VALUE.
+    /// Ngày mượn (<c>borrowDate</c>, ví dụ "2026-11-25") nhóm tự chọn: từ hôm nay đến trước hạn trả, bỏ trống = hôm nay.
+    /// Hạn trả luôn theo ngày kết thúc học kỳ Admin cài đặt (trừ BORROW_DAYS_BEFORE_SEMESTER_END ngày).
+    /// Project chỉ có đồ tự chuẩn bị (không mượn linh kiện lab) thì không tạo đơn mượn.
+    /// </summary>
+    [HttpPost("{id:guid}/submit")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SubmitProject(Guid id, [FromBody] SubmitProjectRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.SubmitProjectAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Gửi duyệt project thành công"));
+    }
+
+    /// <summary>
+    /// Nhóm trưởng rút lại project đang chờ duyệt (chưa ai quyết định xong): đơn mượn đang chờ bị hủy, project về Draft để sửa tiếp.
+    /// </summary>
+    [HttpPost("{id:guid}/withdraw")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> WithdrawProject(Guid id, CancellationToken ct)
+    {
+        var project = await _projectService.WithdrawProjectAsync(id, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã rút lại project"));
+    }
+
+    /// <summary>
+    /// Nhóm trưởng xin mượn thêm linh kiện cho project đã Approved (bắt buộc ghi lý do): tạo đơn mượn bổ sung Pending
+    /// chờ giảng viên của lớp duyệt bằng POST /api/projects/{id}/approve hoặc /reject; project vẫn giữ Approved.
+    /// Mỗi lúc chỉ 1 đơn bổ sung chờ duyệt; đã nộp bài cuối thì không mượn thêm được. Sau khi duyệt, đơn chạy như đơn mượn thường.
+    /// Đơn đi tới lab của môn học; <c>borrowDate</c> chọn như lúc gửi duyệt (từ hôm nay đến trước hạn trả, bỏ trống = hôm nay).
+    /// </summary>
+    [HttpPost("{id:guid}/supplementary-borrow")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SubmitSupplementaryBorrow(
+        Guid id, [FromBody] SupplementaryBorrowRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.SubmitSupplementaryBorrowAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã gửi đơn mượn thêm, chờ giảng viên duyệt"));
+    }
+
+    /// <summary>Nhóm trưởng rút lại đơn mượn thêm đang chờ giảng viên duyệt.</summary>
+    [HttpPost("{id:guid}/supplementary-borrow/withdraw")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> WithdrawSupplementaryBorrow(Guid id, CancellationToken ct)
+    {
+        var project = await _projectService.WithdrawSupplementaryBorrowAsync(id, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã rút lại đơn mượn thêm"));
+    }
+
+    /// <summary>
+    /// Nhóm trưởng nộp bài cuối: project phải Approved, đủ link GitHub, slide, video demo và đã tải file báo cáo PDF.
+    /// Bài nộp chờ giảng viên của lớp xác nhận; trong lúc chờ hoặc đã xác nhận thì không sửa link được.
+    /// </summary>
+    [HttpPost("{id:guid}/final-submission")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SubmitFinal(Guid id, CancellationToken ct)
+    {
+        var project = await _projectService.SubmitFinalAsync(id, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Nộp bài thành công, chờ giảng viên xác nhận"));
+    }
+
+    /// <summary>
+    /// Bài nộp cuối đang chờ mình xác nhận (các lớp mình dạy). Admin thấy tất cả.
+    /// Tìm theo tên project, tên nhóm. Nộp sớm nhất lên trước.
+    /// </summary>
+    [HttpGet("final-submissions")]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<PendingFinalSubmissionResponse>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetPendingFinalSubmissions(
+        [FromQuery] FinalSubmissionQueryParams query, [FromQuery] PageParams paging, CancellationToken ct)
+    {
+        var result = await _projectService.GetPendingFinalSubmissionsAsync(query, paging, ct);
+        return Ok(ApiResponse<PagedResult<PendingFinalSubmissionResponse>>.Ok(result));
+    }
+
+    /// <summary>Chỉ giảng viên của lớp xác nhận bài nộp cuối (Admin không làm thay), nhận xét không bắt buộc.</summary>
+    [HttpPost("{id:guid}/final-submission/approve")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ApproveFinal(Guid id, [FromBody] ApproveFinalSubmissionRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.ApproveFinalAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã xác nhận bài nộp"));
+    }
+
+    /// <summary>Chỉ giảng viên của lớp trả bài (bắt buộc ghi nhận xét): nhóm sửa link rồi nộp lại.</summary>
+    [HttpPost("{id:guid}/final-submission/reject")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RejectFinal(Guid id, [FromBody] RejectFinalSubmissionRequest request, CancellationToken ct)
+    {
+        var project = await _projectService.RejectFinalAsync(id, request, ct);
+        return Ok(ApiResponse<ProjectDetailResponse>.Ok(project, "Đã trả bài nộp"));
+    }
+}

@@ -12,22 +12,45 @@ namespace SmartLab.API.Controllers.Identity;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IAccountActivationService _activationService;
 
-    public AuthController(IAuthService authService)
+    public AuthController(IAuthService authService, IAccountActivationService activationService)
     {
         _authService = authService;
+        _activationService = activationService;
     }
 
-    /// <summary>Đăng ký tài khoản sinh viên.</summary>
+    /// <summary>Kích hoạt tài khoản mới bằng mã trong link của email.</summary>
     [AllowAnonymous]
-    [HttpPost("register")]
-    [ProducesResponseType(typeof(ApiResponse<CurrentUserDto>), StatusCodes.Status201Created)]
+    [HttpPost("activate")]
+    [ProducesResponseType(typeof(ApiResponse<ActivateAccountResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> Register([FromBody] RegisterRequest request, CancellationToken ct)
+    public async Task<IActionResult> Activate([FromBody] ActivateAccountRequest request, CancellationToken ct)
     {
-        var user = await _authService.RegisterStudentAsync(request, ct);
-        return StatusCode(StatusCodes.Status201Created, ApiResponse<CurrentUserDto>.Ok(user, "Đăng ký thành công"));
+        var result = await _activationService.ActivateAsync(request, ct);
+        return Ok(ApiResponse<ActivateAccountResponse>.Ok(result, "Kích hoạt tài khoản thành công"));
+    }
+
+    /// <summary>Gửi mã đặt lại mật khẩu tới email.</summary>
+    [AllowAnonymous]
+    [HttpPost("forgot-password")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken ct)
+    {
+        await _authService.ForgotPasswordAsync(request, ct);
+        return Ok(ApiResponse.Ok("Nếu email tồn tại, mã đặt lại mật khẩu đã được gửi"));
+    }
+
+    /// <summary>Đặt lại mật khẩu bằng mã đã gửi tới email.</summary>
+    [AllowAnonymous]
+    [HttpPost("reset-password")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken ct)
+    {
+        await _authService.ResetPasswordAsync(request, ct);
+        return Ok(ApiResponse.Ok("Đặt lại mật khẩu thành công"));
     }
 
     /// <summary>Đăng nhập bằng email hoặc username.</summary>
@@ -62,5 +85,44 @@ public class AuthController : ControllerBase
     {
         var user = await _authService.UpdateProfileAsync(request, ct);
         return Ok(ApiResponse<CurrentUserDto>.Ok(user, "Cập nhật thông tin thành công"));
+    }
+
+    /// <summary>Tải ảnh đại diện mới (JPG/PNG/WEBP, tối đa 5 MB) cho người dùng hiện tại.</summary>
+    [HttpPost("me/avatar")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(6 * 1024 * 1024)]
+    [ProducesResponseType(typeof(ApiResponse<CurrentUserDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> UploadAvatar([FromForm] UploadAvatarRequest request, CancellationToken ct)
+    {
+        var user = await _authService.UploadAvatarAsync(request, ct);
+        return Ok(ApiResponse<CurrentUserDto>.Ok(user, "Cập nhật ảnh đại diện thành công"));
+    }
+
+    /// <summary>
+    /// Đổi mật khẩu của người dùng hiện tại (phải nhập đúng mật khẩu hiện tại). Mọi token cũ, kể cả trên thiết bị khác,
+    /// hết hiệu lực; trả về token mới để thiết bị này vẫn đăng nhập.
+    /// </summary>
+    [HttpPut("me/password")]
+    [ProducesResponseType(typeof(ApiResponse<AuthResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken ct)
+    {
+        var result = await _authService.ChangePasswordAsync(request, ct);
+        return Ok(ApiResponse<AuthResponse>.Ok(result, "Đổi mật khẩu thành công"));
+    }
+
+    /// <summary>Đăng xuất: mọi token đã cấp cho tài khoản (trên mọi thiết bị) hết hiệu lực.</summary>
+    [HttpPost("logout")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Logout(CancellationToken ct)
+    {
+        await _authService.LogoutAsync(ct);
+        return Ok(ApiResponse.Ok("Đăng xuất thành công"));
     }
 }

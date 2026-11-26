@@ -1,15 +1,38 @@
 using System.Text;
 using FluentValidation;
+
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using SmartLab.BLL.External.Ai;
 using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.External.Email;
 using SmartLab.BLL.External.Jwt;
 using SmartLab.BLL.External.Security;
 using SmartLab.BLL.External.Storage;
+using SmartLab.BLL.Interfaces.Academic;
+using SmartLab.BLL.Interfaces.AuditLogs;
+using SmartLab.BLL.Interfaces.Borrowing;
 using SmartLab.BLL.Interfaces.Identity;
+using SmartLab.BLL.Interfaces.Inventory;
+using SmartLab.BLL.Interfaces.IssueReports;
+using SmartLab.BLL.Interfaces.Notifications;
+using SmartLab.BLL.Interfaces.Public;
+using SmartLab.BLL.Interfaces.Reports;
+using SmartLab.BLL.Interfaces.Settings;
+using SmartLab.BLL.Interfaces.Teamwork;
 using SmartLab.BLL.Seeding;
+using SmartLab.BLL.Services.Academic;
+using SmartLab.BLL.Services.AuditLogs;
+using SmartLab.BLL.Services.Borrowing;
 using SmartLab.BLL.Services.Identity;
+using SmartLab.BLL.Services.Inventory;
+using SmartLab.BLL.Services.IssueReports;
+using SmartLab.BLL.Services.Notifications;
+using SmartLab.BLL.Services.Public;
+using SmartLab.BLL.Services.Reports;
+using SmartLab.BLL.Services.Settings;
+using SmartLab.BLL.Services.Teamwork;
 
 namespace SmartLab.BLL;
 
@@ -33,16 +56,101 @@ public static class DependencyInjection
         services.AddSingleton<IFileStorage, CloudinaryFileStorage>();
 
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
-        services.AddSingleton<IEmailSender, SmtpEmailSender>();
+        services.Configure<WebOptions>(configuration.GetSection(WebOptions.SectionName));
+        services.AddSingleton<SmtpEmailSender>();
+        services.AddHttpClient(BrevoEmailSender.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri("https://api.brevo.com/");
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+        services.AddSingleton<BrevoEmailSender>();
+        services.AddSingleton<EmailQueue>();
+        services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<EmailQueue>());
+        services.AddHostedService<EmailWorker>();
+
+        services.Configure<GeminiOptions>(configuration.GetSection(GeminiOptions.SectionName));
+        services.AddHttpClient<GeminiComponentAdvisor>((provider, client) =>
+        {
+            var options = provider.GetRequiredService<IOptions<GeminiOptions>>().Value;
+            client.BaseAddress = new Uri(options.BaseUrl);
+            client.Timeout = Timeout.InfiniteTimeSpan;
+        });
+        services.Configure<GroqOptions>(configuration.GetSection(GroqOptions.SectionName));
+        services.AddHttpClient<GroqComponentAdvisor>((provider, client) =>
+        {
+            var options = provider.GetRequiredService<IOptions<GroqOptions>>().Value;
+            client.BaseAddress = new Uri(options.BaseUrl);
+            client.Timeout = Timeout.InfiniteTimeSpan;
+        });
+        services.AddTransient<IAiComponentAdvisor, FallbackComponentAdvisor>();
+        services.AddHttpClient<IStudentCardChecker, GeminiStudentCardChecker>((provider, client) =>
+        {
+            var options = provider.GetRequiredService<IOptions<GeminiOptions>>().Value;
+            client.BaseAddress = new Uri(options.BaseUrl);
+            client.Timeout = Timeout.InfiniteTimeSpan;
+        });
 
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
 
         services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly);
 
+        services.AddMemoryCache();
+        services.AddScoped<IActiveUserChecker, ActiveUserChecker>();
+
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IAccountActivationService, AccountActivationService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRoleService, RoleService>();
+        services.AddScoped<ITeamService, TeamService>();
+        services.AddScoped<ITeamNotifier, TeamNotifier>();
+        services.AddScoped<ITeamFormationService, TeamFormationService>();
+        services.AddScoped<ITeamFormationDeadlineService, TeamFormationDeadlineService>();
+        services.AddHostedService<TeamFormationWorker>();
+        services.AddScoped<IIssueReportService, IssueReportService>();
+        services.AddScoped<IIssueReportBorrowingIntegration, IssueReportBorrowingIntegrationService>();
+
+        services.AddScoped<ICategoryService, CategoryService>();
+        services.AddScoped<ILabRoomService, LabRoomService>();
+        services.AddScoped<ICabinetService, CabinetService>();
+        services.AddScoped<IComponentService, ComponentService>();
+        services.AddScoped<IComponentItemService, ComponentItemService>();
+        services.AddScoped<IConsumableStockService, ConsumableStockService>();
+        services.AddScoped<IComponentImageService, ComponentImageService>();
+        services.AddScoped<ITutorialService, TutorialService>();
+        services.AddScoped<IStockReceiptService, StockReceiptService>();
+        services.AddScoped<IInventoryTransactionService, InventoryTransactionService>();
+        services.AddScoped<IInventoryAuditService, InventoryAuditService>();
+
+        services.AddScoped<ISemesterService, SemesterService>();
+        services.AddScoped<ICourseService, CourseService>();
+        services.AddScoped<IClassService, ClassService>();
+        services.AddScoped<IClassRosterService, ClassRosterService>();
+
+        services.AddScoped<IProjectNotifier, ProjectNotifier>();
+        services.AddScoped<IProjectService, ProjectService>();
+        services.AddScoped<IComponentSuggestionService, ComponentSuggestionService>();
+        services.AddScoped<IProjectReviewService, ProjectReviewService>();
+
+        services.AddScoped<IBorrowNotifier, BorrowNotifier>();
+        services.AddScoped<IBorrowRequestService, BorrowRequestService>();
+        services.AddScoped<IBorrowReminderService, BorrowReminderService>();
+        services.AddScoped<IBorrowExtensionService, BorrowExtensionService>();
+        services.AddScoped<IReturnSlipService, ReturnSlipService>();
+        services.AddHostedService<BorrowReminderWorker>();
+        services.AddHostedService<BorrowOverdueWorker>();
+
+        services.AddScoped<ISystemSettingService, SystemSettingService>();
+
+        services.AddScoped<IAuditLogger, AuditLogger>();
+        services.AddScoped<IAuditLogService, AuditLogService>();
+
+        services.AddScoped<INotificationSender, NotificationSender>();
+        services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<IChangeBroadcaster, ChangeBroadcaster>();
+
+        services.AddScoped<IReportService, ReportService>();
+        services.AddScoped<IPublicStatsService, PublicStatsService>();
 
         services.AddHostedService<AdminSeeder>();
 

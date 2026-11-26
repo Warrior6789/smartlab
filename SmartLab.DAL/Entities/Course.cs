@@ -17,5 +17,12 @@ public partial class Course
 
     public bool IsActive { get; set; }
 
+    /// <summary>
+    /// Lab that serves the course: projects of its classes borrow only from this lab
+    /// </summary>
+    public Guid? RoomId { get; set; }
+
     public virtual ICollection<Class> Classes { get; set; } = new List<Class>();
+
+    public virtual LabRoom? Room { get; set; }
 }

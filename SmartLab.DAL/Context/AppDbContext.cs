@@ -24,6 +24,10 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<BorrowRequest> BorrowRequests { get; set; }
 
+    public virtual DbSet<BorrowReturnSlip> BorrowReturnSlips { get; set; }
+
+    public virtual DbSet<BorrowReturnSlipItem> BorrowReturnSlipItems { get; set; }
+
     public virtual DbSet<Class> Classes { get; set; }
 
     public virtual DbSet<ClassStudent> ClassStudents { get; set; }
@@ -47,6 +51,8 @@ public partial class AppDbContext : DbContext
     public virtual DbSet<InstructorProfile> InstructorProfiles { get; set; }
 
     public virtual DbSet<InventoryAudit> InventoryAudits { get; set; }
+
+    public virtual DbSet<InventoryAuditCount> InventoryAuditCounts { get; set; }
 
     public virtual DbSet<InventoryTransaction> InventoryTransactions { get; set; }
 
@@ -275,8 +281,6 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.BorrowRequestId, "ix_borrow_items_request_id");
 
-            entity.HasIndex(e => e.SourceRoomId, "ix_borrow_items_waiting_transfer").HasFilter("(received_at IS NULL)");
-
             entity.Property(e => e.BorrowItemId)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("borrow_item_id");
@@ -287,15 +291,12 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Quantity)
                 .HasDefaultValue(1)
                 .HasColumnName("quantity");
-            entity.Property(e => e.ReceivedAt).HasColumnName("received_at");
-            entity.Property(e => e.ReceivedBy).HasColumnName("received_by");
             entity.Property(e => e.ReturnCondition)
                 .HasMaxLength(255)
                 .HasColumnName("return_condition");
             entity.Property(e => e.ReturnPhotoId).HasColumnName("return_photo_id");
             entity.Property(e => e.ReturnedAt).HasColumnName("returned_at");
             entity.Property(e => e.ReturnedQuantity).HasColumnName("returned_quantity");
-            entity.Property(e => e.SourceRoomId).HasColumnName("source_room_id");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Pending'::character varying")
@@ -314,17 +315,9 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.ComponentItemId)
                 .HasConstraintName("borrow_items_component_item_id_fkey");
 
-            entity.HasOne(d => d.ReceivedByNavigation).WithMany(p => p.BorrowItems)
-                .HasForeignKey(d => d.ReceivedBy)
-                .HasConstraintName("borrow_items_received_by_fkey");
-
             entity.HasOne(d => d.ReturnPhoto).WithMany(p => p.BorrowItems)
                 .HasForeignKey(d => d.ReturnPhotoId)
                 .HasConstraintName("borrow_items_return_photo_id_fkey");
-
-            entity.HasOne(d => d.SourceRoom).WithMany(p => p.BorrowItems)
-                .HasForeignKey(d => d.SourceRoomId)
-                .HasConstraintName("borrow_items_source_room_id_fkey");
         });
 
         modelBuilder.Entity<BorrowRequest>(entity =>
@@ -388,6 +381,87 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("borrow_requests_room_id_fkey");
         });
 
+        modelBuilder.Entity<BorrowReturnSlip>(entity =>
+        {
+            entity.HasKey(e => e.ReturnSlipId).HasName("borrow_return_slips_pkey");
+
+            entity.ToTable("borrow_return_slips");
+
+            entity.HasIndex(e => e.SlipCode, "borrow_return_slips_slip_code_key").IsUnique();
+
+            entity.HasIndex(e => e.BorrowRequestId, "ix_borrow_return_slips_request");
+
+            entity.HasIndex(e => new { e.Status, e.AppointmentDate }, "ix_borrow_return_slips_status_date");
+
+            entity.Property(e => e.ReturnSlipId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("return_slip_id");
+            entity.Property(e => e.AppointmentDate).HasColumnName("appointment_date");
+            entity.Property(e => e.BorrowRequestId).HasColumnName("borrow_request_id");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("created_at");
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by");
+            entity.Property(e => e.Note)
+                .HasMaxLength(500)
+                .HasColumnName("note");
+            entity.Property(e => e.ReceivedAt).HasColumnName("received_at");
+            entity.Property(e => e.ReceivedBy).HasColumnName("received_by");
+            entity.Property(e => e.ReviewComment)
+                .HasMaxLength(500)
+                .HasColumnName("review_comment");
+            entity.Property(e => e.ReviewedAt).HasColumnName("reviewed_at");
+            entity.Property(e => e.ReviewedBy).HasColumnName("reviewed_by");
+            entity.Property(e => e.SlipCode)
+                .HasMaxLength(20)
+                .HasColumnName("slip_code");
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'Pending'::character varying")
+                .HasColumnName("status");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.BorrowRequest).WithMany(p => p.BorrowReturnSlips)
+                .HasForeignKey(d => d.BorrowRequestId)
+                .HasConstraintName("borrow_return_slips_borrow_request_id_fkey");
+
+            entity.HasOne(d => d.CreatedByNavigation).WithMany(p => p.BorrowReturnSlipCreatedByNavigations)
+                .HasForeignKey(d => d.CreatedBy)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("borrow_return_slips_created_by_fkey");
+
+            entity.HasOne(d => d.ReceivedByNavigation).WithMany(p => p.BorrowReturnSlipReceivedByNavigations)
+                .HasForeignKey(d => d.ReceivedBy)
+                .HasConstraintName("borrow_return_slips_received_by_fkey");
+
+            entity.HasOne(d => d.ReviewedByNavigation).WithMany(p => p.BorrowReturnSlipReviewedByNavigations)
+                .HasForeignKey(d => d.ReviewedBy)
+                .HasConstraintName("borrow_return_slips_reviewed_by_fkey");
+        });
+
+        modelBuilder.Entity<BorrowReturnSlipItem>(entity =>
+        {
+            entity.HasKey(e => new { e.ReturnSlipId, e.BorrowItemId }).HasName("borrow_return_slip_items_pkey");
+
+            entity.ToTable("borrow_return_slip_items");
+
+            entity.HasIndex(e => e.BorrowItemId, "ix_borrow_return_slip_items_item");
+
+            entity.Property(e => e.ReturnSlipId).HasColumnName("return_slip_id");
+            entity.Property(e => e.BorrowItemId).HasColumnName("borrow_item_id");
+            entity.Property(e => e.Quantity).HasColumnName("quantity");
+
+            entity.HasOne(d => d.BorrowItem).WithMany(p => p.BorrowReturnSlipItems)
+                .HasForeignKey(d => d.BorrowItemId)
+                .HasConstraintName("borrow_return_slip_items_borrow_item_id_fkey");
+
+            entity.HasOne(d => d.ReturnSlip).WithMany(p => p.BorrowReturnSlipItems)
+                .HasForeignKey(d => d.ReturnSlipId)
+                .HasConstraintName("borrow_return_slip_items_return_slip_id_fkey");
+        });
+
         modelBuilder.Entity<Class>(entity =>
         {
             entity.HasKey(e => e.ClassId).HasName("classes_pkey");
@@ -416,7 +490,15 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.MaxStudents)
                 .HasDefaultValue(30)
                 .HasColumnName("max_students");
+            entity.Property(e => e.MaxTeamSize).HasColumnName("max_team_size");
+            entity.Property(e => e.MinTeamSize).HasColumnName("min_team_size");
             entity.Property(e => e.SemesterId).HasColumnName("semester_id");
+            entity.Property(e => e.TeamFormationDeadline).HasColumnName("team_formation_deadline");
+            entity.Property(e => e.TeamFormationOpenedAt).HasColumnName("team_formation_opened_at");
+            entity.Property(e => e.TeamFormationStatus)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'NotStarted'::character varying")
+                .HasColumnName("team_formation_status");
 
             entity.HasOne(d => d.Course).WithMany(p => p.Classes)
                 .HasForeignKey(d => d.CourseId)
@@ -497,6 +579,10 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(100)
                 .HasColumnName("manufacturer");
             entity.Property(e => e.MinStock).HasColumnName("min_stock");
+            entity.Property(e => e.ShortCode)
+                .HasMaxLength(30)
+                .HasComment("Short search code made from the name, like drug abbreviations (e.g. CBNDDA-DHT22); generated when the component is created, editable")
+                .HasColumnName("short_code");
             entity.Property(e => e.TrackingType)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'REUSABLE'::character varying")
@@ -745,6 +831,8 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.CourseCode, "courses_course_code_key").IsUnique();
 
+            entity.HasIndex(e => e.RoomId, "ix_courses_room_id");
+
             entity.Property(e => e.CourseId)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("course_id");
@@ -759,6 +847,13 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.IsActive)
                 .HasDefaultValue(true)
                 .HasColumnName("is_active");
+            entity.Property(e => e.RoomId)
+                .HasComment("Lab that serves the course: projects of its classes borrow only from this lab")
+                .HasColumnName("room_id");
+
+            entity.HasOne(d => d.Room).WithMany(p => p.Courses)
+                .HasForeignKey(d => d.RoomId)
+                .HasConstraintName("courses_room_id_fkey");
         });
 
         modelBuilder.Entity<InstructorProfile>(entity =>
@@ -802,12 +897,18 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.AuditorId).HasColumnName("auditor_id");
             entity.Property(e => e.CabinetId).HasColumnName("cabinet_id");
             entity.Property(e => e.Note).HasColumnName("note");
+            entity.Property(e => e.ReviewNote)
+                .HasComment("Why the reviewer sent the count back (recount), or a note on approval")
+                .HasColumnName("review_note");
+            entity.Property(e => e.ReviewedAt).HasColumnName("reviewed_at");
+            entity.Property(e => e.ReviewedBy).HasColumnName("reviewed_by");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'InProgress'::character varying")
                 .HasColumnName("status");
+            entity.Property(e => e.SubmittedAt).HasColumnName("submitted_at");
 
-            entity.HasOne(d => d.Auditor).WithMany(p => p.InventoryAudits)
+            entity.HasOne(d => d.Auditor).WithMany(p => p.InventoryAuditAuditors)
                 .HasForeignKey(d => d.AuditorId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("inventory_audits_auditor_id_fkey");
@@ -816,6 +917,49 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.CabinetId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("inventory_audits_cabinet_id_fkey");
+
+            entity.HasOne(d => d.ReviewedByNavigation).WithMany(p => p.InventoryAuditReviewedByNavigations)
+                .HasForeignKey(d => d.ReviewedBy)
+                .HasConstraintName("inventory_audits_reviewed_by_fkey");
+
+            entity.HasMany(d => d.Items).WithMany(p => p.Audits)
+                .UsingEntity<Dictionary<string, object>>(
+                    "InventoryAuditMissingItem",
+                    r => r.HasOne<ComponentItem>().WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.ClientSetNull)
+                        .HasConstraintName("inventory_audit_missing_items_item_id_fkey"),
+                    l => l.HasOne<InventoryAudit>().WithMany()
+                        .HasForeignKey("AuditId")
+                        .HasConstraintName("inventory_audit_missing_items_audit_id_fkey"),
+                    j =>
+                    {
+                        j.HasKey("AuditId", "ItemId").HasName("inventory_audit_missing_items_pkey");
+                        j.ToTable("inventory_audit_missing_items", tb => tb.HasComment("Units reported missing in a submitted count; they become Lost only when the count is approved"));
+                        j.IndexerProperty<Guid>("AuditId").HasColumnName("audit_id");
+                        j.IndexerProperty<Guid>("ItemId").HasColumnName("item_id");
+                    });
+        });
+
+        modelBuilder.Entity<InventoryAuditCount>(entity =>
+        {
+            entity.HasKey(e => new { e.AuditId, e.ComponentId }).HasName("inventory_audit_counts_pkey");
+
+            entity.ToTable("inventory_audit_counts", tb => tb.HasComment("Consumable counts submitted for review; system_quantity is the stock when the count was submitted"));
+
+            entity.Property(e => e.AuditId).HasColumnName("audit_id");
+            entity.Property(e => e.ComponentId).HasColumnName("component_id");
+            entity.Property(e => e.CountedQuantity).HasColumnName("counted_quantity");
+            entity.Property(e => e.SystemQuantity).HasColumnName("system_quantity");
+
+            entity.HasOne(d => d.Audit).WithMany(p => p.InventoryAuditCounts)
+                .HasForeignKey(d => d.AuditId)
+                .HasConstraintName("inventory_audit_counts_audit_id_fkey");
+
+            entity.HasOne(d => d.Component).WithMany(p => p.InventoryAuditCounts)
+                .HasForeignKey(d => d.ComponentId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("inventory_audit_counts_component_id_fkey");
         });
 
         modelBuilder.Entity<InventoryTransaction>(entity =>
@@ -1281,9 +1425,6 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValueSql("now()")
                 .HasColumnName("created_at");
             entity.Property(e => e.CreatedBy).HasColumnName("created_by");
-            entity.Property(e => e.DelivererName)
-                .HasMaxLength(100)
-                .HasColumnName("deliverer_name");
             entity.Property(e => e.InvoiceDate).HasColumnName("invoice_date");
             entity.Property(e => e.InvoiceNumber)
                 .HasMaxLength(50)
@@ -1395,6 +1536,10 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'Active'::character varying")
                 .HasColumnName("status");
+            entity.Property(e => e.TrackingType)
+                .HasMaxLength(20)
+                .HasComment("Kind of component the cabinet is for; a stock receipt puts each line into the cabinet of its lab with the same tracking type. NULL = any kind")
+                .HasColumnName("tracking_type");
 
             entity.HasOne(d => d.Room).WithMany(p => p.StorageCabinets)
                 .HasForeignKey(d => d.RoomId)

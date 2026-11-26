@@ -41,6 +41,8 @@ public partial class BorrowRequest
 
     public virtual ICollection<BorrowItem> BorrowItems { get; set; } = new List<BorrowItem>();
 
+    public virtual ICollection<BorrowReturnSlip> BorrowReturnSlips { get; set; } = new List<BorrowReturnSlip>();
+
     public virtual Class? Class { get; set; }
 
     public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();

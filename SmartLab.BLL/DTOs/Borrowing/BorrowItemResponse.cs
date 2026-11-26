@@ -1,0 +1,48 @@
+namespace SmartLab.BLL.DTOs.Borrowing;
+
+/// <summary>
+/// One line of a borrow request. After handing over, a per-unit line is one unit (Quantity 1, ComponentItemId set).
+/// </summary>
+public class BorrowItemResponse
+{
+    public Guid BorrowItemId { get; set; }
+
+    public Guid ComponentId { get; set; }
+
+    public string ComponentCode { get; set; } = string.Empty;
+
+    public string ComponentName { get; set; } = string.Empty;
+
+    public string TrackingType { get; set; } = string.Empty;
+
+    public string Unit { get; set; } = string.Empty;
+
+    public int Quantity { get; set; }
+
+    /// <summary>Pending, Issued, Returned, Damaged or Lost.</summary>
+    public string Status { get; set; } = string.Empty;
+
+    public Guid? ComponentItemId { get; set; }
+
+    public string? ItemCode { get; set; }
+
+    public string? SerialNumber { get; set; }
+
+    public DateTime? IssuedAt { get; set; }
+
+    public DateTime? ReturnedAt { get; set; }
+
+    public int? ReturnedQuantity { get; set; }
+
+    /// <summary>Good, Damaged or Lost (per-unit lines).</summary>
+    public string? ReturnCondition { get; set; }
+
+    public Guid? ReturnPhotoId { get; set; }
+
+    /// <summary>The open return slip (Pending or Approved) this line is on; null when there is none.</summary>
+    public Guid? ReturnSlipId { get; set; }
+
+    public string? ReturnSlipCode { get; set; }
+
+    public string? ReturnSlipStatus { get; set; }
+}

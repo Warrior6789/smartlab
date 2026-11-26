@@ -44,4 +44,6 @@ public partial class ComponentItem
     public virtual ICollection<IssueReport> IssueReports { get; set; } = new List<IssueReport>();
 
     public virtual StockReceiptItem? ReceiptItem { get; set; }
+
+    public virtual ICollection<InventoryAudit> Audits { get; set; } = new List<InventoryAudit>();
 }
