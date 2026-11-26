@@ -172,24 +172,25 @@ public class TeamFormationService : ITeamFormationService
             })
             .ToListAsync(ct);
         var unassigned = await UnassignedStudentsQuery(classId)
-            .Select(cs => new
+            .Select(cs => new TeamFormationStudentItem
             {
-                cs.Student.User.IsActive,
-                Item = new TeamFormationStudentItem
-                {
-                    StudentProfileId = cs.StudentId,
-                    StudentCode = cs.Student.StudentCode,
-                    FullName = cs.Student.User.FullName,
-                },
+                StudentProfileId = cs.StudentId,
+                StudentCode = cs.Student.StudentCode,
+                FullName = cs.Student.User.FullName,
             })
             .ToListAsync(ct);
+        var notActivated = await NotActivatedStudentsQuery(classId).CountAsync(ct);
 
         if (unassigned.Count == 0 && teams.All(t => t.Count >= min))
-            return new AutoAssignPreviewResponse { Warnings = new[] { "Cả lớp đã có nhóm đủ người" } };
+        {
+            var done = new List<string> { "Cả lớp đã có nhóm đủ người" };
+            if (notActivated > 0)
+                done.Add(NotActivatedWarning(notActivated));
+            return new AutoAssignPreviewResponse { Warnings = done };
+        }
 
-        var shuffled = unassigned.Select(u => u.Item).OrderBy(_ => Random.Shared.Next()).ToList();
+        var shuffled = unassigned.OrderBy(_ => Random.Shared.Next()).ToList();
         var byId = shuffled.ToDictionary(s => s.StudentProfileId);
-        var active = unassigned.Where(u => u.IsActive).Select(u => u.Item.StudentProfileId).ToHashSet();
         var teamById = teams.ToDictionary(t => t.TeamId);
         var plan = TeamAutoAssigner.Build(
             teams.Select(t => new TeamAutoAssigner.TeamSlot(t.TeamId, t.TeamName, t.Count, !t.HasProject)).ToList(),
@@ -198,6 +199,9 @@ public class TeamFormationService : ITeamFormationService
         var allNames = await _uow.Repository<Team>().QueryNoTracking()
             .Where(t => t.ClassId == classId).Select(t => t.TeamName.ToLower()).ToListAsync(ct);
         var usedNames = new HashSet<string>(allNames);
+        var warnings = plan.Warnings.ToList();
+        if (notActivated > 0)
+            warnings.Add(NotActivatedWarning(notActivated));
         var nextNumber = 1;
         string NextName()
         {
@@ -224,7 +228,7 @@ public class TeamFormationService : ITeamFormationService
                 .Select(ids => new AutoAssignNewTeam
                 {
                     TeamName = NextName(),
-                    LeaderStudentProfileId = ids.Where(active.Contains).Append(ids[0]).First(),
+                    LeaderStudentProfileId = ids[0],
                     Students = ids.Select(id => byId[id]).ToList(),
                 })
                 .ToList(),
@@ -240,7 +244,7 @@ public class TeamFormationService : ITeamFormationService
                 .OrderBy(m => m.TargetTeamName).ThenBy(m => m.SourceTeamName)
                 .ToList(),
             RequiresExceedMax = plan.ExceedsMax,
-            Warnings = plan.Warnings,
+            Warnings = warnings,
         };
     }
 
@@ -283,7 +287,7 @@ public class TeamFormationService : ITeamFormationService
             var invalid = allStudentIds.Except(eligible).ToList();
             if (invalid.Count > 0)
                 throw new BadRequestException(
-                    $"Có {invalid.Count} sinh viên không thuộc lớp, không còn Studying hoặc đã có nhóm",
+                    $"Có {invalid.Count} sinh viên không thuộc lớp, không còn Studying, chưa kích hoạt tài khoản hoặc đã có nhóm",
                     new Dictionary<string, string[]> { ["studentProfileIds"] = invalid.Select(i => i.ToString()).ToArray() });
 
             var teamIds = request.ExistingTeams.Select(t => t.TeamId)
@@ -483,20 +487,31 @@ public class TeamFormationService : ITeamFormationService
     // ----------------------------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// Studying students of the class who are neither a leader nor an Accepted member of any team. Students who have not
-    /// activated their account yet count too; locked accounts do not.
+    /// Studying students of the class with an active account who are neither a leader nor an Accepted member of any team.
+    /// Accounts that wait for activation or are locked are left out until they can log in.
     /// </summary>
     private IQueryable<ClassStudent> UnassignedStudentsQuery(Guid classId)
+        => WithoutTeamQuery(classId)
+            .Where(cs => cs.Student.User.IsActive)
+            .OrderBy(cs => cs.Student.StudentCode);
+
+    /// <summary>Studying students of the class without a team whose account still waits for activation.</summary>
+    private IQueryable<ClassStudent> NotActivatedStudentsQuery(Guid classId)
+        => WithoutTeamQuery(classId)
+            .Where(cs => !cs.Student.User.IsActive &&
+                         cs.Student.User.VerificationCodes.Any(c =>
+                             c.Purpose == VerificationPurposes.EmailVerification && c.UsedAt == null));
+
+    private IQueryable<ClassStudent> WithoutTeamQuery(Guid classId)
         => _uow.Repository<ClassStudent>().QueryNoTracking()
             .Where(cs => cs.ClassId == classId &&
                          cs.Status == ClassStudentStatuses.Studying &&
-                         (cs.Student.User.IsActive ||
-                          cs.Student.User.VerificationCodes.Any(c =>
-                              c.Purpose == VerificationPurposes.EmailVerification && c.UsedAt == null)) &&
                          !cs.Class.Teams.Any(t => t.LeaderId == cs.StudentId ||
                                                   t.TeamMembers.Any(m => m.StudentId == cs.StudentId &&
-                                                                         m.Status == TeamMemberStatuses.Accepted)))
-            .OrderBy(cs => cs.Student.StudentCode);
+                                                                         m.Status == TeamMemberStatuses.Accepted)));
+
+    private static string NotActivatedWarning(int count)
+        => $"{count} sinh viên chưa kích hoạt tài khoản nên không được xếp nhóm";
 
     /// <summary>
     /// Re-uses the student's old (Rejected) row in that team if any: (team_id, student_id) is the primary key.
@@ -592,7 +607,7 @@ public class TeamFormationService : ITeamFormationService
             })
             .ToListAsync(ct);
         var studying = await _uow.Repository<ClassStudent>().QueryNoTracking()
-            .CountAsync(cs => cs.ClassId == classId && cs.Status == ClassStudentStatuses.Studying, ct);
+            .CountAsync(cs => cs.ClassId == classId && cs.Status == ClassStudentStatuses.Studying && cs.Student.User.IsActive, ct);
 
         IReadOnlyList<int> suggestedSizes = Array.Empty<int>();
         if (cls.MinTeamSize is { } minSize && cls.MaxTeamSize is { } maxSize && TeamSizePlanner.CanSplit(studying, minSize, maxSize))
