@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SmartLab.BLL.Common;
 using SmartLab.BLL.Common.Exceptions;
@@ -13,7 +13,7 @@ using SmartLab.DAL.UnitOfWork;
 namespace SmartLab.BLL.Services.Inventory;
 
 /// <summary>
-/// Inventory count of one cabinet: lab staff of the cabinet's lab count it (InProgress) and submit the result
+/// Inventory count of one cabinet: only lab staff of the cabinet's lab count it (InProgress) and submit the result
 /// (Submitted); an approver (INVENTORY_AUDIT_APPROVE, not the person who counted) accepts it (Completed: stock is
 /// adjusted, missing units become Lost, every change goes to inventory_transactions with the audit id) or sends it
 /// back for a recount (InProgress again). Stock is never touched before approval.
@@ -203,7 +203,7 @@ public class InventoryAuditService : IInventoryAuditService
         if (cabinetStatus != CabinetStatuses.Active)
             throw new BadRequestException("Tủ đã ngừng hoạt động");
 
-        await EnsureLabStaffOfCabinetAsync(request.CabinetId, ct);
+        await EnsureCountedByLabStaffAsync(request.CabinetId, ct);
 
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
@@ -242,7 +242,7 @@ public class InventoryAuditService : IInventoryAuditService
                         .Select(a => new { a.CabinetId, a.Status })
                         .FirstOrDefaultAsync(ct)
                     ?? throw new NotFoundException("Không tìm thấy phiên kiểm kê");
-        await EnsureLabStaffOfCabinetAsync(audit.CabinetId, ct);
+        await EnsureCountedByLabStaffAsync(audit.CabinetId, ct);
         if (audit.Status != InventoryAuditStatuses.InProgress)
             throw new ConflictException("Phiên kiểm kê không ở trạng thái đang kiểm");
 
@@ -272,7 +272,7 @@ public class InventoryAuditService : IInventoryAuditService
                         .Select(a => new { a.CabinetId, a.Status, a.Note })
                         .FirstOrDefaultAsync(ct)
                     ?? throw new NotFoundException("Không tìm thấy phiên kiểm kê");
-        await EnsureLabStaffOfCabinetAsync(audit.CabinetId, ct);
+        await EnsureCountedByLabStaffAsync(audit.CabinetId, ct);
         if (audit.Status != InventoryAuditStatuses.InProgress)
             throw new ConflictException("Phiên kiểm kê không ở trạng thái đang kiểm");
 
@@ -458,7 +458,7 @@ public class InventoryAuditService : IInventoryAuditService
                         .Select(a => new { a.CabinetId, a.Status })
                         .FirstOrDefaultAsync(ct)
                     ?? throw new NotFoundException("Không tìm thấy phiên kiểm kê");
-        await EnsureLabStaffOfCabinetAsync(audit.CabinetId, ct);
+        await EnsureCountedByLabStaffAsync(audit.CabinetId, ct);
         if (audit.Status != InventoryAuditStatuses.InProgress)
             throw new ConflictException("Chỉ hủy được phiên đang kiểm (phiên chờ duyệt phải được duyệt hoặc yêu cầu đếm lại)");
 
@@ -472,11 +472,21 @@ public class InventoryAuditService : IInventoryAuditService
     /// <summary>
     /// Approvers may work on every cabinet; other users (Lab Staff) only on cabinets of a lab they are assigned to.
     /// </summary>
+    /// <summary>Viewing an audit: approvers see every cabinet, lab staff only the cabinets of their labs.</summary>
     private async Task EnsureLabStaffOfCabinetAsync(Guid cabinetId, CancellationToken ct)
     {
         if (IsApprover)
             return;
 
+        await EnsureCountedByLabStaffAsync(cabinetId, ct);
+    }
+
+    /// <summary>
+    /// Counting (start, save, submit, cancel) is done only by the staff assigned to the cabinet's lab; approvers only
+    /// view and approve, so the person who counts and the person who approves stay apart.
+    /// </summary>
+    private async Task EnsureCountedByLabStaffAsync(Guid cabinetId, CancellationToken ct)
+    {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
         var assigned = await _uow.Repository<StorageCabinet>().QueryNoTracking()
             .AnyAsync(c => c.CabinetId == cabinetId && c.Room.LabRoomStaffs.Any(s => s.UserId == userId), ct);
