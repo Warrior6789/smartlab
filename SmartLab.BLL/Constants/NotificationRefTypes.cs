@@ -11,4 +11,7 @@ public static class NotificationRefTypes
 
     /// <summary>A class, e.g. its team formation deadline.</summary>
     public const string Class = "Class";
+
+    /// <summary>An inventory count of one cabinet.</summary>
+    public const string InventoryAudit = "InventoryAudit";
 }

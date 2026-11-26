@@ -6,6 +6,7 @@ using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Inventory;
 using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.Interfaces.Inventory;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.BLL.Mappings.Inventory;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
@@ -24,11 +25,13 @@ public class InventoryAuditService : IInventoryAuditService
 
     private readonly IUnitOfWork _uow;
     private readonly ICurrentUserService _currentUser;
+    private readonly INotificationSender _notifications;
 
-    public InventoryAuditService(IUnitOfWork uow, ICurrentUserService currentUser)
+    public InventoryAuditService(IUnitOfWork uow, ICurrentUserService currentUser, INotificationSender notifications)
     {
         _uow = uow;
         _currentUser = currentUser;
+        _notifications = notifications;
     }
 
     private bool IsApprover => _currentUser.HasPermission(PermissionCodes.InventoryAuditApprove);
@@ -357,6 +360,8 @@ public class InventoryAuditService : IInventoryAuditService
         await _uow.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 
+        await NotifyManagersSubmittedAsync(auditId, audit.CabinetId, ct);
+
         return await GetAuditByIdAsync(auditId, ct);
     }
 
@@ -402,6 +407,8 @@ public class InventoryAuditService : IInventoryAuditService
 
         await tx.CommitAsync(ct);
 
+        await NotifyAuditorAsync(auditId, audit.AuditorId, audit.CabinetId, "đã được duyệt", ct);
+
         var detail = await GetAuditByIdAsync(auditId, ct);
 
         var touchedIds = detail.Differences.Select(d => d.ComponentId).Distinct().ToList();
@@ -416,12 +423,12 @@ public class InventoryAuditService : IInventoryAuditService
     {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
 
-        var status = await _uow.Repository<InventoryAudit>().QueryNoTracking()
-                         .Where(a => a.AuditId == auditId)
-                         .Select(a => a.Status)
-                         .FirstOrDefaultAsync(ct)
-                     ?? throw new NotFoundException("Không tìm thấy phiên kiểm kê");
-        if (status != InventoryAuditStatuses.Submitted)
+        var audit = await _uow.Repository<InventoryAudit>().QueryNoTracking()
+                        .Where(a => a.AuditId == auditId)
+                        .Select(a => new { a.CabinetId, a.Status, a.AuditorId })
+                        .FirstOrDefaultAsync(ct)
+                    ?? throw new NotFoundException("Không tìm thấy phiên kiểm kê");
+        if (audit.Status != InventoryAuditStatuses.Submitted)
             throw new ConflictException("Chỉ yêu cầu đếm lại được phiên kiểm kê đang chờ duyệt");
 
         var now = DateTime.UtcNow;
@@ -448,6 +455,8 @@ public class InventoryAuditService : IInventoryAuditService
         await _uow.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 
+        await NotifyAuditorAsync(auditId, audit.AuditorId, audit.CabinetId, "bị yêu cầu đếm lại", ct);
+
         return await GetAuditByIdAsync(auditId, ct);
     }
 
@@ -473,6 +482,32 @@ public class InventoryAuditService : IInventoryAuditService
     /// Approvers may work on every cabinet; other users (Lab Staff) only on cabinets of a lab they are assigned to.
     /// </summary>
     /// <summary>Viewing an audit: approvers see every cabinet, lab staff only the cabinets of their labs.</summary>
+    private async Task NotifyManagersSubmittedAsync(Guid auditId, Guid cabinetId, CancellationToken ct)
+    {
+        var cabinetName = await CabinetNameAsync(cabinetId, ct);
+        var managerIds = await _uow.Repository<User>().QueryNoTracking()
+            .Where(u => u.IsActive && u.UserRoles.Any(r => r.Role.RoleName == RoleNames.InventoryManager))
+            .Select(u => u.UserId)
+            .ToListAsync(ct);
+
+        foreach (var managerId in managerIds)
+            await _notifications.SendAsync(managerId, $"Kiểm kê {cabinetName} đang chờ duyệt",
+                NotificationRefTypes.InventoryAudit, auditId);
+    }
+
+    private async Task NotifyAuditorAsync(Guid auditId, Guid auditorId, Guid cabinetId, string outcome, CancellationToken ct)
+    {
+        var cabinetName = await CabinetNameAsync(cabinetId, ct);
+        await _notifications.SendAsync(auditorId, $"Kiểm kê {cabinetName} {outcome}",
+            NotificationRefTypes.InventoryAudit, auditId);
+    }
+
+    private Task<string> CabinetNameAsync(Guid cabinetId, CancellationToken ct) =>
+        _uow.Repository<StorageCabinet>().QueryNoTracking()
+            .Where(c => c.CabinetId == cabinetId)
+            .Select(c => c.CabinetName + " (" + c.Room.RoomCode + ")")
+            .FirstAsync(ct);
+
     private async Task EnsureLabStaffOfCabinetAsync(Guid cabinetId, CancellationToken ct)
     {
         if (IsApprover)
