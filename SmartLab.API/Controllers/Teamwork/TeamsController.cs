@@ -125,7 +125,7 @@ public class TeamsController : ControllerBase
     public async Task<IActionResult> RemoveMember(Guid teamId, Guid studentProfileId, CancellationToken ct)
         => Ok(ApiResponse<TeamResponse>.Ok(await _teamService.RemoveMemberAsync(teamId, studentProfileId, ct), "Xóa thành viên thành công"));
 
-    /// <summary>Trưởng nhóm, giảng viên phụ trách lớp hoặc Admin chuyển quyền cho thành viên Accepted đang Studying. Trưởng nhóm: trước khi đăng ký project; giảng viên, Admin: trước khi đề tài được duyệt.</summary>
+    /// <summary>Trưởng nhóm, giảng viên phụ trách lớp hoặc Admin đề nghị một thành viên Accepted đang Studying làm trưởng nhóm; chỉ đổi khi người đó nhận. Trưởng nhóm: trước khi đăng ký project; giảng viên, Admin: trước khi đề tài được duyệt.</summary>
     [HttpPut("teams/{teamId:guid}/leader")]
     [Authorize(Roles = RoleNames.Student + "," + RoleNames.Lecturer + "," + RoleNames.Admin)]
     [ProducesResponseType(typeof(ApiResponse<TeamResponse>), StatusCodes.Status200OK)]
@@ -135,5 +135,15 @@ public class TeamsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> TransferLeader(Guid teamId, [FromBody] TransferTeamLeaderRequest request, CancellationToken ct)
-        => Ok(ApiResponse<TeamResponse>.Ok(await _teamService.TransferLeaderAsync(teamId, request, ct), "Chuyển trưởng nhóm thành công"));
+        => Ok(ApiResponse<TeamResponse>.Ok(await _teamService.TransferLeaderAsync(teamId, request, ct), "Đã gửi đề nghị, chờ thành viên xác nhận làm trưởng nhóm"));
+
+    /// <summary>Thành viên được đề nghị làm trưởng nhóm nhận (Accepted, trở thành trưởng nhóm) hoặc từ chối (Rejected).</summary>
+    [HttpPost("teams/{teamId:guid}/leader/respond")]
+    [Authorize(Roles = RoleNames.Student)]
+    [ProducesResponseType(typeof(ApiResponse<TeamResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RespondLeaderTransfer(Guid teamId, [FromBody] RespondLeaderTransferRequest request, CancellationToken ct)
+        => Ok(ApiResponse<TeamResponse>.Ok(await _teamService.RespondLeaderTransferAsync(teamId, request, ct), "Đã trả lời đề nghị làm trưởng nhóm"));
 }

@@ -455,10 +455,49 @@ public class TeamService : ITeamService
                 await EnsureMembershipEditableAsync(teamId, ct);
                 await TeamFormationGate.EnsureOpenForStudentsAsync(_uow, team.ClassId, ct);
             }
-            team.LeaderId = target.StudentId;
+            team.PendingLeaderId = target.StudentId;
+            team.LeaderTransferRequestedAt = DateTime.UtcNow;
         }, ct);
         await _changes.TeamChangedAsync(teamId);
-        await _notifier.LeaderTransferredAsync(teamId, observed.LeaderId, request.StudentProfileId, CancellationToken.None);
+        await _notifier.LeaderTransferRequestedAsync(teamId, request.StudentProfileId, CancellationToken.None);
+        return result;
+    }
+
+    public async Task<TeamResponse> RespondLeaderTransferAsync(
+        Guid teamId, RespondLeaderTransferRequest request, CancellationToken ct = default)
+    {
+        var student = await GetCurrentStudentAsync(ct);
+        var accepting = request.Decision.Equals(TeamMemberStatuses.Accepted, StringComparison.OrdinalIgnoreCase);
+        var observed = await TeamMutationLock.ReadAsync(_uow, teamId, ct);
+        var oldLeaderId = observed.LeaderId;
+
+        var result = await MutateTeamAsync(observed, async (team, _, _) =>
+        {
+            if (team.PendingLeaderId != student.StudentProfileId)
+                throw new ConflictException("Không có đề nghị làm trưởng nhóm nào đang chờ bạn trong nhóm này");
+            oldLeaderId = team.LeaderId;
+            team.PendingLeaderId = null;
+            team.LeaderTransferRequestedAt = null;
+            if (!accepting)
+                return;
+
+            var isMember = team.TeamMembers.Any(m => m.StudentId == student.StudentProfileId && m.Status == TeamMemberStatuses.Accepted);
+            var studying = await _uow.Repository<ClassStudent>().QueryNoTracking()
+                .AnyAsync(cs => cs.ClassId == team.ClassId && cs.StudentId == student.StudentProfileId && cs.Status == StudyingStatus, ct);
+            if (!isMember || !studying)
+                throw new ConflictException("Bạn không còn là thành viên đang học của nhóm này");
+            var approved = await _uow.Repository<Project>().QueryNoTracking()
+                .AnyAsync(p => p.TeamId == teamId && p.Status == ProjectStatuses.Approved, ct);
+            if (approved)
+                throw new ConflictException("Đề tài của nhóm đã được duyệt, không đổi trưởng nhóm được");
+            team.LeaderId = student.StudentProfileId;
+        }, ct);
+
+        await _changes.TeamChangedAsync(teamId);
+        if (accepting)
+            await _notifier.LeaderTransferredAsync(teamId, oldLeaderId, student.StudentProfileId, CancellationToken.None);
+        else
+            await _notifier.LeaderTransferRejectedAsync(teamId, student.StudentProfileId, CancellationToken.None);
         return result;
     }
 

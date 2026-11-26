@@ -17,9 +17,11 @@ public partial class StudentProfile
 
     public virtual ICollection<ClassStudent> ClassStudents { get; set; } = new List<ClassStudent>();
 
+    public virtual ICollection<Team> TeamLeaders { get; set; } = new List<Team>();
+
     public virtual ICollection<TeamMember> TeamMembers { get; set; } = new List<TeamMember>();
 
-    public virtual ICollection<Team> Teams { get; set; } = new List<Team>();
+    public virtual ICollection<Team> TeamPendingLeaders { get; set; } = new List<Team>();
 
     public virtual User User { get; set; } = null!;
 }

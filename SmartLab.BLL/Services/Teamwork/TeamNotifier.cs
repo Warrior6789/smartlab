@@ -100,6 +100,48 @@ public class TeamNotifier(
         }
     }
 
+    public async Task LeaderTransferRequestedAsync(Guid teamId, Guid studentProfileId, CancellationToken ct = default)
+    {
+        try
+        {
+            var team = await uow.Repository<Team>().QueryNoTracking().Where(t => t.TeamId == teamId)
+                .Select(t => new { t.TeamName, LeaderName = t.Leader.User.FullName }).SingleAsync(ct);
+            var student = await uow.Repository<StudentProfile>().QueryNoTracking()
+                .Where(s => s.StudentProfileId == studentProfileId)
+                .Select(s => new { s.UserId, s.User.Email, s.User.FullName }).SingleAsync(ct);
+
+            await SendAsync(student.UserId, student.Email, teamId,
+                $"SmartLab - Bạn được đề nghị làm trưởng nhóm {team.TeamName}",
+                $"<p>Xin chào <b>{Encode(student.FullName)}</b>,</p><p>Bạn được đề nghị làm trưởng nhóm <b>{Encode(team.TeamName)}</b> " +
+                $"thay <b>{Encode(team.LeaderName)}</b>. Vào trang Nhóm &amp; Lời mời để nhận hoặc từ chối.</p>");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Could not prepare leader transfer request for team {TeamId}", teamId);
+        }
+    }
+
+    public async Task LeaderTransferRejectedAsync(Guid teamId, Guid studentProfileId, CancellationToken ct = default)
+    {
+        try
+        {
+            var team = await uow.Repository<Team>().QueryNoTracking().Where(t => t.TeamId == teamId)
+                .Select(t => new { t.TeamName, t.Leader.UserId, t.Leader.User.Email, t.Leader.User.FullName }).SingleAsync(ct);
+            var studentName = await uow.Repository<StudentProfile>().QueryNoTracking()
+                .Where(s => s.StudentProfileId == studentProfileId)
+                .Select(s => s.User.FullName).SingleAsync(ct);
+
+            await SendAsync(team.UserId, team.Email, teamId,
+                $"SmartLab - {studentName} từ chối làm trưởng nhóm {team.TeamName}",
+                $"<p>Xin chào <b>{Encode(team.FullName)}</b>,</p><p><b>{Encode(studentName)}</b> đã từ chối làm trưởng nhóm " +
+                $"<b>{Encode(team.TeamName)}</b>. Bạn vẫn là trưởng nhóm.</p>");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Could not prepare leader transfer answer for team {TeamId}", teamId);
+        }
+    }
+
     private async Task SendAsync(Guid userId, string address, Guid teamId, string subject, string body)
     {
         await notifications.SendAsync(userId, subject, NotificationRefTypes.Team, teamId);

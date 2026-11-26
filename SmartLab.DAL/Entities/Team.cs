@@ -17,9 +17,15 @@ public partial class Team
 
     public DateTime UpdatedAt { get; set; }
 
+    public Guid? PendingLeaderId { get; set; }
+
+    public DateTime? LeaderTransferRequestedAt { get; set; }
+
     public virtual Class Class { get; set; } = null!;
 
     public virtual StudentProfile Leader { get; set; } = null!;
+
+    public virtual StudentProfile? PendingLeader { get; set; }
 
     public virtual Project? Project { get; set; }
 

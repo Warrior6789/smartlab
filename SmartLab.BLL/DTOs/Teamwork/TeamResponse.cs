@@ -7,6 +7,11 @@ public class TeamResponse
     public string ClassCode { get; set; } = string.Empty;
     public string TeamName { get; set; } = string.Empty;
     public Guid LeaderId { get; set; }
+
+    /// <summary>The member asked to become the leader; the leader changes only once they accept. Null when nobody is asked.</summary>
+    public Guid? PendingLeaderId { get; set; }
+    public string? PendingLeaderFullName { get; set; }
+    public DateTime? LeaderTransferRequestedAt { get; set; }
     /// <summary>No Pending invitation and at least MinTeamSize Accepted members (when the lecturer set one).</summary>
     public bool IsReadyForProject { get; set; }
     public string TeamFormationStatus { get; set; } = string.Empty;

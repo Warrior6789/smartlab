@@ -11,4 +11,10 @@ public interface ITeamNotifier
 
     Task MemberRemovedAsync(Guid teamId, Guid studentProfileId, CancellationToken ct = default);
     Task LeaderTransferredAsync(Guid teamId, Guid oldLeaderId, Guid newLeaderId, CancellationToken ct = default);
+
+    /// <summary>The leader (or the lecturer) asked a member to become the leader: tells that member to confirm.</summary>
+    Task LeaderTransferRequestedAsync(Guid teamId, Guid studentProfileId, CancellationToken ct = default);
+
+    /// <summary>The member asked to become the leader said no: tells the current leader.</summary>
+    Task LeaderTransferRejectedAsync(Guid teamId, Guid studentProfileId, CancellationToken ct = default);
 }

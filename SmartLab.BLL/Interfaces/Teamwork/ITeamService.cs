@@ -16,4 +16,7 @@ public interface ITeamService
     Task<TeamResponse> LeaveTeamAsync(Guid teamId, CancellationToken ct = default);
     Task<TeamResponse> RemoveMemberAsync(Guid teamId, Guid studentProfileId, CancellationToken ct = default);
     Task<TeamResponse> TransferLeaderAsync(Guid teamId, TransferTeamLeaderRequest request, CancellationToken ct = default);
+
+    /// <summary>The member asked to become the leader accepts (becomes the leader) or rejects.</summary>
+    Task<TeamResponse> RespondLeaderTransferAsync(Guid teamId, RespondLeaderTransferRequest request, CancellationToken ct = default);
 }

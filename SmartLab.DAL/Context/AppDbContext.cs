@@ -1617,6 +1617,8 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValueSql("now()")
                 .HasColumnName("created_at");
             entity.Property(e => e.LeaderId).HasColumnName("leader_id");
+            entity.Property(e => e.LeaderTransferRequestedAt).HasColumnName("leader_transfer_requested_at");
+            entity.Property(e => e.PendingLeaderId).HasColumnName("pending_leader_id");
             entity.Property(e => e.TeamName)
                 .HasMaxLength(100)
                 .HasColumnName("team_name");
@@ -1628,10 +1630,15 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.ClassId)
                 .HasConstraintName("teams_class_id_fkey");
 
-            entity.HasOne(d => d.Leader).WithMany(p => p.Teams)
+            entity.HasOne(d => d.Leader).WithMany(p => p.TeamLeaders)
                 .HasForeignKey(d => d.LeaderId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("teams_leader_id_fkey");
+
+            entity.HasOne(d => d.PendingLeader).WithMany(p => p.TeamPendingLeaders)
+                .HasForeignKey(d => d.PendingLeaderId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("teams_pending_leader_id_fkey");
         });
 
         modelBuilder.Entity<TeamMember>(entity =>

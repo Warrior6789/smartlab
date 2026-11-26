@@ -21,7 +21,22 @@ public static class TeamMappings
         return response;
     }
 
-    private static TeamResponse ToResponseCore(Team team) => new()
+    private static TeamResponse ToResponseCore(Team team)
+    {
+        var pendingLeader = team.TeamMembers.FirstOrDefault(tm => tm.StudentId == team.PendingLeaderId
+                                                                 && tm.Status == TeamMemberStatuses.Accepted);
+        var response = ToResponseFields(team);
+        if (pendingLeader != null)
+        {
+            response.PendingLeaderId = pendingLeader.StudentId;
+            response.PendingLeaderFullName = pendingLeader.Student.User.FullName;
+            response.LeaderTransferRequestedAt = team.LeaderTransferRequestedAt;
+        }
+
+        return response;
+    }
+
+    private static TeamResponse ToResponseFields(Team team) => new()
     {
         TeamId = team.TeamId,
         ClassId = team.ClassId,
