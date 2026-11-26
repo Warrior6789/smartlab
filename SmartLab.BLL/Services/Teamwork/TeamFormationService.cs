@@ -626,6 +626,7 @@ public class TeamFormationService : ITeamFormationService
             SuggestedSizes = suggestedSizes,
             StudyingStudents = studying,
             TeamCount = teams.Count,
+            MaxTeamCount = cls.MinTeamSize is { } minTeam ? TeamSizePlanner.MaxTeams(studying, minTeam) : null,
             UnassignedCount = unassigned.Count,
             UnderMinTeamCount = teams.Count(t => t.IsUnderMin),
             Teams = includeDetails ? teams : Array.Empty<TeamFormationTeamItem>(),

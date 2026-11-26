@@ -22,5 +22,11 @@ internal static class TeamSizePlanner
         return sizes;
     }
 
+    /// <summary>
+    /// Most teams the class can have so that each still reaches min members: 30 students, min 4 → 7. Students cannot create
+    /// more, so not everyone can open a team of their own.
+    /// </summary>
+    public static int MaxTeams(int students, int min) => Math.Max(1, students / min);
+
     private static int TeamCount(int students, int max) => (students + max - 1) / max;
 }

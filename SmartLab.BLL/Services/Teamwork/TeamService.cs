@@ -29,6 +29,22 @@ public class TeamService : ITeamService
         _changes = changes;
     }
 
+    /// <summary>
+    /// A class of 30 with teams of at least 4 holds 7 teams at most: once they exist the others must join one of them,
+    /// so students cannot each open a team of their own. Called while the class row is held, so two students cannot
+    /// pass the check at the same time.
+    /// </summary>
+    private async Task EnsureRoomForNewTeamAsync(Class cls, CancellationToken ct)
+    {
+        var studying = await _uow.Repository<ClassStudent>().QueryNoTracking()
+            .CountAsync(cs => cs.ClassId == cls.ClassId && cs.Status == StudyingStatus && cs.Student.User.IsActive, ct);
+        var maxTeams = TeamSizePlanner.MaxTeams(studying, cls.MinTeamSize!.Value);
+        var teams = await _uow.Repository<Team>().QueryNoTracking().CountAsync(t => t.ClassId == cls.ClassId, ct);
+        if (teams >= maxTeams)
+            throw new ConflictException(
+                $"Lớp đã đủ {maxTeams} nhóm, không tạo thêm được. Hãy nhận lời mời vào một nhóm hoặc chờ giảng viên xếp nhóm");
+    }
+
     public async Task<TeamResponse> CreateTeamAsync(
         Guid classId, CreateTeamRequest request, CancellationToken ct = default)
     {
@@ -41,10 +57,12 @@ public class TeamService : ITeamService
                 await GetCurrentStudentAsync(token);
                 await EnsureActiveEnrollmentAsync(classId, student.StudentProfileId, token);
                 EnsureStudentAssociationLocked(studentLocked);
-                await TeamFormationGate.EnsureOpenForStudentsAsync(_uow, classId, token);
+                var cls = await TeamFormationGate.EnsureOpenForStudentsAsync(_uow, classId, token);
 
                 if (await HasActiveTeamAssociationAsync(classId, student.StudentProfileId, null, token))
                     throw new ConflictException("Bạn đã là thành viên, đang có lời mời hoặc đang là trưởng nhóm khác trong lớp này");
+
+                await EnsureRoomForNewTeamAsync(cls, token);
 
                 var teamName = request.TeamName.Trim();
                 var normalizedName = teamName.ToLower();

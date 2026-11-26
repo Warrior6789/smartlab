@@ -28,6 +28,8 @@ public class TeamFormationResponse
 
     public int StudyingStudents { get; set; }
     public int TeamCount { get; set; }
+    /// <summary>Most teams students may create (studying students ÷ MinTeamSize); null while the team size is not set.</summary>
+    public int? MaxTeamCount { get; set; }
     public int UnassignedCount { get; set; }
     /// <summary>Teams with fewer Accepted members than MinTeamSize.</summary>
     public int UnderMinTeamCount { get; set; }
