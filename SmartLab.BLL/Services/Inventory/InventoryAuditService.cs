@@ -212,6 +212,13 @@ public class InventoryAuditService : IInventoryAuditService
 
         await EnsureCountedByLabStaffAsync(request.CabinetId, ct);
 
+        var hasConsumables = await _uow.Repository<ConsumableStock>().QueryNoTracking()
+            .AnyAsync(st => st.CabinetId == request.CabinetId && st.Quantity > 0, ct);
+        var hasUnits = await _uow.Repository<ComponentItem>().QueryNoTracking()
+            .AnyAsync(i => i.CabinetId == request.CabinetId && i.Status == ComponentItemStatuses.Available, ct);
+        if (!hasConsumables && !hasUnits)
+            throw new BadRequestException("Tủ đang trống, không có gì để kiểm kê");
+
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
         await _uow.Repository<StorageCabinet>().Query()
