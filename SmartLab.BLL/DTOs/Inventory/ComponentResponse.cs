@@ -34,7 +34,10 @@ public class ComponentResponse
     /// <summary>True when TotalQuantity is below MinStock: time to buy more.</summary>
     public bool IsLowStock => MinStock.HasValue && TotalQuantity < MinStock.Value;
 
-    /// <summary>Unit price on the newest non-cancelled stock receipt; null when the component was never received.</summary>
+    /// <summary>
+    /// Unit price on the newest completed stock receipt that was paid for: gifts and units found during a count (0₫) are skipped.
+    /// Null when the component was never bought.
+    /// </summary>
     public decimal? LatestUnitPrice { get; set; }
 
     /// <summary>When the component was added to the catalog.</summary>

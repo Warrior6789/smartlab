@@ -100,7 +100,7 @@ public class ComponentService : IComponentService
                     : c.ComponentItems.Count(i => i.Status == ComponentItemStatuses.Available),
                 MinStock = c.MinStock,
                 LatestUnitPrice = c.StockReceiptItems
-                    .Where(i => i.Receipt.Status == StockReceiptStatuses.Completed)
+                    .Where(i => i.Receipt.Status == StockReceiptStatuses.Completed && i.UnitPrice > 0)
                     .OrderByDescending(i => i.Receipt.ReceivedAt)
                     .Select(i => (decimal?)i.UnitPrice)
                     .FirstOrDefault(),
@@ -149,7 +149,7 @@ public class ComponentService : IComponentService
                                     : c.ComponentItems.Count(i => i.Status == ComponentItemStatuses.Available),
                                 MinStock = c.MinStock,
                                 LatestUnitPrice = c.StockReceiptItems
-                                    .Where(i => i.Receipt.Status == StockReceiptStatuses.Completed)
+                                    .Where(i => i.Receipt.Status == StockReceiptStatuses.Completed && i.UnitPrice > 0)
                                     .OrderByDescending(i => i.Receipt.ReceivedAt)
                                     .Select(i => (decimal?)i.UnitPrice)
                                     .FirstOrDefault(),
