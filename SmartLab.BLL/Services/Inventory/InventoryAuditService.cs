@@ -185,7 +185,6 @@ public class InventoryAuditService : IInventoryAuditService
         }
         else
         {
-            audit.Extras = await LoadExtrasAsync(auditId, audit.CabinetId, audit.RoomId, ct);
             audit.Differences = await InventoryTransactionService.ToResponses(
                     _uow.Repository<InventoryTransaction>().QueryNoTracking()
                         .Where(t => t.AuditId == auditId)
@@ -194,6 +193,9 @@ public class InventoryAuditService : IInventoryAuditService
                         .ThenBy(t => t.TransactionId))
                 .ToListAsync(ct);
         }
+
+        if (audit.Status != InventoryAuditStatuses.InProgress)
+            audit.Extras = await LoadExtrasAsync(auditId, audit.CabinetId, audit.RoomId, ct);
 
         return audit;
     }
