@@ -9,6 +9,7 @@ using SmartLab.BLL.External.Email;
 using SmartLab.BLL.External.Security;
 using SmartLab.BLL.Interfaces.AuditLogs;
 using SmartLab.BLL.Interfaces.Identity;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.BLL.Mappings.Identity;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
@@ -22,11 +23,13 @@ public class UserService : IUserService
     private readonly IEmailSender _email;
     private readonly IActiveUserChecker _sessionChecker;
     private readonly IAuditLogger _auditLogger;
+    private readonly IChangeBroadcaster _changes;
 
     public UserService(
         IUnitOfWork uow, IPasswordHasher passwordHasher, IEmailSender email, IActiveUserChecker sessionChecker,
-        IAuditLogger auditLogger)
+        IAuditLogger auditLogger, IChangeBroadcaster changes)
     {
+        _changes = changes;
         _uow = uow;
         _passwordHasher = passwordHasher;
         _email = email;
@@ -95,6 +98,7 @@ public class UserService : IUserService
             ct: ct);
         await _uow.SaveChangesAsync(ct);
 
+        await _changes.AccountChangedAsync(user.UserId);
         return await GetUserByIdAsync(user.UserId, ct);
     }
 
@@ -141,6 +145,7 @@ public class UserService : IUserService
         await _uow.SaveChangesAsync(ct);
         _sessionChecker.Forget(user.UserId);
 
+        await _changes.AccountChangedAsync(user.UserId);
         return await GetUserByIdAsync(user.UserId, ct);
     }
 
@@ -174,6 +179,7 @@ public class UserService : IUserService
             throw new ConflictException("Email đã được sử dụng");
         }
 
+        await _changes.AccountChangedAsync(userId);
         return await GetUserByIdAsync(userId, ct);
     }
 
@@ -203,6 +209,7 @@ public class UserService : IUserService
             "<p>Hãy đổi mật khẩu trong trang cá nhân sau khi đăng nhập.</p>";
         await _email.SendAsync(user.Email, "SmartLab - Mật khẩu mới", body, ct);
 
+        await _changes.AccountChangedAsync(userId);
         return new ResetUserPasswordResponse
         {
             UserId = user.UserId,
