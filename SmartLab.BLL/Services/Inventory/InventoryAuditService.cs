@@ -77,7 +77,9 @@ public class InventoryAuditService : IInventoryAuditService
                 ReviewedByName = a.ReviewedByNavigation != null ? a.ReviewedByNavigation.FullName : null,
                 ReviewedAt = a.ReviewedAt,
                 ReviewNote = a.ReviewNote,
-                DifferenceCount = a.InventoryTransactions.Count,
+                DifferenceCount = a.Status == InventoryAuditStatuses.Completed
+                    ? a.InventoryTransactions.Count
+                    : a.InventoryAuditCounts.Count(c => c.CountedQuantity != c.SystemQuantity) + a.Items.Count,
             });
 
         return PagedResult<InventoryAuditResponse>.CreateAsync(result, paging, ct);
@@ -105,7 +107,9 @@ public class InventoryAuditService : IInventoryAuditService
                             ReviewedByName = a.ReviewedByNavigation != null ? a.ReviewedByNavigation.FullName : null,
                             ReviewedAt = a.ReviewedAt,
                             ReviewNote = a.ReviewNote,
-                            DifferenceCount = a.InventoryTransactions.Count,
+                            DifferenceCount = a.Status == InventoryAuditStatuses.Completed
+                                ? a.InventoryTransactions.Count
+                                : a.InventoryAuditCounts.Count(c => c.CountedQuantity != c.SystemQuantity) + a.Items.Count,
                         })
                         .FirstOrDefaultAsync(ct)
                     ?? throw new NotFoundException("Không tìm thấy phiên kiểm kê");
