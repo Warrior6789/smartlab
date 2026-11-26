@@ -6,6 +6,7 @@ using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Inventory;
 using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.Interfaces.Inventory;
+using SmartLab.BLL.Mappings.Inventory;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
 
@@ -136,6 +137,12 @@ public class InventoryAuditService : IInventoryAuditService
                     Status = i.Status,
                 })
                 .ToListAsync(ct);
+
+            var draft = await _uow.Repository<InventoryAudit>().QueryNoTracking()
+                .Where(a => a.AuditId == auditId)
+                .Select(a => new { a.Draft, a.DraftSavedAt })
+                .FirstAsync(ct);
+            audit.Draft = InventoryAuditDraftMappings.FromJson(draft.Draft, draft.DraftSavedAt);
         }
         else if (audit.Status == InventoryAuditStatuses.Submitted)
         {
@@ -227,6 +234,36 @@ public class InventoryAuditService : IInventoryAuditService
         return await GetAuditByIdAsync(audit.AuditId, ct);
     }
 
+    public async Task<AuditDraftResponse> SaveDraftAsync(
+        Guid auditId, SaveInventoryAuditDraftRequest request, CancellationToken ct = default)
+    {
+        var audit = await _uow.Repository<InventoryAudit>().QueryNoTracking()
+                        .Where(a => a.AuditId == auditId)
+                        .Select(a => new { a.CabinetId, a.Status })
+                        .FirstOrDefaultAsync(ct)
+                    ?? throw new NotFoundException("Không tìm thấy phiên kiểm kê");
+        await EnsureLabStaffOfCabinetAsync(audit.CabinetId, ct);
+        if (audit.Status != InventoryAuditStatuses.InProgress)
+            throw new ConflictException("Phiên kiểm kê không ở trạng thái đang kiểm");
+
+        var json = InventoryAuditDraftMappings.ToJson(request);
+        string? note = null;
+        if (!string.IsNullOrWhiteSpace(request.Note))
+            note = request.Note.Trim();
+        var now = DateTime.UtcNow;
+
+        var saved = await _uow.Repository<InventoryAudit>().Query()
+            .Where(a => a.AuditId == auditId && a.Status == InventoryAuditStatuses.InProgress)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.Draft, json)
+                .SetProperty(a => a.DraftSavedAt, now)
+                .SetProperty(a => a.Note, note), ct);
+        if (saved == 0)
+            throw new ConflictException("Phiên kiểm kê vừa được gửi hoặc hủy bởi người khác");
+
+        return InventoryAuditDraftMappings.FromJson(json, now)!;
+    }
+
     public async Task<InventoryAuditDetailResponse> SubmitAuditAsync(
         Guid auditId, SubmitInventoryAuditRequest request, CancellationToken ct = default)
     {
@@ -264,7 +301,9 @@ public class InventoryAuditService : IInventoryAuditService
             .ExecuteUpdateAsync(s => s
                 .SetProperty(a => a.Status, InventoryAuditStatuses.Submitted)
                 .SetProperty(a => a.SubmittedAt, now)
-                .SetProperty(a => a.Note, note), ct);
+                .SetProperty(a => a.Note, note)
+                .SetProperty(a => a.Draft, (string?)null)
+                .SetProperty(a => a.DraftSavedAt, (DateTime?)null), ct);
         if (submitted == 0)
             throw new ConflictException("Phiên kiểm kê vừa được gửi hoặc hủy bởi người khác");
 

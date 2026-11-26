@@ -896,6 +896,13 @@ public partial class AppDbContext : DbContext
                 .HasColumnName("audit_date");
             entity.Property(e => e.AuditorId).HasColumnName("auditor_id");
             entity.Property(e => e.CabinetId).HasColumnName("cabinet_id");
+            entity.Property(e => e.Draft)
+                .HasComment("Counting saved halfway while InProgress: counted lines (component, quantity) and units ticked missing; cleared on submit")
+                .HasColumnType("jsonb")
+                .HasColumnName("draft");
+            entity.Property(e => e.DraftSavedAt)
+                .HasComment("When the draft was last saved")
+                .HasColumnName("draft_saved_at");
             entity.Property(e => e.Note).HasColumnName("note");
             entity.Property(e => e.ReviewNote)
                 .HasComment("Why the reviewer sent the count back (recount), or a note on approval")

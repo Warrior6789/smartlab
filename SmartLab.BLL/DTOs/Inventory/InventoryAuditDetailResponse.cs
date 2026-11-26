@@ -8,6 +8,9 @@ public class InventoryAuditDetailResponse : InventoryAuditResponse
     /// <summary>Checklist to count, only while InProgress: units that should be in the cabinet.</summary>
     public List<AuditItemLineResponse> Items { get; set; } = new();
 
+    /// <summary>Only while InProgress: the counting saved halfway, null when nothing was saved.</summary>
+    public AuditDraftResponse? Draft { get; set; }
+
     /// <summary>Only while Submitted: the consumable counts waiting for approval, with the system quantity at submit.</summary>
     public List<AuditSubmittedCountResponse> SubmittedCounts { get; set; } = new();
 

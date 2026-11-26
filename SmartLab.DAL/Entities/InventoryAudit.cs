@@ -28,6 +28,16 @@ public partial class InventoryAudit
     /// </summary>
     public string? ReviewNote { get; set; }
 
+    /// <summary>
+    /// Counting saved halfway while InProgress: counted lines (component, quantity) and units ticked missing; cleared on submit
+    /// </summary>
+    public string? Draft { get; set; }
+
+    /// <summary>
+    /// When the draft was last saved
+    /// </summary>
+    public DateTime? DraftSavedAt { get; set; }
+
     public virtual User Auditor { get; set; } = null!;
 
     public virtual StorageCabinet Cabinet { get; set; } = null!;

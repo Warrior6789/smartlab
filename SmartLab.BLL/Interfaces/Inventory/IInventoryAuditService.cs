@@ -18,6 +18,9 @@ public interface IInventoryAuditService
     /// <summary>Starts counting one cabinet. One open (InProgress or Submitted) audit per cabinet at a time.</summary>
     Task<InventoryAuditDetailResponse> StartAuditAsync(StartInventoryAuditRequest request, CancellationToken ct = default);
 
+    /// <summary>Saves the counting halfway (InProgress only) so it can be continued later; stock is not touched.</summary>
+    Task<AuditDraftResponse> SaveDraftAsync(Guid auditId, SaveInventoryAuditDraftRequest request, CancellationToken ct = default);
+
     /// <summary>Sends the count for approval (InProgress → Submitted). Stock is not touched yet.</summary>
     Task<InventoryAuditDetailResponse> SubmitAuditAsync(Guid auditId, SubmitInventoryAuditRequest request, CancellationToken ct = default);
 

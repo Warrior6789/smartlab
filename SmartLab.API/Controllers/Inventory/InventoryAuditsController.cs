@@ -66,6 +66,21 @@ public class InventoryAuditsController : ControllerBase
     }
 
     /// <summary>
+    /// Lưu tạm kết quả đang đếm dở (chỉ khi đang kiểm) để đếm tiếp sau hoặc trên máy khác. Không đổi tồn kho.
+    /// </summary>
+    [HttpPut("{id:guid}/draft")]
+    [ProducesResponseType(typeof(ApiResponse<AuditDraftResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SaveDraft(Guid id, [FromBody] SaveInventoryAuditDraftRequest request, CancellationToken ct)
+    {
+        var draft = await _inventoryAuditService.SaveDraftAsync(id, request, ct);
+        return Ok(ApiResponse<AuditDraftResponse>.Ok(draft, "Đã lưu tạm"));
+    }
+
+    /// <summary>
     /// Gửi kết quả đếm để chờ duyệt (InProgress → Submitted): số đếm vật tư và danh sách con không tìm thấy.
     /// Chưa thay đổi tồn kho. <c>/complete</c> là đường dẫn cũ, làm đúng việc này (không còn chốt kho ngay).
     /// </summary>
