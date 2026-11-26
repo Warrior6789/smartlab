@@ -27,6 +27,12 @@ public class SubmitInventoryAuditRequestValidator : AbstractValidator<SubmitInve
             .Must(ids => ids.Distinct().Count() == ids.Count).WithMessage("Danh sách con bị mất bị trùng")
             .Must(ids => !ids.Contains(Guid.Empty)).WithMessage("Id con linh kiện không hợp lệ");
 
+        RuleFor(x => x.Extras)
+            .NotNull().WithMessage("Danh sách thiết bị thừa không được null")
+            .Must(extras => extras == null || extras.Count <= 500).WithMessage("Tối đa 500 thiết bị thừa");
+        RuleForEach(x => x.Extras)
+            .SetValidator(new AuditExtraRequestValidator());
+
         RuleFor(x => x.Note)
             .MaximumLength(StartInventoryAuditRequestValidator.NoteMaxLength)
             .WithMessage($"Ghi chú tối đa {StartInventoryAuditRequestValidator.NoteMaxLength} ký tự");

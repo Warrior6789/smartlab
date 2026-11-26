@@ -54,6 +54,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<InventoryAuditCount> InventoryAuditCounts { get; set; }
 
+    public virtual DbSet<InventoryAuditExtra> InventoryAuditExtras { get; set; }
+
     public virtual DbSet<InventoryTransaction> InventoryTransactions { get; set; }
 
     public virtual DbSet<IssueReport> IssueReports { get; set; }
@@ -967,6 +969,38 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.ComponentId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("inventory_audit_counts_component_id_fkey");
+        });
+
+        modelBuilder.Entity<InventoryAuditExtra>(entity =>
+        {
+            entity.HasKey(e => e.ExtraId).HasName("inventory_audit_extras_pkey");
+
+            entity.ToTable("inventory_audit_extras");
+
+            entity.HasIndex(e => e.AuditId, "ix_inventory_audit_extras_audit");
+
+            entity.Property(e => e.ExtraId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("extra_id");
+            entity.Property(e => e.AuditId).HasColumnName("audit_id");
+            entity.Property(e => e.ComponentId).HasColumnName("component_id");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("created_at");
+            entity.Property(e => e.ItemCode)
+                .HasMaxLength(50)
+                .HasColumnName("item_code");
+            entity.Property(e => e.Note)
+                .HasMaxLength(500)
+                .HasColumnName("note");
+
+            entity.HasOne(d => d.Audit).WithMany(p => p.InventoryAuditExtras)
+                .HasForeignKey(d => d.AuditId)
+                .HasConstraintName("inventory_audit_extras_audit_id_fkey");
+
+            entity.HasOne(d => d.Component).WithMany(p => p.InventoryAuditExtras)
+                .HasForeignKey(d => d.ComponentId)
+                .HasConstraintName("inventory_audit_extras_component_id_fkey");
         });
 
         modelBuilder.Entity<InventoryTransaction>(entity =>

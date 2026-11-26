@@ -16,6 +16,9 @@ public static class InventoryAuditDraftMappings
                 .Select(l => new AuditDraftLineResponse { ComponentId = l.ComponentId, CountedQuantity = l.CountedQuantity })
                 .ToList(),
             MissingItemIds = request.MissingItemIds.ToList(),
+            Extras = request.Extras
+                .Select(e => new AuditDraftExtraResponse { ItemCode = e.ItemCode, ComponentId = e.ComponentId, Note = e.Note })
+                .ToList(),
         };
         return JsonSerializer.Serialize(draft, JsonOptions);
     }

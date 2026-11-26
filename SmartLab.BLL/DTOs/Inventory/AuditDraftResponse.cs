@@ -5,5 +5,6 @@ public class AuditDraftResponse
 {
     public List<AuditDraftLineResponse> Lines { get; set; } = new();
     public List<Guid> MissingItemIds { get; set; } = new();
+    public List<AuditDraftExtraResponse> Extras { get; set; } = new();
     public DateTime? SavedAt { get; set; }
 }

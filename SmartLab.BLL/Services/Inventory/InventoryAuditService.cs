@@ -185,6 +185,7 @@ public class InventoryAuditService : IInventoryAuditService
         }
         else
         {
+            audit.Extras = await LoadExtrasAsync(auditId, audit.CabinetId, audit.RoomId, ct);
             audit.Differences = await InventoryTransactionService.ToResponses(
                     _uow.Repository<InventoryTransaction>().QueryNoTracking()
                         .Where(t => t.AuditId == auditId)
@@ -328,6 +329,11 @@ public class InventoryAuditService : IInventoryAuditService
         await _uow.Repository<InventoryAuditCount>().Query()
             .Where(c => c.AuditId == auditId)
             .ExecuteDeleteAsync(ct);
+        await _uow.Repository<InventoryAuditExtra>().Query()
+            .Where(e => e.AuditId == auditId)
+            .ExecuteDeleteAsync(ct);
+
+        await AddExtrasAsync(tracked, request.Extras, ct);
 
         if (missingIds.Count > 0)
         {
@@ -462,6 +468,9 @@ public class InventoryAuditService : IInventoryAuditService
         await _uow.Repository<InventoryAuditCount>().Query()
             .Where(c => c.AuditId == auditId)
             .ExecuteDeleteAsync(ct);
+        await _uow.Repository<InventoryAuditExtra>().Query()
+            .Where(e => e.AuditId == auditId)
+            .ExecuteDeleteAsync(ct);
 
         await _uow.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
@@ -493,6 +502,123 @@ public class InventoryAuditService : IInventoryAuditService
     /// Approvers may work on every cabinet; other users (Lab Staff) only on cabinets of a lab they are assigned to.
     /// </summary>
     /// <summary>Viewing an audit: approvers see every cabinet, lab staff only the cabinets of their labs.</summary>
+    private async Task AddExtrasAsync(InventoryAudit audit, List<AuditExtraRequest> extras, CancellationToken ct)
+    {
+        if (extras.Count == 0)
+            return;
+
+        var componentIds = extras.Where(e => e.ComponentId.HasValue).Select(e => e.ComponentId!.Value).Distinct().ToList();
+        if (componentIds.Count > 0)
+        {
+            var known = await _uow.Repository<Component>().QueryNoTracking()
+                .CountAsync(c => componentIds.Contains(c.ComponentId), ct);
+            if (known < componentIds.Count)
+                throw new BadRequestException("Có thiết bị thừa chọn linh kiện không tồn tại");
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var extra in extras)
+        {
+            var code = extra.ItemCode?.Trim().ToUpperInvariant();
+            audit.InventoryAuditExtras.Add(new InventoryAuditExtra
+            {
+                ItemCode = string.IsNullOrEmpty(code) ? null : code,
+                ComponentId = extra.ComponentId,
+                Note = string.IsNullOrWhiteSpace(extra.Note) ? null : extra.Note.Trim(),
+                CreatedAt = now,
+            });
+        }
+    }
+
+    /// <summary>Looks each extra unit up by its label code, so the inventory manager sees what it is and what to do.</summary>
+    private async Task<List<AuditExtraResponse>> LoadExtrasAsync(Guid auditId, Guid cabinetId, Guid roomId, CancellationToken ct)
+    {
+        var extras = await _uow.Repository<InventoryAuditExtra>().QueryNoTracking()
+            .Where(e => e.AuditId == auditId)
+            .OrderBy(e => e.CreatedAt).ThenBy(e => e.ExtraId)
+            .Select(e => new
+            {
+                e.ExtraId,
+                e.ItemCode,
+                e.Note,
+                e.ComponentId,
+                ComponentName = e.Component != null ? e.Component.ComponentName : null,
+            })
+            .ToListAsync(ct);
+
+        var codes = extras.Where(e => e.ItemCode != null).Select(e => e.ItemCode!).Distinct().ToList();
+        var units = await _uow.Repository<ComponentItem>().QueryNoTracking()
+            .Where(i => codes.Contains(i.ItemCode))
+            .Select(i => new
+            {
+                i.ItemId,
+                i.ItemCode,
+                i.SerialNumber,
+                i.Status,
+                i.ComponentId,
+                i.Component.ComponentName,
+                i.CabinetId,
+                i.Cabinet.CabinetCode,
+                i.Cabinet.RoomId,
+                RoomCode = i.Cabinet.Room.RoomCode,
+                Loan = i.BorrowItems
+                    .Where(b => b.Status == BorrowItemStatuses.Issued)
+                    .Select(b => new { b.BorrowRequestId, b.BorrowRequest.RequestCode })
+                    .FirstOrDefault(),
+            })
+            .ToListAsync(ct);
+        var unitByCode = units.ToDictionary(u => u.ItemCode, StringComparer.OrdinalIgnoreCase);
+
+        var result = new List<AuditExtraResponse>();
+        foreach (var extra in extras)
+        {
+            var response = new AuditExtraResponse
+            {
+                ExtraId = extra.ExtraId,
+                ItemCode = extra.ItemCode,
+                Note = extra.Note,
+                ComponentId = extra.ComponentId,
+                ComponentName = extra.ComponentName,
+                Resolution = "NoLabel",
+            };
+            if (extra.ItemCode != null)
+            {
+                response.Resolution = "Unknown";
+                if (unitByCode.TryGetValue(extra.ItemCode, out var unit))
+                {
+                    response.ItemId = unit.ItemId;
+                    response.SerialNumber = unit.SerialNumber;
+                    response.ComponentId = unit.ComponentId;
+                    response.ComponentName = unit.ComponentName;
+                    response.ItemCabinetId = unit.CabinetId;
+                    response.ItemCabinetCode = unit.CabinetCode;
+                    response.ItemRoomCode = unit.RoomCode;
+                    response.SameLab = unit.RoomId == roomId;
+                    response.BorrowRequestId = unit.Loan?.BorrowRequestId;
+                    response.BorrowRequestCode = unit.Loan?.RequestCode;
+                    response.Resolution = ExtraResolution(unit.Status, unit.CabinetId == cabinetId);
+                }
+            }
+
+            result.Add(response);
+        }
+
+        return result;
+    }
+
+    private static string ExtraResolution(string status, bool inThisCabinet)
+    {
+        if (status == ComponentItemStatuses.Lost)
+            return "Lost";
+        if (status == ComponentItemStatuses.Borrowed)
+            return "Borrowed";
+        if (status == ComponentItemStatuses.Retired)
+            return "Retired";
+        if (inThisCabinet)
+            return "InThisCabinet";
+        return "OtherCabinet";
+    }
+
     private async Task NotifyManagersSubmittedAsync(Guid auditId, Guid cabinetId, CancellationToken ct)
     {
         var cabinetName = await CabinetNameAsync(cabinetId, ct);

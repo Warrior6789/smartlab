@@ -12,4 +12,6 @@ public class SaveInventoryAuditDraftRequest
     public List<Guid> MissingItemIds { get; set; } = new();
 
     public string? Note { get; set; }
+
+    public List<AuditExtraRequest> Extras { get; set; } = new();
 }

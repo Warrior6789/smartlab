@@ -17,6 +17,9 @@ public class InventoryAuditDetailResponse : InventoryAuditResponse
     /// <summary>Only while Submitted: units reported missing; they become Lost when the count is approved.</summary>
     public List<AuditItemLineResponse> MissingItems { get; set; } = new();
 
+    /// <summary>Units found that were not on the count list, with what their code says (submitted and completed counts).</summary>
+    public List<AuditExtraResponse> Extras { get; set; } = new();
+
     /// <summary>The audit report once Completed: stock adjustments and lost units written by this audit.</summary>
     public List<InventoryTransactionResponse> Differences { get; set; } = new();
 

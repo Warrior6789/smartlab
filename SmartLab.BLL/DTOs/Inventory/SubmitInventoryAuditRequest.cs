@@ -11,4 +11,7 @@ public class SubmitInventoryAuditRequest
     public List<Guid> MissingItemIds { get; set; } = new();
 
     public string? Note { get; set; }
+
+    /// <summary>Units found in the cabinet that are not on the count list; the inventory manager resolves them.</summary>
+    public List<AuditExtraRequest> Extras { get; set; } = new();
 }

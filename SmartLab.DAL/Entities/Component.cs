@@ -54,6 +54,8 @@ public partial class Component
 
     public virtual ICollection<InventoryAuditCount> InventoryAuditCounts { get; set; } = new List<InventoryAuditCount>();
 
+    public virtual ICollection<InventoryAuditExtra> InventoryAuditExtras { get; set; } = new List<InventoryAuditExtra>();
+
     public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
 
     public virtual ICollection<ProjectComponent> ProjectComponents { get; set; } = new List<ProjectComponent>();
