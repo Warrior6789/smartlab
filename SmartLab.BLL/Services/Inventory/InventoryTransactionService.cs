@@ -1,8 +1,6 @@
 using SmartLab.BLL.Common;
-using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
 using SmartLab.BLL.DTOs.Inventory;
-using SmartLab.BLL.External.CurrentUser;
 using SmartLab.BLL.Interfaces.Inventory;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
@@ -12,24 +10,16 @@ namespace SmartLab.BLL.Services.Inventory;
 public class InventoryTransactionService : IInventoryTransactionService
 {
     private readonly IUnitOfWork _uow;
-    private readonly ICurrentUserService _currentUser;
 
-    public InventoryTransactionService(IUnitOfWork uow, ICurrentUserService currentUser)
+    public InventoryTransactionService(IUnitOfWork uow)
     {
         _uow = uow;
-        _currentUser = currentUser;
     }
 
     public Task<PagedResult<InventoryTransactionResponse>> GetTransactionsAsync(
         InventoryTransactionQueryParams query, PageParams paging, CancellationToken ct = default)
     {
         var transactions = _uow.Repository<InventoryTransaction>().QueryNoTracking();
-
-        if (!_currentUser.HasPermission(PermissionCodes.InventoryAuditApprove))
-        {
-            var userId = _currentUser.UserId ?? throw new UnauthorizedException();
-            transactions = transactions.Where(t => t.Cabinet != null && t.Cabinet.Room.LabRoomStaffs.Any(s => s.UserId == userId));
-        }
 
         if (query.RoomId.HasValue)
             transactions = transactions.Where(t => t.Cabinet != null && t.Cabinet.RoomId == query.RoomId.Value);
