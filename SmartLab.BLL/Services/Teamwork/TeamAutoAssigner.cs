@@ -3,9 +3,9 @@ namespace SmartLab.BLL.Services.Teamwork;
 /// <summary>
 /// Pure placement plan for students without a team. Order:
 /// 1. Teams below the minimum get students until they reach it, the fullest team first so as many as possible are completed.
-/// 2. The rest form new teams whose sizes are within [min, max] and as even as possible.
-/// 3. When the rest cannot be split that way, students go one by one into teams that still have room (smallest first);
-///    when there is no room left, beyond the maximum (needs confirmation).
+/// 2. The rest goes into as few teams as possible: the room left in existing teams plus the fewest new teams that hold
+///    everyone. Students are handed out one by one to the smallest team, so sizes end up even and as full as possible
+///    (30 students, 3–5 → 5+5+5+5+5+5). When even that is not enough, beyond the maximum (needs confirmation).
 /// 4. Teams that are still below the minimum are merged whole, so friends stay together: first with each other, then into
 ///    a team that has room for all of them. A team that fits nowhere is left to the lecturer with a warning.
 /// 5. Students placed here (never the members who chose their team) are moved from bigger to smaller teams while that
@@ -50,33 +50,63 @@ internal static class TeamAutoAssigner
                 Place(team.TeamId);
         }
 
-        while (pool.Count > 0 && !TeamSizePlanner.CanSplit(pool.Count, min, max))
+        var newTeams = NewTeamCount(pool.Count, counts.Values.Sum(c => Math.Max(0, max - c)), counts.Count, min, max);
+        var groups = counts.Keys.Select(id => (TeamId: (Guid?)id, Members: (List<Guid>?)null)).ToList();
+        for (var i = 0; i < newTeams; i++)
         {
-            var withRoom = counts.Where(c => c.Value < max).OrderBy(c => c.Value).Select(c => (Guid?)c.Key).FirstOrDefault();
-            if (withRoom is null)
-                break;
-            Place(withRoom.Value);
+            var members = new List<Guid>();
+            plan.NewTeams.Add(members);
+            groups.Add((null, members));
         }
 
-        if (pool.Count > 0 && !TeamSizePlanner.CanSplit(pool.Count, min, max) && counts.Count > 0)
+        int SizeOf((Guid? TeamId, List<Guid>? Members) group)
         {
-            while (pool.Count > 0 && !TeamSizePlanner.CanSplit(pool.Count, min, max))
-                Place(counts.OrderBy(c => c.Value).First().Key);
-            plan.ExceedsMax = true;
-            plan.Warnings.Add($"Không còn chỗ, một số nhóm sẽ vượt quá {max} thành viên");
+            if (group.TeamId is { } id)
+                return counts[id];
+            return group.Members!.Count;
         }
 
-        if (pool.Count > 0)
+        while (pool.Count > 0)
         {
-            foreach (var size in TeamSizePlanner.EvenSizes(pool.Count, max))
-                plan.NewTeams.Add(Enumerable.Range(0, size).Select(_ => pool.Dequeue()).ToList());
-            if (plan.NewTeams.Any(t => t.Count < min))
-                plan.Warnings.Add($"Không đủ sinh viên, có nhóm mới ít hơn {min} thành viên tối thiểu");
+            var smallest = groups.OrderBy(SizeOf).First();
+            if (SizeOf(smallest) >= max && !plan.ExceedsMax)
+            {
+                plan.ExceedsMax = true;
+                plan.Warnings.Add($"Không còn chỗ, một số nhóm sẽ vượt quá {max} thành viên");
+            }
+
+            if (smallest.TeamId is { } teamId)
+                Place(teamId);
+            else
+                smallest.Members!.Add(pool.Dequeue());
         }
+
+        if (plan.NewTeams.Any(t => t.Count < min))
+            plan.Warnings.Add($"Không đủ sinh viên, có nhóm mới ít hơn {min} thành viên tối thiểu");
 
         MergeSmallTeams(plan, teams, counts, min, max);
         Balance(plan, counts);
         return plan;
+    }
+
+    /// <summary>
+    /// Fewest new teams that, together with the room left in the existing teams, hold everyone, so teams end up as full
+    /// as possible (30 students, 3–5 → six teams of 5, not eight of 3–4). Each new team must still be able to reach min.
+    /// No existing team and too few students for one full team: a single new team below the minimum (with a warning).
+    /// </summary>
+    private static int NewTeamCount(int students, int room, int existingTeams, int min, int max)
+    {
+        if (students == 0)
+            return 0;
+        for (var k = 0; k * min <= students; k++)
+        {
+            if (students <= room + k * max)
+                return k;
+        }
+
+        if (existingTeams == 0)
+            return Math.Max(1, students / min);
+        return students / min;
     }
 
     private static void Balance(Plan plan, Dictionary<Guid, int> counts)
