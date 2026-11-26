@@ -570,6 +570,19 @@ public class InventoryAuditService : IInventoryAuditService
             })
             .ToListAsync(ct);
         var unitByCode = units.ToDictionary(u => u.ItemCode, StringComparer.OrdinalIgnoreCase);
+        var cabinetType = await _uow.Repository<StorageCabinet>().QueryNoTracking()
+            .Where(c => c.CabinetId == cabinetId)
+            .Select(c => c.TrackingType)
+            .FirstOrDefaultAsync(ct);
+        var componentIds = units.Select(u => u.ComponentId)
+            .Concat(extras.Where(e => e.ComponentId.HasValue).Select(e => e.ComponentId!.Value))
+            .Distinct()
+            .ToList();
+        var typeOf = await _uow.Repository<Component>().QueryNoTracking()
+            .Where(c => componentIds.Contains(c.ComponentId))
+            .ToDictionaryAsync(c => c.ComponentId, c => c.TrackingType, ct);
+        bool Fits(Guid? componentId) =>
+            cabinetType == null || (componentId.HasValue && typeOf.GetValueOrDefault(componentId.Value) == cabinetType);
 
         var result = new List<AuditExtraResponse>();
         foreach (var extra in extras)
@@ -601,6 +614,8 @@ public class InventoryAuditService : IInventoryAuditService
                     response.Resolution = ExtraResolution(unit.Status, unit.CabinetId == cabinetId);
                 }
             }
+
+            response.FitsThisCabinet = Fits(response.ComponentId);
 
             result.Add(response);
         }

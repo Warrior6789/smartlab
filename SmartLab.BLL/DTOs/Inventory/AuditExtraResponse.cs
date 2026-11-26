@@ -24,6 +24,9 @@ public class AuditExtraResponse
     /// <summary>The unit's cabinet is in the same lab as the counted cabinet, so it can be moved here.</summary>
     public bool SameLab { get; set; }
 
+    /// <summary>The counted cabinet may hold this component (its tracking type matches or the cabinet takes any), so it can be moved here.</summary>
+    public bool FitsThisCabinet { get; set; }
+
     /// <summary>The open borrow request that still holds the unit (Borrowed).</summary>
     public Guid? BorrowRequestId { get; set; }
     public string? BorrowRequestCode { get; set; }
