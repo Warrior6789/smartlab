@@ -20,7 +20,7 @@ public class ReportsController : ControllerBase
         _reportService = reportService;
     }
 
-    /// <summary>Tồn kho theo linh kiện: sẵn sàng, đang mượn, mất/thanh lý (Admin, quản lý kho; LabStaff chỉ lab mình phụ trách).</summary>
+    /// <summary>Tồn kho theo linh kiện: sẵn sàng, đang mượn, mất/thanh lý (chỉ Admin, quản lý kho).</summary>
     [HttpGet("inventory/stock-summary")]
     [ProducesResponseType(typeof(ApiResponse<PagedResult<StockSummaryResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
@@ -31,7 +31,7 @@ public class ReportsController : ControllerBase
         return Ok(ApiResponse<PagedResult<StockSummaryResponse>>.Ok(result));
     }
 
-    /// <summary>Linh kiện dưới mức tồn tối thiểu, số còn thiếu và giá nhập gần nhất (LabStaff không thấy giá), thiếu nhiều nhất trước.</summary>
+    /// <summary>Linh kiện dưới mức tồn tối thiểu, số còn thiếu và giá nhập gần nhất, thiếu nhiều nhất trước (chỉ Admin, quản lý kho).</summary>
     [HttpGet("inventory/low-stock")]
     [ProducesResponseType(typeof(ApiResponse<PagedResult<LowStockResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
@@ -42,7 +42,7 @@ public class ReportsController : ControllerBase
         return Ok(ApiResponse<PagedResult<LowStockResponse>>.Ok(result));
     }
 
-    /// <summary>Thẻ kho của 1 linh kiện trong kỳ: tồn đầu, nhập/xuất theo loại giao dịch (chuyển tủ trong cùng phạm vi và phiếu nhập đã hủy không tính), tồn cuối (mặc định 30 ngày gần nhất, tối đa 366 ngày).</summary>
+    /// <summary>Thẻ kho của 1 linh kiện trong kỳ: tồn đầu, nhập/xuất theo loại giao dịch (chuyển tủ trong cùng phạm vi và phiếu nhập đã hủy không tính), tồn cuối (mặc định 30 ngày gần nhất, tối đa 366 ngày; chỉ Admin, quản lý kho).</summary>
     [HttpGet("inventory/movements")]
     [ProducesResponseType(typeof(ApiResponse<StockMovementResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
@@ -86,7 +86,7 @@ public class ReportsController : ControllerBase
         return Ok(ApiResponse<LossReportResponse>.Ok(result));
     }
 
-    /// <summary>Thiết bị giá trị cao sắp hết bảo hành trong days ngày tới (mặc định 30), hết sớm nhất trước.</summary>
+    /// <summary>Thiết bị giá trị cao sắp hết bảo hành trong days ngày tới (mặc định 30), hết sớm nhất trước (chỉ Admin, quản lý kho).</summary>
     [HttpGet("inventory/warranty-expiring")]
     [ProducesResponseType(typeof(ApiResponse<PagedResult<WarrantyExpiringResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]

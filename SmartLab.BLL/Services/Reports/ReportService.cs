@@ -27,6 +27,7 @@ public class ReportService : IReportService
         StockSummaryQueryParams query, PageParams paging, CancellationToken ct = default)
     {
         var scope = await GetScopeAsync(ct);
+        EnsureSeesStock(scope);
         var rooms = InventoryRooms(scope, query.RoomId);
 
         var summary = StockSummary(query, rooms);
@@ -46,6 +47,7 @@ public class ReportService : IReportService
         StockSummaryQueryParams query, PageParams paging, CancellationToken ct = default)
     {
         var scope = await GetScopeAsync(ct);
+        EnsureSeesStock(scope);
         var rooms = InventoryRooms(scope, query.RoomId);
         var receiptItems = CompletedReceiptItems();
 
@@ -84,6 +86,7 @@ public class ReportService : IReportService
     public async Task<StockMovementResponse> GetStockMovementsAsync(StockMovementQueryParams query, CancellationToken ct = default)
     {
         var scope = await GetScopeAsync(ct);
+        EnsureSeesStock(scope);
         var rooms = InventoryRooms(scope, query.RoomId);
         var period = ReportPeriod.Create(query.FromDate, query.ToDate);
         var componentId = query.ComponentId!.Value;
@@ -294,6 +297,7 @@ public class ReportService : IReportService
         WarrantyQueryParams query, PageParams paging, CancellationToken ct = default)
     {
         var scope = await GetScopeAsync(ct);
+        EnsureSeesStock(scope);
         var rooms = InventoryRooms(scope, query.RoomId);
 
         var today = DateTime.SpecifyKind(ReportPeriod.VietnamToday(), DateTimeKind.Utc);
@@ -829,6 +833,13 @@ public class ReportService : IReportService
             requests = requests.Where(r => r.ClassId == classId.Value);
 
         return requests;
+    }
+
+    /// <summary>Stock reports (stock, low stock, stock card, warranty) are for Admin and inventory managers only.</summary>
+    private static void EnsureSeesStock(ReportScope scope)
+    {
+        if (!scope.SeesAll)
+            throw new ForbiddenException("Chỉ Admin và quản lý kho được xem báo cáo tồn kho");
     }
 
     private static void EnsureSeesMoney(ReportScope scope)
