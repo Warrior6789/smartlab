@@ -16,5 +16,7 @@ public class CreateCourseRequestValidator : AbstractValidator<CreateCourseReques
         RuleFor(x => x.Credits)
             .InclusiveBetween(1, 10)
             .WithMessage("Số tín chỉ phải từ 1 đến 10.");
+        RuleFor(x => x.RoomId)
+            .NotEmpty().WithMessage("Chọn lab phụ trách môn học");
     }
 }
