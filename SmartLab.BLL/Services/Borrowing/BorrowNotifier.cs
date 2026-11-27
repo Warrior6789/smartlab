@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SmartLab.BLL.Constants;
@@ -66,12 +66,17 @@ public class BorrowNotifier : IBorrowNotifier
 
         var body =
             Greeting(info) +
-            $"<p>Đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)} đã đủ linh kiện.</p>" +
-            $"<p>Mời bạn đến <b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b> nhận đồ" +
-            $"{BorrowDateText(info)}. Nhớ mang theo <b>thẻ sinh viên</b>: nhân viên sẽ chụp ảnh linh kiện kèm thẻ khi giao.</p>" +
+            $"<p>Lab <b>{Encode(info.RoomCode)} - {Encode(info.RoomName)}</b> đã nhận đơn mượn <b>{Encode(info.RequestCode)}</b>{ProjectText(info)} " +
+            $"và hẹn bạn đến nhận đồ{BorrowDateText(info)}.</p>" +
+            "<p>Nhớ mang theo <b>thẻ sinh viên</b>: nhân viên sẽ chụp ảnh linh kiện kèm thẻ khi giao. " +
+            "Hôm trước ngày hẹn hệ thống sẽ nhắc lại.</p>" +
             $"<p>Hạn trả: <b>{ToVietnamDate(info.DueDate)}</b>.</p>";
 
-        await SendAsync(info, $"SmartLab - Đơn {info.RequestCode} đã sẵn sàng, mời đến nhận", body);
+        var subject = $"SmartLab - Lab đã nhận đơn {info.RequestCode}, hẹn bạn đến nhận";
+        if (info.BorrowDate != null)
+            subject = $"SmartLab - Lab hẹn bạn nhận đồ đơn {info.RequestCode} ngày {DateText(info.BorrowDate)}";
+
+        await SendAsync(info, subject, body);
     }
 
     public async Task PickupDateChangedAsync(Guid borrowRequestId, CancellationToken ct = default)
