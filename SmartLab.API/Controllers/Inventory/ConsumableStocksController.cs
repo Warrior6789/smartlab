@@ -49,21 +49,4 @@ public class ConsumableStocksController : ControllerBase
         var stocks = await _consumableStockService.MoveStockAsync(request, ct);
         return Ok(ApiResponse<IReadOnlyList<ConsumableStockResponse>>.Ok(stocks, "Chuyển tủ thành công"));
     }
-
-    /// <summary>
-    /// Điều chỉnh kiểm kê (Quản lý kho): đặt tồn kho bằng số đếm thực tế, có ghi lý do vào nhật ký. Lab Staff thấy lệch thì kiểm kê tủ để Quản lý kho duyệt. Số đếm thấp hơn luôn được ghi nhận;
-    /// nếu làm lab thiếu hàng cho đơn đã duyệt thì <c>reservationShortages</c> liệt kê linh kiện thiếu và các mã đơn bị ảnh hưởng.
-    /// </summary>
-    [HttpPost("adjust")]
-    [Authorize(Policy = PermissionCodes.InventoryAuditApprove)]
-    [ProducesResponseType(typeof(ApiResponse<AdjustConsumableStockResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> AdjustStock([FromBody] AdjustConsumableStockRequest request, CancellationToken ct)
-    {
-        var result = await _consumableStockService.AdjustStockAsync(request, ct);
-        return Ok(ApiResponse<AdjustConsumableStockResponse>.Ok(result, "Điều chỉnh tồn kho thành công"));
-    }
 }

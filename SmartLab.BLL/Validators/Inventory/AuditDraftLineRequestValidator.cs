@@ -11,8 +11,8 @@ public class AuditDraftLineRequestValidator : AbstractValidator<AuditDraftLineRe
             .NotEmpty().WithMessage("Linh kiện là bắt buộc");
 
         RuleFor(x => x.CountedQuantity)
-            .InclusiveBetween(0, AdjustConsumableStockRequestValidator.MaxQuantity)
+            .InclusiveBetween(0, AuditConsumableCountRequestValidator.MaxQuantity)
             .When(x => x.CountedQuantity.HasValue)
-            .WithMessage($"Số đếm thực tế phải từ 0 đến {AdjustConsumableStockRequestValidator.MaxQuantity}");
+            .WithMessage($"Số đếm thực tế phải từ 0 đến {AuditConsumableCountRequestValidator.MaxQuantity}");
     }
 }

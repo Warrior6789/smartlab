@@ -5,6 +5,8 @@ namespace SmartLab.BLL.Validators.Inventory;
 
 public class AuditConsumableCountRequestValidator : AbstractValidator<AuditConsumableCountRequest>
 {
+    public const int MaxQuantity = 1000000;
+
     public AuditConsumableCountRequestValidator()
     {
         RuleFor(x => x.ComponentId)
@@ -12,7 +14,7 @@ public class AuditConsumableCountRequestValidator : AbstractValidator<AuditConsu
 
         RuleFor(x => x.CountedQuantity)
             .NotNull().WithMessage("Số đếm thực tế là bắt buộc")
-            .InclusiveBetween(0, AdjustConsumableStockRequestValidator.MaxQuantity)
-            .WithMessage($"Số đếm thực tế phải từ 0 đến {AdjustConsumableStockRequestValidator.MaxQuantity}");
+            .InclusiveBetween(0, AuditConsumableCountRequestValidator.MaxQuantity)
+            .WithMessage($"Số đếm thực tế phải từ 0 đến {AuditConsumableCountRequestValidator.MaxQuantity}");
     }
 }
