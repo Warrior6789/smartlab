@@ -10,10 +10,4 @@ public class ApproveProjectRequest
     /// quantity the team asked for. At least one component must stay; otherwise reject the project instead.
     /// </summary>
     public List<ApproveQuantityAdjustmentRequest> Adjustments { get; set; } = new();
-
-    /// <summary>
-    /// The lab request to decide: a project borrows from each lab in its own request, decided one by one. Required when the
-    /// project has several pending requests; may be left out when it has one.
-    /// </summary>
-    public Guid? BorrowRequestId { get; set; }
 }

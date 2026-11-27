@@ -195,35 +195,40 @@ public class ProjectReviewService : IProjectReviewService
 
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
-        var step = await LockAndGetCurrentStepAsync(projectId, request.BorrowRequestId, userId, ct);
+        var steps = await LockAndGetPendingStepsAsync(projectId, userId, ct);
+        var isSupplementary = steps[0].IsSupplementary;
 
-        var adjusted = await ApplyAdjustmentsAsync(projectId, step, request.Adjustments, ct);
+        var adjusted = await ApplyAdjustmentsAsync(projectId, steps, request.Adjustments, ct);
         if (adjusted != null)
             comment = $"{comment} (Điều chỉnh: {adjusted})";
 
-        await DecideStepAsync(step.ApprovalId, BorrowApprovalStatuses.Approved, userId,
-            Shorten(comment, ApprovalCommentMaxLength), now, ct);
-
-        if (step.IsLast)
+        foreach (var step in steps)
         {
-            await CheckStockAsync(step, ct);
+            await DecideStepAsync(step.ApprovalId, BorrowApprovalStatuses.Approved, userId,
+                Shorten(comment, ApprovalCommentMaxLength), now, ct);
+        }
+
+        var finished = steps.Where(s => s.IsLast).ToList();
+        if (finished.Count > 0)
+        {
+            await CheckStockAsync(finished, ct);
 
             // Ready only comes from the lab: see IBorrowRequestService.LabAcceptAsync.
+            var finishedIds = finished.Select(s => s.BorrowRequestId).ToList();
             await _uow.Repository<BorrowRequest>().Query()
-                .Where(r => r.BorrowRequestId == step.BorrowRequestId)
+                .Where(r => finishedIds.Contains(r.BorrowRequestId))
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(r => r.Status, BorrowRequestStatuses.Approved)
                     .SetProperty(r => r.ApprovedAt, now), ct);
-
         }
 
         var projectDecided = false;
-        if (step.IsLast && !step.IsSupplementary)
+        if (!isSupplementary)
             projectDecided = await FinishProjectReviewAsync(projectId, userId, Shorten(comment, ReviewCommentMaxLength), now, ct);
 
         await tx.CommitAsync(ct);
 
-        if (step.IsLast)
+        foreach (var step in finished)
         {
             await _notifier.ApprovedAsync(step.BorrowRequestId, ct);
             await _notifier.StaffApprovedAsync(step.BorrowRequestId, ct);
@@ -231,7 +236,8 @@ public class ProjectReviewService : IProjectReviewService
         if (projectDecided)
             await _changes.ProjectChangedAsync(projectId);
 
-        await _changes.BorrowRequestChangedAsync(step.BorrowRequestId);
+        foreach (var step in steps)
+            await _changes.BorrowRequestChangedAsync(step.BorrowRequestId);
 
         return await _projectService.GetProjectByIdAsync(projectId, ct);
     }
@@ -247,26 +253,30 @@ public class ProjectReviewService : IProjectReviewService
 
         await using var tx = await _uow.BeginTransactionAsync(ct);
 
-        var step = await LockAndGetCurrentStepAsync(projectId, request.BorrowRequestId, userId, ct);
+        var steps = await LockAndGetPendingStepsAsync(projectId, userId, ct);
 
-        await DecideStepAsync(step.ApprovalId, BorrowApprovalStatuses.Rejected, userId, reason, now, ct);
+        foreach (var step in steps)
+            await DecideStepAsync(step.ApprovalId, BorrowApprovalStatuses.Rejected, userId, reason, now, ct);
 
+        var requestIds = steps.Select(s => s.BorrowRequestId).ToList();
         await _uow.Repository<BorrowRequest>().Query()
-            .Where(r => r.BorrowRequestId == step.BorrowRequestId)
+            .Where(r => requestIds.Contains(r.BorrowRequestId))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(r => r.Status, BorrowRequestStatuses.Rejected)
                 .SetProperty(r => r.RejectReason, reason), ct);
 
         var projectDecided = false;
-        if (!step.IsSupplementary)
+        if (!steps[0].IsSupplementary)
             projectDecided = await FinishProjectReviewAsync(projectId, userId, reason, now, ct);
 
         await tx.CommitAsync(ct);
 
-        await _notifier.RejectedAsync(step.BorrowRequestId, ct);
+        foreach (var step in steps)
+            await _notifier.RejectedAsync(step.BorrowRequestId, ct);
         if (projectDecided)
             await _changes.ProjectChangedAsync(projectId);
-        await _changes.BorrowRequestChangedAsync(step.BorrowRequestId);
+        foreach (var step in steps)
+            await _changes.BorrowRequestChangedAsync(step.BorrowRequestId);
 
         return await _projectService.GetProjectByIdAsync(projectId, ct);
     }
@@ -283,22 +293,23 @@ public class ProjectReviewService : IProjectReviewService
     }
 
     /// <summary>
-    /// Lowers the quantities the lecturer changed (0 removes the line) before stock is checked, so a lab that cannot lend
+    /// Lowers the quantities the lecturer changed across all the project's pending lab requests (0 removes the line) before stock is checked, so a lab that cannot lend
     /// the full amount can still lend the lowered one. A first request also updates the project's component list, so the
     /// project shows what was approved. Returns a short "name a→b" summary for the team, or null when nothing changed.
     /// </summary>
     private async Task<string?> ApplyAdjustmentsAsync(
-        Guid projectId, CurrentStep step, List<ApproveQuantityAdjustmentRequest> adjustments, CancellationToken ct)
+        Guid projectId, List<CurrentStep> steps, List<ApproveQuantityAdjustmentRequest> adjustments, CancellationToken ct)
     {
         if (adjustments.Count == 0)
             return null;
 
+        var requestIds = steps.Select(s => s.BorrowRequestId).ToList();
         var lines = await _uow.Repository<BorrowItem>().Query()
             .Include(i => i.Component)
-            .Where(i => i.BorrowRequestId == step.BorrowRequestId)
+            .Where(i => requestIds.Contains(i.BorrowRequestId))
             .ToListAsync(ct);
         var projectLines = new List<ProjectComponent>();
-        if (!step.IsSupplementary)
+        if (!steps[0].IsSupplementary)
         {
             projectLines = await _uow.Repository<ProjectComponent>().Query()
                 .Where(pc => pc.ProjectId == projectId)
@@ -335,8 +346,20 @@ public class ProjectReviewService : IProjectReviewService
             }
         }
 
-        if (lines.Count == 0)
-            throw new BadRequestException("Không thể bỏ hết linh kiện của đơn, hãy từ chối project thay vì duyệt");
+        var emptiedRoomIds = steps
+            .Where(s => !lines.Any(l => l.BorrowRequestId == s.BorrowRequestId))
+            .Select(s => s.RoomId)
+            .ToList();
+        if (emptiedRoomIds.Count > 0)
+        {
+            var roomCodes = await _uow.Repository<LabRoom>().QueryNoTracking()
+                .Where(r => emptiedRoomIds.Contains(r.RoomId))
+                .OrderBy(r => r.RoomCode)
+                .Select(r => r.RoomCode)
+                .ToListAsync(ct);
+            throw new BadRequestException(
+                $"Không thể bỏ hết linh kiện của đơn {string.Join(", ", roomCodes)}. Muốn bỏ cả lab đó thì từ chối để nhóm sửa lại.");
+        }
         if (changes.Count == 0)
             return null;
 
@@ -387,21 +410,23 @@ public class ProjectReviewService : IProjectReviewService
 
     /// <summary>
     /// Approving reserves stock, so the checks of submitting run again (things may have changed since): every component is
-    /// still in use, and the request's own lab can still lend every line. Labs never pass components to each other, so the
-    /// lab's staff can accept the request right away. Every lab is locked first, so two
-    /// approvals cannot both take the last units. Rejecting is always allowed.
+    /// still in use, and each request's own lab can still lend every line. Labs never pass components to each other, so
+    /// each lab's staff can accept its request right away. Every lab is locked first, so two approvals cannot both take
+    /// the last units. All shortages of all labs are reported together. Rejecting is always allowed.
     /// </summary>
-    private async Task CheckStockAsync(CurrentStep step, CancellationToken ct)
+    private async Task CheckStockAsync(List<CurrentStep> steps, CancellationToken ct)
     {
         await RoomStock.LockAllRoomsAsync(_uow, ct);
 
+        var roomByRequest = steps.ToDictionary(s => s.BorrowRequestId, s => s.RoomId);
+        var requestIds = roomByRequest.Keys.ToList();
         var lines = await _uow.Repository<BorrowItem>().Query()
             .Include(i => i.Component)
-            .Where(i => i.BorrowRequestId == step.BorrowRequestId)
+            .Where(i => requestIds.Contains(i.BorrowRequestId))
             .OrderBy(i => i.Component.ComponentCode)
             .ToListAsync(ct);
 
-        var inactive = lines.Where(l => !l.Component.IsActive).Select(l => l.Component.ComponentName).ToList();
+        var inactive = lines.Where(l => !l.Component.IsActive).Select(l => l.Component.ComponentName).Distinct().ToList();
         if (inactive.Count > 0)
             throw new BadRequestException(
                 $"Linh kiện đã ngừng sử dụng: {string.Join(", ", inactive)}. Hãy từ chối để nhóm đổi linh kiện khác.");
@@ -409,35 +434,51 @@ public class ProjectReviewService : IProjectReviewService
         var ids = lines.Select(l => l.ComponentId).Distinct().ToList();
         var availableByRoom = await RoomStock.GetAvailableByRoomAsync(_uow, ids, ct);
 
-        var pickupRoomId = step.RoomId;
-        var roomStock = availableByRoom.GetValueOrDefault(pickupRoomId) ?? new Dictionary<Guid, int>();
-        var shortages = new List<string>();
+        var shortagesByRoom = new Dictionary<Guid, List<string>>();
         foreach (var line in lines)
         {
+            var roomId = roomByRequest[line.BorrowRequestId];
+            if (!availableByRoom.TryGetValue(roomId, out var roomStock))
+            {
+                roomStock = new Dictionary<Guid, int>();
+                availableByRoom[roomId] = roomStock;
+            }
+
             var left = roomStock.GetValueOrDefault(line.ComponentId);
             if (left < line.Quantity)
+            {
+                if (!shortagesByRoom.TryGetValue(roomId, out var shortages))
+                {
+                    shortages = new List<string>();
+                    shortagesByRoom[roomId] = shortages;
+                }
                 shortages.Add($"{line.Component.ComponentName} (cần {line.Quantity}, lab còn {left})");
+            }
 
             roomStock[line.ComponentId] = Math.Max(0, left - line.Quantity);
         }
 
-        if (shortages.Count > 0)
-        {
-            var roomCode = await _uow.Repository<LabRoom>().QueryNoTracking()
-                .Where(r => r.RoomId == pickupRoomId)
-                .Select(r => r.RoomCode)
-                .FirstAsync(ct);
-            throw new BadRequestException(
-                $"Lab {roomCode} không còn đủ linh kiện (đã trừ các đơn đã duyệt chưa cấp): {string.Join("; ", shortages)}. " +
-                "Các lab không chuyển đồ cho nhau: hãy giảm số lượng khi duyệt, hoặc từ chối để nhóm đưa món thiếu vào danh sách tự mua.");
-        }
+        if (shortagesByRoom.Count == 0)
+            return;
+
+        var shortRoomIds = shortagesByRoom.Keys.ToList();
+        var roomCodes = await _uow.Repository<LabRoom>().QueryNoTracking()
+            .Where(r => shortRoomIds.Contains(r.RoomId))
+            .ToDictionaryAsync(r => r.RoomId, r => r.RoomCode, ct);
+        var parts = shortagesByRoom
+            .OrderBy(e => roomCodes[e.Key], StringComparer.Ordinal)
+            .Select(e => $"{roomCodes[e.Key]} thiếu {string.Join(", ", e.Value)}");
+        throw new BadRequestException(
+            $"Chưa duyệt được: {string.Join("; ", parts)} (đã trừ các đơn đã duyệt chưa cấp). " +
+            "Các lab không chuyển đồ cho nhau: hãy giảm số lượng khi duyệt, hoặc từ chối để nhóm đưa món thiếu vào danh sách tự mua.");
     }
 
     /// <summary>
-    /// Locks the project's Pending borrow request, then returns its lowest Pending step after checking the caller may
-    /// decide it (the assigned approver, or any Admin standing in).
+    /// Locks the project's Pending borrow requests (one per lab), then returns the lowest Pending step of each after
+    /// checking the caller may decide them (the assigned approver, or any Admin standing in). The lecturer decides the
+    /// whole project at once, so every pending lab request is approved or rejected together.
     /// </summary>
-    private async Task<CurrentStep> LockAndGetCurrentStepAsync(Guid projectId, Guid? borrowRequestId, Guid userId, CancellationToken ct)
+    private async Task<List<CurrentStep>> LockAndGetPendingStepsAsync(Guid projectId, Guid userId, CancellationToken ct)
     {
         var locked = await _uow.Repository<BorrowRequest>().Query()
             .Where(r => r.ProjectId == projectId && r.Status == BorrowRequestStatuses.Pending)
@@ -467,23 +508,18 @@ public class ProjectReviewService : IProjectReviewService
         if (pendingSteps.Count == 0)
             throw new ConflictException(AlreadyDecidedMessage);
 
-        if (borrowRequestId.HasValue)
+        var steps = new List<CurrentStep>();
+        foreach (var group in pendingSteps.GroupBy(s => s.BorrowRequestId))
         {
-            pendingSteps = pendingSteps.Where(s => s.BorrowRequestId == borrowRequestId.Value).ToList();
-            if (pendingSteps.Count == 0)
-                throw new ConflictException("Đơn này không còn chờ duyệt hoặc không thuộc project");
-        }
-        else if (pendingSteps.Select(s => s.BorrowRequestId).Distinct().Count() > 1)
-        {
-            throw new BadRequestException("Project có nhiều đơn mượn (mỗi lab một đơn), hãy chọn đơn cần duyệt");
+            var current = group.First();
+            if (current.ApproverId != userId && !_currentUser.IsInRole(RoleNames.Admin))
+                throw new ForbiddenException("Project này chưa đến lượt bạn duyệt hoặc bạn không phải người duyệt");
+
+            steps.Add(new CurrentStep(
+                current.ApprovalId, current.BorrowRequestId, current.RoomId, group.Count() == 1, current.IsSupplementary));
         }
 
-        var current = pendingSteps[0];
-        if (current.ApproverId != userId && !_currentUser.IsInRole(RoleNames.Admin))
-            throw new ForbiddenException("Project này chưa đến lượt bạn duyệt hoặc bạn không phải người duyệt");
-
-        return new CurrentStep(
-            current.ApprovalId, current.BorrowRequestId, current.RoomId, pendingSteps.Count == 1, current.IsSupplementary);
+        return steps;
     }
 
     /// <summary>Records the decision; ApproverId becomes the user who decided (an Admin standing in replaces the assignee).</summary>
@@ -500,7 +536,6 @@ public class ProjectReviewService : IProjectReviewService
             throw new ConflictException(AlreadyDecidedMessage);
     }
 
-    /// <summary>The final decision: Submitted → Approved / Rejected, with who reviewed, when and the comment.</summary>
     /// <summary>
     /// A first submission is decided once none of its lab requests is pending any more: Approved when at least one lab
     /// request was approved (the team borrows the rest later), Rejected when every one was rejected. Returns true when the
