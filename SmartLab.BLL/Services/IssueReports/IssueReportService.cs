@@ -432,7 +432,7 @@ public class IssueReportService : IIssueReportService
     {
         if (!item.Component.TrackingType.Equals(TrackingReusable, StringComparison.OrdinalIgnoreCase) &&
             !item.Component.TrackingType.Equals(TrackingHighValue, StringComparison.OrdinalIgnoreCase))
-            throw new BadRequestException("Chỉ thiết bị REUSABLE hoặc HIGH_VALUE mới được báo sự cố");
+            throw new BadRequestException("Chỉ thiết bị Tái sử dụng hoặc Giá trị cao mới được báo sự cố");
 
         if (item.Status is not (ComponentItemAvailable or ComponentItemBorrowed))
             throw new BadRequestException($"Thiết bị đang ở trạng thái {item.Status}, không ghi nhận sự cố được");

@@ -11,7 +11,7 @@ public class StockSummaryQueryParamsValidator : AbstractValidator<StockSummaryQu
         RuleFor(x => x.TrackingType)
             .Must(t => ComponentTrackingTypes.All.Contains(t!.Trim().ToUpper()))
             .When(x => !string.IsNullOrWhiteSpace(x.TrackingType))
-            .WithMessage("Loại linh kiện phải là CONSUMABLE, REUSABLE hoặc HIGH_VALUE");
+            .WithMessage("Loại linh kiện phải là Tiêu hao, Tái sử dụng hoặc Giá trị cao");
 
         RuleFor(x => x.Status)
             .Must(s => StockStatusFilters.Normalize(s) != null)

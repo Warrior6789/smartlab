@@ -242,6 +242,6 @@ public class IssueReportBorrowingIntegrationService : IIssueReportBorrowingInteg
         var trackingType = borrowItem.ComponentItem.Component.TrackingType;
         if (!trackingType.Equals(TrackingReusable, StringComparison.OrdinalIgnoreCase) &&
             !trackingType.Equals(TrackingHighValue, StringComparison.OrdinalIgnoreCase))
-            throw new BadRequestException("Chỉ thiết bị REUSABLE hoặc HIGH_VALUE mới được báo sự cố");
+            throw new BadRequestException("Chỉ thiết bị Tái sử dụng hoặc Giá trị cao mới được báo sự cố");
     }
 }

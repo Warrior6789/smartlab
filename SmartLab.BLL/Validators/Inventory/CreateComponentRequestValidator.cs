@@ -38,7 +38,7 @@ public class CreateComponentRequestValidator : AbstractValidator<CreateComponent
             .Cascade(CascadeMode.Stop)
             .NotEmpty().WithMessage("Loại linh kiện là bắt buộc")
             .Must(t => ComponentTrackingTypes.All.Contains(t.Trim().ToUpper()))
-            .WithMessage("Loại linh kiện phải là CONSUMABLE, REUSABLE hoặc HIGH_VALUE");
+            .WithMessage("Loại linh kiện phải là Tiêu hao, Tái sử dụng hoặc Giá trị cao");
 
         RuleFor(x => x.Unit)
             .MaximumLength(20).WithMessage("Đơn vị tính tối đa 20 ký tự");

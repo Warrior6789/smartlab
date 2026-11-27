@@ -11,6 +11,6 @@ public class ComponentQueryParamsValidator : AbstractValidator<ComponentQueryPar
         RuleFor(x => x.TrackingType)
             .Must(t => ComponentTrackingTypes.All.Contains(t!.Trim().ToUpper()))
             .When(x => !string.IsNullOrWhiteSpace(x.TrackingType))
-            .WithMessage("Loại linh kiện phải là CONSUMABLE, REUSABLE hoặc HIGH_VALUE");
+            .WithMessage("Loại linh kiện phải là Tiêu hao, Tái sử dụng hoặc Giá trị cao");
     }
 }
