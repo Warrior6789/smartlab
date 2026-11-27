@@ -68,9 +68,11 @@ public class ComponentService : IComponentService
             components = components.Where(c => c.TrackingType == trackingType);
         }
 
-        if (query.InStock == true)
-            components = components.Where(c => c.ConsumableStocks.Any(s => s.Quantity > 0)
-                                            || c.ComponentItems.Any(i => i.Status == ComponentItemStatuses.Available));
+        if (query.RoomId.HasValue)
+            components = components.Where(c => c.LabRoomComponents.Any(l => l.RoomId == query.RoomId.Value));
+
+        if (query.KeptByLab == true)
+            components = components.Where(c => c.LabRoomComponents.Any());
 
         if (query.LowStock == true)
         {
@@ -109,6 +111,7 @@ public class ComponentService : IComponentService
                     .Select(i => (decimal?)i.UnitPrice)
                     .FirstOrDefault(),
                 CreatedAt = c.CreatedAt,
+                RoomCodes = c.LabRoomComponents.OrderBy(l => l.Room.RoomCode).Select(l => l.Room.RoomCode).ToList(),
             });
 
         var page = await PagedResult<ComponentResponse>.CreateAsync(result, paging, ct);
@@ -157,6 +160,7 @@ public class ComponentService : IComponentService
                                     .OrderByDescending(i => i.Receipt.ReceivedAt)
                                     .Select(i => (decimal?)i.UnitPrice)
                                     .FirstOrDefault(),
+                                RoomCodes = c.LabRoomComponents.OrderBy(l => l.Room.RoomCode).Select(l => l.Room.RoomCode).ToList(),
                                 Description = c.Description,
                                 DatasheetUrl = c.DatasheetUrl,
                                 CreatedAt = c.CreatedAt,
@@ -306,6 +310,16 @@ public class ComponentService : IComponentService
         foreach (var spec in request.Specs)
             component.ComponentSpecs.Add(NewSpec(spec));
 
+        var roomIds = request.RoomIds.Distinct().ToList();
+        if (roomIds.Count > 0)
+        {
+            var activeRooms = await _uow.Repository<LabRoom>().QueryNoTracking()
+                .CountAsync(r => roomIds.Contains(r.RoomId) && r.Status == LabRoomStatuses.Active, ct);
+            if (activeRooms != roomIds.Count)
+                throw new BadRequestException("Có lab không tồn tại hoặc đã ngừng sử dụng");
+        }
+        foreach (var roomId in roomIds)
+            component.LabRoomComponents.Add(new LabRoomComponent { RoomId = roomId, CreatedAt = now });
 
         await components.AddAsync(component, ct);
 
