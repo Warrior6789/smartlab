@@ -227,7 +227,7 @@ public class ProjectService : IProjectService
             throw new ConflictException("Nhóm đã có project");
 
         await EnsureComponentsUsableAsync(request.Components, ct);
-        await LabComponents.EnsureKeptByAnyLabAsync(_uow, request.Components.Select(c => c.ComponentId).ToList(), ct);
+        await LabSplit.EnsureOnClassLabListAsync(_uow, team.ClassId, request.Components.Select(c => c.ComponentId).ToList(), ct);
 
         var now = DateTime.UtcNow;
         var project = new Project
@@ -293,7 +293,7 @@ public class ProjectService : IProjectService
             .Select(pc => pc.ComponentId)
             .ToListAsync(ct);
         var addedIds = components.Select(c => c.ComponentId).Where(id => !savedIds.Contains(id)).ToList();
-        await LabComponents.EnsureKeptByAnyLabAsync(_uow, addedIds, ct);
+        await LabSplit.EnsureOnClassLabListAsync(_uow, project.ClassId, addedIds, ct);
 
         var title = request.Title.Trim();
         var description = CleanText(request.Description);
@@ -560,7 +560,7 @@ public class ProjectService : IProjectService
     public async Task<BorrowPreviewResponse> PreviewBorrowAsync(
         Guid projectId, BorrowPreviewRequest request, CancellationToken ct = default)
     {
-        await GetProjectForLeaderAsync(projectId, ct);
+        var project = await GetProjectForLeaderAsync(projectId, ct);
 
         var requested = request.Components
             .GroupBy(c => c.ComponentId)
@@ -596,7 +596,7 @@ public class ProjectService : IProjectService
         List<LabSplit.LabLines> split;
         try
         {
-            split = await LabSplit.SplitAsync(_uow,
+            split = await LabSplit.SplitAsync(_uow, project.ClassId,
                 requested.Select(r => new LabSplit.Line(r.ComponentId, components[r.ComponentId].ComponentName, r.Quantity)).ToList(), ct);
         }
         catch (BadRequestException ex)
@@ -677,7 +677,7 @@ public class ProjectService : IProjectService
                         var lines = await LoadSubmitLinesAsync(projectId, token);
                         if (lines.Count > 0)
                         {
-                            var split = await LabSplit.SplitAsync(_uow,
+                            var split = await LabSplit.SplitAsync(_uow, project.ClassId,
                                 lines.Select(l => new LabSplit.Line(l.ComponentId, l.ComponentName, l.Quantity)).ToList(), token);
                             var dueDate = await BorrowDeadline.GetDueDateForNewRequestAsync(_uow, project.ClassId, token);
                             var codes = await GenerateRequestCodesAsync(now, split.Count, token);
@@ -754,7 +754,7 @@ public class ProjectService : IProjectService
         await EnsureComponentsUsableAsync(request.Components, ct);
         var lines = await LoadRequestLinesAsync(request.Components, ct);
 
-        await LabComponents.EnsureKeptByAnyLabAsync(_uow, request.Components.Select(c => c.ComponentId).ToList(), ct);
+        await LabSplit.EnsureOnClassLabListAsync(_uow, project.ClassId, request.Components.Select(c => c.ComponentId).ToList(), ct);
         var dueDate = await BorrowDeadline.GetDueDateForNewRequestAsync(_uow, project.ClassId, ct);
 
         var lecturerId = await _uow.Repository<Class>().QueryNoTracking()
@@ -791,7 +791,7 @@ public class ProjectService : IProjectService
                         if (hasPending)
                             throw new ConflictException("Nhóm đang có đơn mượn thêm chờ duyệt");
 
-                        var split = await LabSplit.SplitAsync(_uow,
+                        var split = await LabSplit.SplitAsync(_uow, project.ClassId,
                             lines.Select(l => new LabSplit.Line(l.ComponentId, l.ComponentName, l.Quantity)).ToList(), token);
                         var codes = await GenerateRequestCodesAsync(now, split.Count, token);
                         for (var i = 0; i < split.Count; i++)

@@ -74,6 +74,12 @@ public class ComponentService : IComponentService
         if (query.KeptByLab == true)
             components = components.Where(c => c.LabRoomComponents.Any());
 
+        if (query.ClassId.HasValue)
+        {
+            var classId = query.ClassId.Value;
+            components = components.Where(c => c.LabRoomComponents.Any(l => l.Room.Courses.Any(co => co.Classes.Any(cl => cl.ClassId == classId))));
+        }
+
         if (query.LowStock == true)
         {
             components = components.Where(c => c.MinStock != null

@@ -18,4 +18,7 @@ public class ComponentQueryParams
 
     /// <summary>true = only components some lab keeps (lab_room_components), what a project can borrow.</summary>
     public bool? KeptByLab { get; set; }
+
+    /// <summary>Only components on the list of this class's course lab, what the class's projects can borrow.</summary>
+    public Guid? ClassId { get; set; }
 }

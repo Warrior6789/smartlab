@@ -23,21 +23,6 @@ internal static class LabComponents
             $"{roomCode} không nhận {JoinNames(missing)}. Quản lý kho thêm linh kiện vào danh sách của lab trước khi nhập");
     }
 
-    /// <summary>400 when a project asks for components no lab keeps; those go to the self-supplied list.</summary>
-    public static async Task EnsureKeptByAnyLabAsync(IUnitOfWork uow, IReadOnlyCollection<Guid> componentIds, CancellationToken ct)
-    {
-        if (componentIds.Count == 0)
-            return;
-
-        var homeless = await uow.Repository<Component>().QueryNoTracking()
-            .Where(c => componentIds.Contains(c.ComponentId) && !c.LabRoomComponents.Any())
-            .OrderBy(c => c.ComponentCode)
-            .Select(c => c.ComponentName)
-            .ToListAsync(ct);
-        if (homeless.Count > 0)
-            throw new BadRequestException($"Chưa lab nào giữ {JoinNames(homeless)}. Hãy ghi vào mục tự chuẩn bị");
-    }
-
     private static async Task<List<string>> MissingNamesAsync(
         IUnitOfWork uow, Guid roomId, IReadOnlyCollection<Guid> componentIds, CancellationToken ct)
     {

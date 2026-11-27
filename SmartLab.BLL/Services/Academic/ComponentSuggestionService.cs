@@ -37,7 +37,11 @@ public class ComponentSuggestionService : IComponentSuggestionService
     {
         var availableByRoom = await RoomStock.GetAvailableByRoomAsync(_uow, null, ct);
 
-        var catalog = await LoadCatalogAsync(availableByRoom, ct);
+        Guid? classRoomId = null;
+        if (request.ClassId.HasValue)
+            classRoomId = (await LabSplit.GetClassLabAsync(_uow, request.ClassId.Value, ct)).RoomId;
+
+        var catalog = await LoadCatalogAsync(availableByRoom, classRoomId, ct);
 
         var aiCatalog = catalog.Select(c => new AiCatalogItem
         {
@@ -121,14 +125,14 @@ public class ComponentSuggestionService : IComponentSuggestionService
     private sealed record CatalogPick(CatalogRow Row, int Quantity, string Reason);
 
     /// <summary>
-    /// Active components with the most one lab can still lend (stock minus approved reservations, see
-    /// <see cref="RoomStock"/>), because a project borrows from a single lab.
+    /// Active components with what one lab can still lend (stock minus approved reservations, see
+    /// <see cref="RoomStock"/>): the class's lab and its list when given, otherwise the lab that has the most.
     /// </summary>
     private async Task<List<CatalogRow>> LoadCatalogAsync(
-        Dictionary<Guid, Dictionary<Guid, int>> availableByRoom, CancellationToken ct)
+        Dictionary<Guid, Dictionary<Guid, int>> availableByRoom, Guid? roomId, CancellationToken ct)
     {
         var rows = await _uow.Repository<Component>().QueryNoTracking()
-            .Where(c => c.IsActive)
+            .Where(c => c.IsActive && (roomId == null || c.LabRoomComponents.Any(l => l.RoomId == roomId)))
             .OrderBy(c => c.ComponentCode)
             .Select(c => new CatalogRow
             {
@@ -145,6 +149,12 @@ public class ComponentSuggestionService : IComponentSuggestionService
 
         foreach (var row in rows)
         {
+            if (roomId != null)
+            {
+                row.Available = availableByRoom.GetValueOrDefault(roomId.Value)?.GetValueOrDefault(row.ComponentId) ?? 0;
+                continue;
+            }
+
             var most = 0;
             foreach (var room in availableByRoom.Values)
                 most = Math.Max(most, room.GetValueOrDefault(row.ComponentId));
