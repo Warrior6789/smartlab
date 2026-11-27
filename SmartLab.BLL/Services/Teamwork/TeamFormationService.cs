@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
@@ -268,7 +268,7 @@ public class TeamFormationService : ITeamFormationService
             var cls = await TeamFormationGate.HoldClassAsync(_uow, classId, token);
             if (cls.MinTeamSize is null || cls.MaxTeamSize is null)
                 throw new BadRequestException(NoSizeMessage);
-            if (request.Merges.Count > 0 && !TeamFormationGate.IsClosed(cls))
+            if (!TeamFormationGate.IsClosed(cls))
                 throw new ConflictException(NotClosedMessage);
             var min = cls.MinTeamSize!.Value;
             var small = request.NewTeams.Where(t => t.StudentProfileIds.Count < min).Select(t => t.TeamName.Trim()).ToList();
