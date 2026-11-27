@@ -1,3 +1,4 @@
+using SmartLab.BLL.Interfaces.Notifications;
 using ClosedXML.Excel;
 using System.Text.RegularExpressions;
 
@@ -26,16 +27,18 @@ public class ClassRosterService : IClassRosterService
     private readonly IAccountActivationService _activation;
     private readonly ICurrentUserService _currentUser;
     private readonly IBorrowNotifier _borrowNotifier;
+    private readonly INotificationSender _notifications;
 
     public ClassRosterService(
         IUnitOfWork uow, IPasswordHasher passwordHasher, IAccountActivationService activation, ICurrentUserService currentUser,
-        IBorrowNotifier borrowNotifier)
+        IBorrowNotifier borrowNotifier, INotificationSender notifications)
     {
         _uow = uow;
         _passwordHasher = passwordHasher;
         _activation = activation;
         _currentUser = currentUser;
         _borrowNotifier = borrowNotifier;
+        _notifications = notifications;
     }
 
     private sealed record RosterRow(string StudentCode, string FullName, string Email, string? Major, string? Cohort);
@@ -582,6 +585,7 @@ public class ClassRosterService : IClassRosterService
         }
 
         // 4. Gán instructor vào lớp
+        var previousInstructorId = classEntity.InstructorId;
         classEntity.InstructorId = instructorProfile.InstructorProfileId;
         List<Guid> movedRequestIds;
         await using (var tx = await _uow.BeginTransactionAsync(ct))
@@ -593,6 +597,8 @@ public class ClassRosterService : IClassRosterService
 
         foreach (var requestId in movedRequestIds)
             await _borrowNotifier.SubmittedAsync(requestId, ct);
+        await ClassLecturerNotice.SendAsync(
+            _uow, _notifications, classEntity.ClassId, previousInstructorId, classEntity.InstructorId, ct);
 
         return new AssignInstructorResponse
         {

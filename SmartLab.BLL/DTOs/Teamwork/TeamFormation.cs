@@ -110,8 +110,11 @@ public class AutoAssignPreviewResponse
     public IReadOnlyList<AutoAssignExistingTeam> ExistingTeams { get; set; } = Array.Empty<AutoAssignExistingTeam>();
     public IReadOnlyList<AutoAssignNewTeam> NewTeams { get; set; } = Array.Empty<AutoAssignNewTeam>();
     public IReadOnlyList<AutoAssignMerge> Merges { get; set; } = Array.Empty<AutoAssignMerge>();
-    /// <summary>True when applying the preview needs AllowExceedMax = true.</summary>
+    /// <summary>True when applying the preview needs AllowExceedMax = true (the plan itself never goes over the maximum).</summary>
     public bool RequiresExceedMax { get; set; }
+
+    /// <summary>Students the plan leaves without a team: too few for a new team of the minimum size and every team is full.</summary>
+    public IReadOnlyList<TeamFormationStudentItem> UnplacedStudents { get; set; } = Array.Empty<TeamFormationStudentItem>();
     public IReadOnlyList<string> Warnings { get; set; } = Array.Empty<string>();
 }
 

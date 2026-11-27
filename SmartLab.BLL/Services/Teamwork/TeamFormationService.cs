@@ -55,13 +55,6 @@ public class TeamFormationService : ITeamFormationService
         {
             var cls = await LockClassAsync(classId, token);
 
-            var studying = await _uow.Repository<ClassStudent>().QueryNoTracking()
-                .CountAsync(cs => cs.ClassId == classId && cs.Status == ClassStudentStatuses.Studying, token);
-            if (studying > 0 && !TeamSizePlanner.CanSplit(studying, request.MinTeamSize, request.MaxTeamSize))
-                throw new ConflictException(
-                    $"Lớp có {studying} sinh viên, không chia hết được thành các nhóm {request.MinTeamSize}–{request.MaxTeamSize} người. " +
-                    "Hãy giảm số tối thiểu hoặc tăng số tối đa");
-
             var largest = await _uow.Repository<TeamMember>().QueryNoTracking()
                 .Where(m => m.Team.ClassId == classId &&
                             (m.Status == TeamMemberStatuses.Accepted || m.Status == TeamMemberStatuses.Pending))
@@ -243,7 +236,7 @@ public class TeamFormationService : ITeamFormationService
                 })
                 .OrderBy(m => m.TargetTeamName).ThenBy(m => m.SourceTeamName)
                 .ToList(),
-            RequiresExceedMax = plan.ExceedsMax,
+            UnplacedStudents = plan.Unplaced.Select(id => byId[id]).ToList(),
             Warnings = warnings,
         };
     }
@@ -277,6 +270,11 @@ public class TeamFormationService : ITeamFormationService
                 throw new BadRequestException(NoSizeMessage);
             if (request.Merges.Count > 0 && !TeamFormationGate.IsClosed(cls))
                 throw new ConflictException(NotClosedMessage);
+            var min = cls.MinTeamSize!.Value;
+            var small = request.NewTeams.Where(t => t.StudentProfileIds.Count < min).Select(t => t.TeamName.Trim()).ToList();
+            if (small.Count > 0)
+                throw new BadRequestException(
+                    $"Nhóm mới phải có ít nhất {min} thành viên: {string.Join(", ", small)}. Bạn chưa đủ người thì để chưa có nhóm");
             var max = cls.MaxTeamSize!.Value;
             var now = DateTime.UtcNow;
 

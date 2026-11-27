@@ -1,3 +1,4 @@
+using SmartLab.BLL.Interfaces.Notifications;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SmartLab.BLL.Common.Exceptions;
@@ -17,12 +18,15 @@ public class ClassService : IClassService
     private readonly IUnitOfWork _uow;
     private readonly ICurrentUserService _currentUser;
     private readonly IBorrowNotifier _borrowNotifier;
+    private readonly INotificationSender _notifications;
 
-    public ClassService(IUnitOfWork uow, ICurrentUserService currentUser, IBorrowNotifier borrowNotifier)
+    public ClassService(
+        IUnitOfWork uow, ICurrentUserService currentUser, IBorrowNotifier borrowNotifier, INotificationSender notifications)
     {
         _uow = uow;
         _currentUser = currentUser;
         _borrowNotifier = borrowNotifier;
+        _notifications = notifications;
     }
 
     // Query helper — luôn include đủ để mapping
@@ -99,6 +103,8 @@ public class ClassService : IClassService
         {
             throw new ConflictException($"Mã lớp '{request.ClassCode}' đã tồn tại trong kỳ học này.");
         }
+
+        await ClassLecturerNotice.SendAsync(_uow, _notifications, entity.ClassId, null, entity.InstructorId, ct);
 
         // Reload với include để mapping đầy đủ
         var created = await QueryWithIncludes()
@@ -245,6 +251,7 @@ public class ClassService : IClassService
         entity.ClassCode = request.ClassCode.Trim();
         entity.CourseId = request.CourseId;          // Lỗi 9a: bổ sung dòng bị thiếu
         entity.MaxStudents = request.MaxStudents;
+        var previousInstructorId = entity.InstructorId;
         if (request.InstructorId.HasValue)
             entity.InstructorId = request.InstructorId;
 
@@ -259,6 +266,7 @@ public class ClassService : IClassService
 
         foreach (var requestId in movedRequestIds)
             await _borrowNotifier.SubmittedAsync(requestId, ct);
+        await ClassLecturerNotice.SendAsync(_uow, _notifications, id, previousInstructorId, entity.InstructorId, ct);
 
         return ClassSetupMappings.ToResponse(entity);
     }
@@ -276,4 +284,4 @@ public class ClassService : IClassService
         _uow.Repository<Class>().Remove(entity);
         await _uow.SaveChangesAsync(ct);
     }
-}
+}
