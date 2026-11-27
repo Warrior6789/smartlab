@@ -7,7 +7,7 @@ public class CreateClassRequestValidator : AbstractValidator<CreateClassRequest>
 {
     public CreateClassRequestValidator()
     {
-        RuleFor(x => x.ClassCode).NotEmpty().MaximumLength(30);
+        RuleFor(x => x.ClassCode).MaximumLength(30);
         RuleFor(x => x.CourseId).NotEmpty();
         RuleFor(x => x.SemesterId).NotEmpty();
         RuleFor(x => x.MaxStudents!.Value)

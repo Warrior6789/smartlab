@@ -1,4 +1,4 @@
-using SmartLab.BLL.Interfaces.Notifications;
+﻿using SmartLab.BLL.Interfaces.Notifications;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SmartLab.BLL.Common.Exceptions;
@@ -45,15 +45,23 @@ public class ClassService : IClassService
     public async Task<ClassResponse> CreateAsync(CreateClassRequest request, CancellationToken ct = default)
     {
         // Validate foreign keys tồn tại
-        var courseExists = await _uow.Repository<Course>().QueryNoTracking()
-            .AnyAsync(c => c.CourseId == request.CourseId, ct);
-        if (!courseExists)
+        var courseCode = await _uow.Repository<Course>().QueryNoTracking()
+            .Where(c => c.CourseId == request.CourseId)
+            .Select(c => c.CourseCode)
+            .FirstOrDefaultAsync(ct);
+        if (courseCode == null)
             throw new NotFoundException("Môn học", request.CourseId);
 
-        var semesterExists = await _uow.Repository<Semester>().QueryNoTracking()
-            .AnyAsync(s => s.SemesterId == request.SemesterId, ct);
-        if (!semesterExists)
+        var semesterCode = await _uow.Repository<Semester>().QueryNoTracking()
+            .Where(s => s.SemesterId == request.SemesterId)
+            .Select(s => s.SemesterCode)
+            .FirstOrDefaultAsync(ct);
+        if (semesterCode == null)
             throw new NotFoundException("Kỳ học", request.SemesterId);
+
+        var classCode = request.ClassCode?.Trim() ?? string.Empty;
+        if (classCode.Length == 0)
+            classCode = await NextClassCodeAsync(request.SemesterId, courseCode, semesterCode, ct);
 
         // Lỗi 7: kiểm tra InstructorId tồn tại (giống UpdateAsync)
         if (request.InstructorId.HasValue)
@@ -67,9 +75,9 @@ public class ClassService : IClassService
         // Check trùng ClassCode trong cùng semester
         var duplicate = await _uow.Repository<Class>().QueryNoTracking()
             .AnyAsync(c => c.SemesterId == request.SemesterId
-                        && c.ClassCode == request.ClassCode.Trim(), ct);
+                        && c.ClassCode == classCode, ct);
         if (duplicate)
-            throw new ConflictException($"Mã lớp '{request.ClassCode}' đã tồn tại trong kỳ học này.");
+            throw new ConflictException($"Mã lớp '{classCode}' đã tồn tại trong kỳ học này.");
 
         int maxStudents;
         if (request.MaxStudents.HasValue)
@@ -84,7 +92,7 @@ public class ClassService : IClassService
 
         var entity = new Class
         {
-            ClassCode = request.ClassCode.Trim(),
+            ClassCode = classCode,
             CourseId = request.CourseId,
             SemesterId = request.SemesterId,
             InstructorId = request.InstructorId,
@@ -101,7 +109,7 @@ public class ClassService : IClassService
         catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
             when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
         {
-            throw new ConflictException($"Mã lớp '{request.ClassCode}' đã tồn tại trong kỳ học này.");
+            throw new ConflictException($"Mã lớp '{classCode}' đã tồn tại trong kỳ học này.");
         }
 
         await ClassLecturerNotice.SendAsync(_uow, _notifications, entity.ClassId, null, entity.InstructorId, ct);
@@ -283,5 +291,21 @@ public class ClassService : IClassService
 
         _uow.Repository<Class>().Remove(entity);
         await _uow.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Next free code COURSE-SEMESTER-NN in the semester, e.g. IOT201-FA26-01, IOT201-FA26-02.</summary>
+    private async Task<string> NextClassCodeAsync(Guid semesterId, string courseCode, string semesterCode, CancellationToken ct)
+    {
+        var prefix = $"{courseCode}-{semesterCode}-".ToUpper();
+        var used = await _uow.Repository<Class>().QueryNoTracking()
+            .Where(c => c.SemesterId == semesterId && c.ClassCode.ToUpper().StartsWith(prefix))
+            .Select(c => c.ClassCode)
+            .ToListAsync(ct);
+
+        var taken = new HashSet<string>(used.Select(c => c.ToUpper()));
+        var number = 1;
+        while (taken.Contains($"{prefix}{number:D2}"))
+            number++;
+        return $"{prefix}{number:D2}";
     }
 }
