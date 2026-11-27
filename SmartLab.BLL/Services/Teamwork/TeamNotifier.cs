@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SmartLab.BLL.Constants;
@@ -85,7 +85,8 @@ public class TeamNotifier(
             var teamName = await uow.Repository<Team>().QueryNoTracking().Where(t => t.TeamId == teamId)
                 .Select(t => t.TeamName).SingleAsync(ct);
             var students = await uow.Repository<StudentProfile>().QueryNoTracking()
-                .Where(s => s.StudentProfileId == oldLeaderId || s.StudentProfileId == newLeaderId)
+                .Where(s => s.StudentProfileId == oldLeaderId || s.StudentProfileId == newLeaderId
+                            || s.TeamMembers.Any(m => m.TeamId == teamId && m.Status == TeamMemberStatuses.Accepted))
                 .Select(s => new { s.StudentProfileId, s.UserId, s.User.Email, s.User.FullName }).ToListAsync(ct);
             var oldLeader = students.Single(s => s.StudentProfileId == oldLeaderId);
             var newLeader = students.Single(s => s.StudentProfileId == newLeaderId);

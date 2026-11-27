@@ -1,4 +1,4 @@
-using System.Linq.Expressions;
+﻿using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -1094,13 +1094,19 @@ public class BorrowRequestService : IBorrowRequestService
 
         var info = await _uow.Repository<BorrowRequest>().QueryNoTracking()
                        .Where(r => r.BorrowRequestId == borrowRequestId)
-                       .Select(r => new { r.RequesterId, r.RoomId, r.ProjectId })
+                       .Select(r => new
+                       {
+                           r.RequesterId,
+                           r.RoomId,
+                           r.ProjectId,
+                           LeaderUserId = r.Project != null && r.Project.Team != null ? (Guid?)r.Project.Team.Leader.UserId : null,
+                       })
                        .FirstOrDefaultAsync(ct)
                    ?? throw new NotFoundException("Không tìm thấy đơn mượn");
 
-        var byBorrower = info.RequesterId == userId;
+        var byBorrower = info.RequesterId == userId || info.LeaderUserId == userId;
         if (!byBorrower && !await IsPickupStaffAsync(info.RoomId, ct))
-            throw new ForbiddenException("Chỉ người mượn hoặc nhân viên lab của đơn được hủy đơn này");
+            throw new ForbiddenException("Chỉ người mượn, trưởng nhóm hoặc nhân viên lab của đơn được hủy đơn này");
 
         var reason = CleanText(request.Reason);
         if (!byBorrower && reason == null)

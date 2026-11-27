@@ -426,6 +426,8 @@ public class TeamService : ITeamService
     {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
         var observed = await TeamMutationLock.ReadAsync(_uow, teamId, ct);
+        var oldLeaderId = observed.LeaderId;
+        var direct = false;
         var result = await MutateTeamAsync(observed, async (team, _, _) =>
         {
             var studentLeader = _currentUser.IsInRole(RoleNames.Student) && team.Leader.UserId == userId;
@@ -443,22 +445,25 @@ public class TeamService : ITeamService
             if (!team.TeamMembers.Any(m => m.StudentId == team.LeaderId && m.Status == TeamMemberStatuses.Accepted))
                 throw new ConflictException("Dữ liệu trưởng nhóm hiện tại không nhất quán, vui lòng kiểm tra lại");
 
+            oldLeaderId = team.LeaderId;
             if (lecturer || _currentUser.IsInRole(RoleNames.Admin))
             {
-                var approved = await _uow.Repository<Project>().QueryNoTracking()
-                    .AnyAsync(p => p.TeamId == teamId && p.Status == ProjectStatuses.Approved, ct);
-                if (approved)
-                    throw new ConflictException("Đề tài của nhóm đã được duyệt, không đổi trưởng nhóm được");
+                direct = true;
+                team.LeaderId = target.StudentId;
+                team.PendingLeaderId = null;
+                team.LeaderTransferRequestedAt = null;
+                return;
             }
-            else
-            {
-                await EnsureMembershipEditableAsync(teamId, ct);
-            }
+
+            await EnsureMembershipEditableAsync(teamId, ct);
             team.PendingLeaderId = target.StudentId;
             team.LeaderTransferRequestedAt = DateTime.UtcNow;
         }, ct);
         await _changes.TeamChangedAsync(teamId);
-        await _notifier.LeaderTransferRequestedAsync(teamId, request.StudentProfileId, CancellationToken.None);
+        if (direct)
+            await _notifier.LeaderTransferredAsync(teamId, oldLeaderId, request.StudentProfileId, CancellationToken.None);
+        else
+            await _notifier.LeaderTransferRequestedAsync(teamId, request.StudentProfileId, CancellationToken.None);
         return result;
     }
 
