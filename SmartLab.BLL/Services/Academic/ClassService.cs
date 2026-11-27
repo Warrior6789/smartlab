@@ -293,10 +293,10 @@ public class ClassService : IClassService
         await _uow.SaveChangesAsync(ct);
     }
 
-    /// <summary>Next free code COURSE-SEMESTER-NN in the semester, e.g. IOT201-FA26-01, IOT201-FA26-02.</summary>
+    /// <summary>Next free code COURSE_SEMESTER_NN in the semester, e.g. IOT201_FA26_01, IOT201_FA26_02.</summary>
     private async Task<string> NextClassCodeAsync(Guid semesterId, string courseCode, string semesterCode, CancellationToken ct)
     {
-        var prefix = $"{courseCode}-{semesterCode}-".ToUpper();
+        var prefix = $"{courseCode}_{semesterCode}_".ToUpper();
         var used = await _uow.Repository<Class>().QueryNoTracking()
             .Where(c => c.SemesterId == semesterId && c.ClassCode.ToUpper().StartsWith(prefix))
             .Select(c => c.ClassCode)
