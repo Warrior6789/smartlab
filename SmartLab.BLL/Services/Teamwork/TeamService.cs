@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SmartLab.BLL.Common.Exceptions;
 using SmartLab.BLL.Constants;
@@ -453,7 +453,6 @@ public class TeamService : ITeamService
             else
             {
                 await EnsureMembershipEditableAsync(teamId, ct);
-                await TeamFormationGate.EnsureOpenForStudentsAsync(_uow, team.ClassId, ct);
             }
             team.PendingLeaderId = target.StudentId;
             team.LeaderTransferRequestedAt = DateTime.UtcNow;
