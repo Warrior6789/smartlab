@@ -11,6 +11,7 @@ using SmartLab.BLL.External.Security;
 using SmartLab.BLL.External.Storage;
 using SmartLab.BLL.Interfaces.AuditLogs;
 using SmartLab.BLL.Interfaces.Identity;
+using SmartLab.BLL.Interfaces.Notifications;
 using SmartLab.BLL.Mappings.Identity;
 using SmartLab.DAL.Entities;
 using SmartLab.DAL.UnitOfWork;
@@ -34,10 +35,12 @@ public class AuthService : IAuthService
     private readonly IActiveUserChecker _sessionChecker;
     private readonly IAuditLogger _auditLogger;
     private readonly IFileStorage _fileStorage;
+    private readonly IChangeBroadcaster _broadcaster;
 
     public AuthService(
         IUnitOfWork uow, IPasswordHasher passwordHasher, IJwtService jwtService, ICurrentUserService currentUser,
-        IEmailSender email, IActiveUserChecker sessionChecker, IAuditLogger auditLogger, IFileStorage fileStorage)
+        IEmailSender email, IActiveUserChecker sessionChecker, IAuditLogger auditLogger, IFileStorage fileStorage,
+        IChangeBroadcaster broadcaster)
     {
         _uow = uow;
         _passwordHasher = passwordHasher;
@@ -47,6 +50,7 @@ public class AuthService : IAuthService
         _sessionChecker = sessionChecker;
         _auditLogger = auditLogger;
         _fileStorage = fileStorage;
+        _broadcaster = broadcaster;
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
@@ -65,25 +69,36 @@ public class AuthService : IAuthService
             throw new UnauthorizedException(InvalidCredentialsMessage);
         }
 
+        var now = DateTime.UtcNow;
+        var activatedNow = false;
         if (!user.IsActive)
         {
-            var waitsForActivation = await _uow.Repository<VerificationCode>().QueryNoTracking()
-                .AnyAsync(c => c.UserId == user.UserId && c.Purpose == VerificationPurposes.EmailVerification && c.UsedAt == null, ct);
-            if (waitsForActivation)
+            var openCodes = await _uow.Repository<VerificationCode>().Query()
+                .Where(c => c.UserId == user.UserId && c.Purpose == VerificationPurposes.EmailVerification && c.UsedAt == null)
+                .ToListAsync(ct);
+            if (openCodes.Count == 0)
             {
-                await LogFailedLoginAsync(user, identifier, "Tài khoản chưa được kích hoạt", ct);
-                throw new ForbiddenException("Tài khoản chưa được kích hoạt, vui lòng mở email SmartLab để kích hoạt");
+                await LogFailedLoginAsync(user, identifier, "Tài khoản đã bị khóa", ct);
+                throw new ForbiddenException("Tài khoản đã bị khóa");
             }
 
-            await LogFailedLoginAsync(user, identifier, "Tài khoản đã bị khóa", ct);
-            throw new ForbiddenException("Tài khoản đã bị khóa");
+            foreach (var code in openCodes)
+                code.UsedAt = now;
+            user.IsActive = true;
+            activatedNow = true;
+            await _auditLogger.AddAsync(AuditActions.ActivateUser, nameof(User), user.UserId.ToString(), userId: user.UserId, ct: ct);
         }
 
-        var now = DateTime.UtcNow;
         user.LastLoginAt = now;
         user.UpdatedAt = now;
         await _auditLogger.AddAsync(AuditActions.Login, nameof(User), user.UserId.ToString(), userId: user.UserId, ct: ct);
         await _uow.SaveChangesAsync(ct);
+
+        if (activatedNow)
+        {
+            _sessionChecker.Forget(user.UserId);
+            await _broadcaster.AccountChangedAsync(user.UserId);
+        }
 
         var dto = UserMappings.ToCurrentUserDto(user);
         var token = _jwtService.GenerateAccessToken(user, dto.Roles, dto.Permissions);

@@ -54,19 +54,18 @@ public class AccountActivationService : IAccountActivationService
 
     public Task SendEmailAsync(User user, string password, string token, CancellationToken ct = default)
     {
-        var link = $"{_web.BaseUrl.TrimEnd('/')}/activate#{token}";
+        var loginUrl = $"{_web.BaseUrl.TrimEnd('/')}/login";
         var body =
             $"<p>Xin chào <b>{WebUtility.HtmlEncode(user.FullName)}</b>,</p>" +
             "<p>Tài khoản SmartLab của bạn đã được tạo:</p>" +
             $"<p>Tên đăng nhập: <b>{WebUtility.HtmlEncode(user.Username)}</b><br/>" +
             $"Mật khẩu: <b>{WebUtility.HtmlEncode(password)}</b></p>" +
-            "<p>Bạn cần kích hoạt tài khoản trước khi đăng nhập:</p>" +
-            $"<p><a href=\"{link}\" style=\"display:inline-block;padding:12px 24px;background:#0058be;color:#ffffff;" +
-            "text-decoration:none;border-radius:6px;font-weight:bold\">Kích hoạt tài khoản</a></p>" +
-            $"<p>Link có hiệu lực trong {(int)LinkLifetime.TotalDays} ngày. Quá hạn thì nhờ Admin gửi lại email.</p>" +
+            "<p>Đăng nhập lần đầu bằng tài khoản trên là tài khoản được kích hoạt luôn:</p>" +
+            $"<p><a href=\"{loginUrl}\" style=\"display:inline-block;padding:12px 24px;background:#0058be;color:#ffffff;" +
+            "text-decoration:none;border-radius:6px;font-weight:bold\">Đăng nhập SmartLab</a></p>" +
             "<p>Bạn có thể đổi mật khẩu trong trang cá nhân sau khi đăng nhập.</p>";
 
-        return _email.SendAsync(user.Email, "SmartLab - Kích hoạt tài khoản của bạn", body, ct);
+        return _email.SendAsync(user.Email, "SmartLab - Tài khoản của bạn", body, ct);
     }
 
     public async Task<ActivateAccountResponse> ActivateAsync(ActivateAccountRequest request, CancellationToken ct = default)
