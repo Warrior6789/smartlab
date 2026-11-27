@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
@@ -186,6 +186,53 @@ public class AccountActivationService : IAccountActivationService
 
         _sessionChecker.Forget(userId);
         await _broadcaster.AccountChangedAsync(userId);
+    }
+
+    public async Task<ActivateClassResponse> ActivateClassAsync(Guid classId, ActivateUserRequest request, CancellationToken ct = default)
+    {
+        var classExists = await _uow.Repository<Class>().QueryNoTracking().AnyAsync(c => c.ClassId == classId, ct);
+        if (!classExists)
+            throw new NotFoundException("Không tìm thấy lớp");
+
+        var passwordHash = _passwordHasher.Hash(request.TemporaryPassword);
+        var activatedIds = new List<Guid>();
+
+        await using (var tx = await _uow.BeginTransactionAsync(ct))
+        {
+            var users = await _uow.Repository<User>().Query()
+                .Include(u => u.VerificationCodes
+                    .Where(c => c.Purpose == VerificationPurposes.EmailVerification && c.UsedAt == null))
+                .Where(u => !u.IsActive
+                            && u.StudentProfile != null
+                            && u.StudentProfile.ClassStudents.Any(cs => cs.ClassId == classId)
+                            && u.VerificationCodes.Any(c => c.Purpose == VerificationPurposes.EmailVerification && c.UsedAt == null))
+                .ToListAsync(ct);
+
+            var now = DateTime.UtcNow;
+            foreach (var user in users)
+            {
+                foreach (var open in user.VerificationCodes)
+                    open.UsedAt = now;
+                user.IsActive = true;
+                user.PasswordHash = passwordHash;
+                user.MustChangePassword = true;
+                user.TokenVersion++;
+                user.UpdatedAt = now;
+                activatedIds.Add(user.UserId);
+                await _auditLogger.AddAsync(AuditActions.ActivateUser, nameof(User), user.UserId.ToString(), ct: ct);
+            }
+
+            await _uow.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        }
+
+        foreach (var userId in activatedIds)
+        {
+            _sessionChecker.Forget(userId);
+            await _broadcaster.AccountChangedAsync(userId);
+        }
+
+        return new ActivateClassResponse { Activated = activatedIds.Count };
     }
 
     /// <summary>Locks the user row (no-op UPDATE) so activating and resending at the same time run one after the other.</summary>

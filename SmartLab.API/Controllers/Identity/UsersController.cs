@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SmartLab.BLL.Common;
 using SmartLab.BLL.Constants;
@@ -108,6 +108,20 @@ public class UsersController : ControllerBase
     {
         await _activationService.ActivateByAdminAsync(id, request, ct);
         return Ok(ApiResponse.Ok("Đã kích hoạt tài khoản"));
+    }
+
+    /// <summary>
+    /// Kích hoạt cùng lúc mọi sinh viên đang chờ kích hoạt của một lớp: Admin đặt một mật khẩu tạm chung, sinh viên phải
+    /// đổi mật khẩu ở lần đăng nhập đầu. Tài khoản bị khóa hoặc đã hoạt động giữ nguyên.
+    /// </summary>
+    [HttpPost("activate-class/{classId:guid}")]
+    [ProducesResponseType(typeof(ApiResponse<ActivateClassResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ActivateClass(Guid classId, [FromBody] ActivateUserRequest request, CancellationToken ct)
+    {
+        var result = await _activationService.ActivateClassAsync(classId, request, ct);
+        return Ok(ApiResponse<ActivateClassResponse>.Ok(result, $"Đã kích hoạt {result.Activated} tài khoản"));
     }
 
     /// <summary>

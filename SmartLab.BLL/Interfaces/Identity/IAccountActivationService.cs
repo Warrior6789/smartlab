@@ -1,4 +1,4 @@
-using SmartLab.BLL.DTOs.Identity;
+﻿using SmartLab.BLL.DTOs.Identity;
 using SmartLab.DAL.Entities;
 
 namespace SmartLab.BLL.Interfaces.Identity;
@@ -33,4 +33,10 @@ public interface IAccountActivationService
     /// active or locked.
     /// </summary>
     Task ActivateByAdminAsync(Guid userId, ActivateUserRequest request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Admin activates every student of the class whose account waits for activation, all with the same temporary password
+    /// that must be changed at first login. Locked accounts and active ones are left as they are. 404 when the class is unknown.
+    /// </summary>
+    Task<ActivateClassResponse> ActivateClassAsync(Guid classId, ActivateUserRequest request, CancellationToken ct = default);
 }
