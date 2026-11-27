@@ -24,7 +24,4 @@ public class CreateComponentRequest
     /// <summary>Low-stock warning level, required; 0 = nothing needs to be kept in stock.</summary>
     public int? MinStock { get; set; }
     public List<ComponentSpecRequest> Specs { get; set; } = new();
-
-    /// <summary>Labs that take in this component (lab_room_components). Empty = on no list yet, so it cannot be received.</summary>
-    public List<Guid> RoomIds { get; set; } = new();
 }

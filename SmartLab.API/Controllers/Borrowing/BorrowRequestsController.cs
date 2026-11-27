@@ -84,6 +84,21 @@ public class BorrowRequestsController : ControllerBase
     }
 
     /// <summary>
+    /// Gỡ ảnh giao / nhận trả chưa dùng: ảnh giao khi đơn còn Ready, ảnh nhận trả chưa gắn với món trả hay báo hỏng nào.
+    /// Ảnh đã dùng để bàn giao là bằng chứng nên không gỡ được (409).
+    /// </summary>
+    [HttpDelete("{id:guid}/photos/{photoId:guid}")]
+    [Authorize(Policy = PermissionCodes.BorrowIssue)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeletePhoto(Guid id, Guid photoId, CancellationToken ct)
+    {
+        await _borrowRequestService.DeletePhotoAsync(id, photoId, ct);
+        return Ok(ApiResponse.Ok("Đã gỡ ảnh"));
+    }
+
+    /// <summary>
     /// Tải ảnh giao đồ (photoType = Issue, đơn Ready hoặc đơn đang mượn có món thay thế đã về lab nhận đồ) hoặc ảnh nhận trả
     /// (Return, đơn đang mượn): ảnh chụp linh kiện kèm thẻ
     /// sinh viên (JPG/PNG/WEBP, tối đa 5 MB). Ảnh giao đồ được AI đọc MSSV trên thẻ và so với người mượn

@@ -600,8 +600,6 @@ public class StockReceiptService : IStockReceiptService
         if (cabinets.Values.Select(c => c.RoomId).Distinct().Count() > 1)
             throw new BadRequestException("Mỗi phiếu nhập chỉ nhập cho một lab, hàng của lab khác hãy lập phiếu khác");
 
-        await LabComponents.EnsureReceivableAsync(_uow, cabinets.Values.First().RoomId, components.Keys.ToList(), ct);
-
         foreach (var line in request.Items)
         {
             var cabinet = cabinets[line.CabinetId];

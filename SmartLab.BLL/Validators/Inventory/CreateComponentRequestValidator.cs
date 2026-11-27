@@ -48,10 +48,6 @@ public class CreateComponentRequestValidator : AbstractValidator<CreateComponent
             .NotNull().WithMessage("Tồn kho tối thiểu là bắt buộc, nhập 0 nếu không cần giữ sẵn")
             .GreaterThanOrEqualTo(0).WithMessage("Tồn kho tối thiểu không được âm");
 
-        RuleFor(x => x.RoomIds)
-            .NotNull().WithMessage("Danh sách lab không hợp lệ")
-            .Must(ids => ids.All(id => id != Guid.Empty)).WithMessage("Có lab không hợp lệ");
-
         RuleFor(x => x.Specs)
             .Cascade(CascadeMode.Stop)
             .NotNull().WithMessage("Danh sách thông số không được null")

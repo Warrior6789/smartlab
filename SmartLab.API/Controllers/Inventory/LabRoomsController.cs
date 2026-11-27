@@ -96,33 +96,4 @@ public class LabRoomsController : ControllerBase
         var staff = await _labRoomService.RemoveStaffAsync(id, userId, ct);
         return Ok(ApiResponse<IReadOnlyList<LabRoomStaffResponse>>.Ok(staff, "Gỡ phân công nhân viên thành công"));
     }
-
-    /// <summary>Danh sách linh kiện lab được nhận, kèm số lượng lab đang giữ. Phiếu nhập chỉ nhập được linh kiện có trong danh sách này.</summary>
-    [HttpGet("{id:guid}/components")]
-    [Authorize(Policy = PermissionCodes.ComponentView)]
-    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<LabRoomComponentResponse>>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetComponents(Guid id, CancellationToken ct)
-    {
-        var components = await _labRoomService.GetComponentsAsync(id, ct);
-        return Ok(ApiResponse<IReadOnlyList<LabRoomComponentResponse>>.Ok(components));
-    }
-
-    /// <summary>
-    /// Đặt lại danh sách linh kiện lab được nhận (gửi đủ danh sách; linh kiện không gửi bị bỏ khỏi lab).
-    /// Linh kiện lab còn hàng (tồn tiêu hao hoặc thiết bị Sẵn sàng / Đang mượn) không bỏ được (409).
-    /// </summary>
-    [HttpPut("{id:guid}/components")]
-    [Authorize(Policy = PermissionCodes.ComponentManage)]
-    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<LabRoomComponentResponse>>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> UpdateComponents(Guid id, [FromBody] UpdateLabRoomComponentsRequest request, CancellationToken ct)
-    {
-        var components = await _labRoomService.UpdateComponentsAsync(id, request, ct);
-        return Ok(ApiResponse<IReadOnlyList<LabRoomComponentResponse>>.Ok(components, "Đã cập nhật danh sách linh kiện của lab"));
-    }
 }

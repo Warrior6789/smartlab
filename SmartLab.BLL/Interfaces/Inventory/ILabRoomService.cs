@@ -21,13 +21,4 @@ public interface ILabRoomService
 
     /// <summary>Removes a staff assignment from the room; returns the room's staff list.</summary>
     Task<IReadOnlyList<LabRoomStaffResponse>> RemoveStaffAsync(Guid roomId, Guid userId, CancellationToken ct = default);
-
-    /// <summary>The components the lab takes in, ordered by name, with what the lab holds of each.</summary>
-    Task<IReadOnlyList<LabRoomComponentResponse>> GetComponentsAsync(Guid roomId, CancellationToken ct = default);
-
-    /// <summary>
-    /// Replaces the lab's list of components. A component the lab still holds (stock or units Available/Borrowed) cannot be taken off (409).
-    /// </summary>
-    Task<IReadOnlyList<LabRoomComponentResponse>> UpdateComponentsAsync(
-        Guid roomId, UpdateLabRoomComponentsRequest request, CancellationToken ct = default);
 }

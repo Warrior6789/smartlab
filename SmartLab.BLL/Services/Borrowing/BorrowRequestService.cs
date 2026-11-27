@@ -509,10 +509,61 @@ public class BorrowRequestService : IBorrowRequestService
 
         await tx.CommitAsync(ct);
 
+        await RemoveUnusedIssuePhotosAsync(borrowRequestId, request.PhotoId, ct);
         await _notifier.IssuedAsync(borrowRequestId, ct);
         await _changes.BorrowRequestChangedAsync(borrowRequestId);
 
         return await GetRequestByIdAsync(borrowRequestId, ct);
+    }
+
+    public async Task DeletePhotoAsync(Guid borrowRequestId, Guid photoId, CancellationToken ct = default)
+    {
+        var photo = await _uow.Repository<BorrowHandoverPhoto>().Query()
+                        .Include(p => p.BorrowRequest)
+                        .FirstOrDefaultAsync(p => p.PhotoId == photoId && p.BorrowRequestId == borrowRequestId, ct)
+                    ?? throw new NotFoundException("Không tìm thấy ảnh của đơn này");
+        await EnsurePickupStaffAsync(photo.BorrowRequest.RoomId, ct);
+
+        if (photo.PhotoType == HandoverPhotoTypes.Issue)
+        {
+            if (photo.BorrowRequest.Status != BorrowRequestStatuses.Ready)
+                throw new ConflictException("Ảnh này đã dùng để bàn giao, không gỡ được");
+        }
+        else
+        {
+            var used = await _uow.Repository<BorrowItem>().QueryNoTracking()
+                           .AnyAsync(i => i.ReturnPhotoId == photoId, ct)
+                       || await _uow.Repository<IssueReport>().QueryNoTracking()
+                           .AnyAsync(r => r.ImageUrl == photo.PhotoUrl, ct);
+            if (used)
+                throw new ConflictException("Ảnh này đã dùng để ghi nhận trả, không gỡ được");
+        }
+
+        _uow.Repository<BorrowHandoverPhoto>().Remove(photo);
+        await _uow.SaveChangesAsync(ct);
+        await TryDeleteStoredFileAsync(photo.StorageKey);
+        await _changes.BorrowRequestChangedAsync(borrowRequestId);
+    }
+
+    /// <summary>
+    /// After the first handover only the photo it used is kept: photos taken again or left from a cancelled try are
+    /// removed with their files, so the request shows the one photo of the handover.
+    /// </summary>
+    private async Task RemoveUnusedIssuePhotosAsync(Guid borrowRequestId, Guid usedPhotoId, CancellationToken ct)
+    {
+        var unused = await _uow.Repository<BorrowHandoverPhoto>().Query()
+            .Where(p => p.BorrowRequestId == borrowRequestId
+                        && p.PhotoType == HandoverPhotoTypes.Issue
+                        && p.PhotoId != usedPhotoId)
+            .ToListAsync(ct);
+        if (unused.Count == 0)
+            return;
+
+        foreach (var photo in unused)
+            _uow.Repository<BorrowHandoverPhoto>().Remove(photo);
+        await _uow.SaveChangesAsync(ct);
+        foreach (var photo in unused)
+            await TryDeleteStoredFileAsync(photo.StorageKey);
     }
 
     /// <summary>

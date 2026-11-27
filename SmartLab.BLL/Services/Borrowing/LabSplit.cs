@@ -8,8 +8,8 @@ using SmartLab.DAL.UnitOfWork;
 namespace SmartLab.BLL.Services.Borrowing;
 
 /// <summary>
-/// Splits what a project borrows into one request per lab: each component goes to a lab that keeps it (lab_room_components).
-/// A component kept by several labs (resistors, wires...) joins the lab that already serves the most lines, among the labs
+/// Splits what a project borrows into one request per lab: each component goes to a lab that has it in stock now.
+/// A component several labs hold (resistors, wires...) joins the lab that already serves the most lines, among the labs
 /// that have enough of it, so the team gets as few requests as possible. One component is never split across labs, and labs
 /// never pass components to each other. Only active labs with an active Lab Staff take requests.
 /// </summary>
@@ -22,23 +22,27 @@ internal static class LabSplit
     public static async Task<List<LabLines>> SplitAsync(IUnitOfWork uow, IReadOnlyList<Line> lines, CancellationToken ct)
     {
         var ids = lines.Select(l => l.ComponentId).Distinct().ToList();
-        var keepers = await uow.Repository<LabRoomComponent>().QueryNoTracking()
-            .Where(l => ids.Contains(l.ComponentId)
-                        && l.Room.Status == LabRoomStatuses.Active
-                        && l.Room.LabRoomStaffs.Any(s => s.User.IsActive))
-            .Select(l => new { l.ComponentId, l.RoomId, l.Room.RoomCode })
-            .ToListAsync(ct);
+        var roomCodes = await uow.Repository<LabRoom>().QueryNoTracking()
+            .Where(r => r.Status == LabRoomStatuses.Active && r.LabRoomStaffs.Any(s => s.User.IsActive))
+            .ToDictionaryAsync(r => r.RoomId, r => r.RoomCode, ct);
 
-        var labsByComponent = keepers.GroupBy(k => k.ComponentId).ToDictionary(g => g.Key, g => g.Select(k => k.RoomId).ToList());
-        var roomCodes = keepers.GroupBy(k => k.RoomId).ToDictionary(g => g.Key, g => g.First().RoomCode);
-
-        var homeless = lines.Where(l => !labsByComponent.ContainsKey(l.ComponentId)).Select(l => l.ComponentName).Distinct().ToList();
-        if (homeless.Count > 0)
-            throw new BadRequestException(
-                $"Chưa có lab đang hoạt động nào giữ {string.Join(", ", homeless)}. Hãy ghi vào mục tự chuẩn bị");
-
-        var available = await RoomStock.GetAvailableByRoomAsync(uow, ids, ct);
+        var available = (await RoomStock.GetAvailableByRoomAsync(uow, ids, ct))
+            .Where(r => roomCodes.ContainsKey(r.Key))
+            .ToDictionary(r => r.Key, r => r.Value);
         int Left(Guid roomId, Guid componentId) => available.GetValueOrDefault(roomId)?.GetValueOrDefault(componentId) ?? 0;
+
+        var labsByComponent = new Dictionary<Guid, List<Guid>>();
+        foreach (var id in ids)
+        {
+            var holders = available.Keys.Where(roomId => Left(roomId, id) > 0).ToList();
+            if (holders.Count > 0)
+                labsByComponent[id] = holders;
+        }
+
+        var missing = lines.Where(l => !labsByComponent.ContainsKey(l.ComponentId)).Select(l => l.ComponentName).Distinct().ToList();
+        if (missing.Count > 0)
+            throw new BadRequestException(
+                $"Không lab nào còn {string.Join(", ", missing)}. Hãy giảm bớt hoặc ghi vào mục tự chuẩn bị");
 
         var assigned = new Dictionary<Guid, List<Line>>();
         void Assign(Guid roomId, Line line)

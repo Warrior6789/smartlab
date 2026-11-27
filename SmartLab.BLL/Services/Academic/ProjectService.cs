@@ -227,7 +227,6 @@ public class ProjectService : IProjectService
             throw new ConflictException("Nhóm đã có project");
 
         await EnsureComponentsUsableAsync(request.Components, ct);
-        await LabComponents.EnsureKeptByAnyLabAsync(_uow, request.Components.Select(c => c.ComponentId).ToList(), ct);
 
         var now = DateTime.UtcNow;
         var project = new Project
@@ -287,13 +286,6 @@ public class ProjectService : IProjectService
 
         var components = request.Components!;
         await EnsureComponentsUsableAsync(components, ct);
-
-        var savedIds = await _uow.Repository<ProjectComponent>().QueryNoTracking()
-            .Where(pc => pc.ProjectId == projectId)
-            .Select(pc => pc.ComponentId)
-            .ToListAsync(ct);
-        var addedIds = components.Select(c => c.ComponentId).Where(id => !savedIds.Contains(id)).ToList();
-        await LabComponents.EnsureKeptByAnyLabAsync(_uow, addedIds, ct);
 
         var title = request.Title.Trim();
         var description = CleanText(request.Description);
@@ -754,7 +746,6 @@ public class ProjectService : IProjectService
         await EnsureComponentsUsableAsync(request.Components, ct);
         var lines = await LoadRequestLinesAsync(request.Components, ct);
 
-        await LabComponents.EnsureKeptByAnyLabAsync(_uow, request.Components.Select(c => c.ComponentId).ToList(), ct);
         var dueDate = await BorrowDeadline.GetDueDateForNewRequestAsync(_uow, project.ClassId, ct);
 
         var lecturerId = await _uow.Repository<Class>().QueryNoTracking()

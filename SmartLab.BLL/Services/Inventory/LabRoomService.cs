@@ -187,79 +187,6 @@ public class LabRoomService : ILabRoomService
         return $"{RoomCodePrefix}{maxNumber + 1:D2}";
     }
 
-    public async Task<IReadOnlyList<LabRoomComponentResponse>> GetComponentsAsync(Guid roomId, CancellationToken ct = default)
-    {
-        if (!await _uow.Repository<LabRoom>().QueryNoTracking().AnyAsync(r => r.RoomId == roomId, ct))
-            throw new NotFoundException("Không tìm thấy phòng lab");
-
-        return await _uow.Repository<LabRoomComponent>().QueryNoTracking()
-            .Where(l => l.RoomId == roomId)
-            .OrderBy(l => EF.Functions.Collate(l.Component.ComponentName, DbCollations.Vietnamese))
-            .Select(l => new LabRoomComponentResponse
-            {
-                ComponentId = l.ComponentId,
-                ComponentCode = l.Component.ComponentCode,
-                ShortCode = l.Component.ShortCode,
-                ComponentName = l.Component.ComponentName,
-                CategoryName = l.Component.Category.CategoryName,
-                TrackingType = l.Component.TrackingType,
-                Unit = l.Component.Unit,
-                IsActive = l.Component.IsActive,
-                QuantityInLab = l.Component.ConsumableStocks
-                                    .Where(st => st.Cabinet.RoomId == roomId)
-                                    .Sum(st => st.Quantity)
-                                + l.Component.ComponentItems
-                                    .Count(i => i.Cabinet.RoomId == roomId
-                                                && (i.Status == ComponentItemStatuses.Available || i.Status == ComponentItemStatuses.Borrowed)),
-            })
-            .ToListAsync(ct);
-    }
-
-    public async Task<IReadOnlyList<LabRoomComponentResponse>> UpdateComponentsAsync(
-        Guid roomId, UpdateLabRoomComponentsRequest request, CancellationToken ct = default)
-    {
-        if (!await _uow.Repository<LabRoom>().QueryNoTracking().AnyAsync(r => r.RoomId == roomId, ct))
-            throw new NotFoundException("Không tìm thấy phòng lab");
-
-        var wanted = request.ComponentIds.Distinct().ToList();
-        var found = await _uow.Repository<Component>().QueryNoTracking()
-            .CountAsync(c => wanted.Contains(c.ComponentId), ct);
-        if (found != wanted.Count)
-            throw new BadRequestException("Có linh kiện không tồn tại");
-
-        var links = _uow.Repository<LabRoomComponent>();
-        var current = await links.Query().Where(l => l.RoomId == roomId).ToListAsync(ct);
-        var removed = current.Where(l => !wanted.Contains(l.ComponentId)).ToList();
-
-        if (removed.Count > 0)
-        {
-            var removedIds = removed.Select(l => l.ComponentId).ToList();
-            var stillHeld = await _uow.Repository<Component>().QueryNoTracking()
-                .Where(c => removedIds.Contains(c.ComponentId)
-                            && (c.ConsumableStocks.Any(st => st.Cabinet.RoomId == roomId && st.Quantity > 0)
-                                || c.ComponentItems.Any(i => i.Cabinet.RoomId == roomId
-                                                             && (i.Status == ComponentItemStatuses.Available
-                                                                 || i.Status == ComponentItemStatuses.Borrowed))))
-                .OrderBy(c => c.ComponentCode)
-                .Select(c => c.ComponentName)
-                .ToListAsync(ct);
-            if (stillHeld.Count > 0)
-                throw new ConflictException(
-                    $"Lab còn hàng của {string.Join(", ", stillHeld)} nên chưa bỏ khỏi danh sách được. Thanh lý hết hàng trước khi bỏ");
-
-            foreach (var link in removed)
-                links.Remove(link);
-        }
-
-        var now = DateTime.UtcNow;
-        var currentIds = current.Select(l => l.ComponentId).ToHashSet();
-        foreach (var componentId in wanted.Where(id => !currentIds.Contains(id)))
-            await links.AddAsync(new LabRoomComponent { RoomId = roomId, ComponentId = componentId, CreatedAt = now }, ct);
-
-        await _uow.SaveChangesAsync(ct);
-        return await GetComponentsAsync(roomId, ct);
-    }
-
     private IQueryable<LabRoomResponse> ToResponses(IQueryable<LabRoom> rooms)
     {
         var userId = _currentUser.UserId;
@@ -271,7 +198,6 @@ public class LabRoomService : ILabRoomService
             Status = r.Status,
             CabinetCount = r.StorageCabinets.Count,
             StaffCount = r.LabRoomStaffs.Count,
-            ComponentCount = r.LabRoomComponents.Count,
             IsMine = r.LabRoomStaffs.Any(s => s.UserId == userId),
             CreatedAt = r.CreatedAt,
             UpdatedAt = r.UpdatedAt,

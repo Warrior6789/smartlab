@@ -25,6 +25,12 @@ public interface IBorrowRequestService
 
     Task<StudentCardReadResponse> ReadStudentCardAsync(ReadStudentCardRequest request, CancellationToken ct = default);
 
+    /// <summary>
+    /// Removes a handover photo that was not used: an issue photo while the request is still Ready, a return photo no
+    /// returned line or damage report points to. Its stored file is deleted too.
+    /// </summary>
+    Task DeletePhotoAsync(Guid borrowRequestId, Guid photoId, CancellationToken ct = default);
+
     Task<HandoverPhotoResponse> UploadPhotoAsync(
         Guid borrowRequestId, UploadHandoverPhotoRequest request, CancellationToken ct = default);
 
