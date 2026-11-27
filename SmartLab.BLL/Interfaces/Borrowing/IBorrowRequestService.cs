@@ -15,6 +15,12 @@ public interface IBorrowRequestService
     Task<PagedResult<BorrowRequestResponse>> GetRequestsAsync(
         BorrowRequestQueryParams query, PageParams paging, CancellationToken ct = default);
 
+    /// <summary>
+    /// Open requests (approved to on loan) matching the search that belong to labs the caller does not staff, so a student
+    /// who came to the wrong lab is sent to the right one. Empty for Admin, who already sees every lab.
+    /// </summary>
+    Task<List<OtherLabRequestResponse>> FindInOtherLabsAsync(string? search, CancellationToken ct = default);
+
     Task<BorrowRequestDetailResponse> GetRequestByIdAsync(Guid borrowRequestId, CancellationToken ct = default);
 
     Task<StudentCardReadResponse> ReadStudentCardAsync(ReadStudentCardRequest request, CancellationToken ct = default);

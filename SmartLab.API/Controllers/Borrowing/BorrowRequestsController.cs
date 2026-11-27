@@ -57,6 +57,19 @@ public class BorrowRequestsController : ControllerBase
     }
 
     /// <summary>
+    /// Nhân viên lab tìm không ra đơn ở lab mình: các đơn đang mở khớp từ khóa nhưng thuộc lab khác (tối đa 5),
+    /// để hướng dẫn sinh viên qua đúng lab.
+    /// </summary>
+    [HttpGet("other-labs")]
+    [Authorize(Policy = PermissionCodes.BorrowIssue)]
+    [ProducesResponseType(typeof(ApiResponse<List<OtherLabRequestResponse>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> FindInOtherLabs([FromQuery] string? search, CancellationToken ct)
+    {
+        var result = await _borrowRequestService.FindInOtherLabsAsync(search, ct);
+        return Ok(ApiResponse<List<OtherLabRequestResponse>>.Ok(result));
+    }
+
+    /// <summary>
     /// Chi tiết đơn: các dòng linh kiện (con nào đã giao), ảnh giao / trả, lịch sử duyệt.
     /// Người mượn, nhóm, giảng viên của lớp, nhân viên lab liên quan và Admin xem được.
     /// </summary>

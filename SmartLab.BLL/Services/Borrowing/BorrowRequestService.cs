@@ -102,6 +102,34 @@ public class BorrowRequestService : IBorrowRequestService
         return ToPagedResponses(Filter(requests, query), paging, ct);
     }
 
+    public async Task<List<OtherLabRequestResponse>> FindInOtherLabsAsync(string? search, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(search) || _currentUser.IsInRole(RoleNames.Admin))
+            return new List<OtherLabRequestResponse>();
+
+        var myRooms = MyRoomIds();
+        var open = new[]
+        {
+            BorrowRequestStatuses.Approved, BorrowRequestStatuses.Ready,
+            BorrowRequestStatuses.Borrowing, BorrowRequestStatuses.Overdue,
+        };
+        var requests = _uow.Repository<BorrowRequest>().QueryNoTracking()
+            .Where(r => !myRooms.Contains(r.RoomId) && open.Contains(r.Status));
+
+        return await Filter(requests, new BorrowRequestQueryParams { Search = search })
+            .OrderBy(r => r.Room.RoomCode).ThenBy(r => r.RequestCode)
+            .Take(5)
+            .Select(r => new OtherLabRequestResponse
+            {
+                RequestCode = r.RequestCode,
+                Status = r.Status,
+                StudentCode = r.Requester.StudentProfile != null ? r.Requester.StudentProfile.StudentCode : null,
+                RoomCode = r.Room.RoomCode,
+                RoomName = r.Room.RoomName,
+            })
+            .ToListAsync(ct);
+    }
+
     public async Task<BorrowRequestDetailResponse> GetRequestByIdAsync(Guid borrowRequestId, CancellationToken ct = default)
     {
         if (!await _uow.Repository<BorrowRequest>().QueryNoTracking().AnyAsync(r => r.BorrowRequestId == borrowRequestId, ct))
