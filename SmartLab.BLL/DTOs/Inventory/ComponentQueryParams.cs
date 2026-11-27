@@ -12,4 +12,10 @@ public class ComponentQueryParams
 
     /// <summary>true = only components whose total quantity is below their MinStock.</summary>
     public bool? LowStock { get; set; }
+
+    /// <summary>Only components on this lab's list (lab_room_components), e.g. the components a stock receipt for that lab may take.</summary>
+    public Guid? RoomId { get; set; }
+
+    /// <summary>true = only components some lab keeps (lab_room_components), what a project can borrow.</summary>
+    public bool? KeptByLab { get; set; }
 }

@@ -62,6 +62,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<LabRoom> LabRooms { get; set; }
 
+    public virtual DbSet<LabRoomComponent> LabRoomComponents { get; set; }
+
     public virtual DbSet<LabRoomStaff> LabRoomStaffs { get; set; }
 
     public virtual DbSet<Notification> Notifications { get; set; }
@@ -1151,6 +1153,29 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("updated_at");
+        });
+
+        modelBuilder.Entity<LabRoomComponent>(entity =>
+        {
+            entity.HasKey(e => new { e.RoomId, e.ComponentId }).HasName("lab_room_components_pkey");
+
+            entity.ToTable("lab_room_components");
+
+            entity.HasIndex(e => e.ComponentId, "ix_lab_room_components_component_id");
+
+            entity.Property(e => e.RoomId).HasColumnName("room_id");
+            entity.Property(e => e.ComponentId).HasColumnName("component_id");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnName("created_at");
+
+            entity.HasOne(d => d.Component).WithMany(p => p.LabRoomComponents)
+                .HasForeignKey(d => d.ComponentId)
+                .HasConstraintName("lab_room_components_component_id_fkey");
+
+            entity.HasOne(d => d.Room).WithMany(p => p.LabRoomComponents)
+                .HasForeignKey(d => d.RoomId)
+                .HasConstraintName("lab_room_components_room_id_fkey");
         });
 
         modelBuilder.Entity<LabRoomStaff>(entity =>

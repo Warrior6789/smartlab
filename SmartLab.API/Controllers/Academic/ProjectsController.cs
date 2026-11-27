@@ -240,6 +240,22 @@ public class ProjectsController : ControllerBase
     /// Hạn trả luôn theo ngày kết thúc học kỳ Admin cài đặt (trừ BORROW_DAYS_BEFORE_SEMESTER_END ngày).
     /// Project chỉ có đồ tự chuẩn bị (không mượn linh kiện lab) thì không tạo đơn mượn.
     /// </summary>
+    /// <summary>
+    /// Xem trước các đơn mượn sẽ tạo khi gửi (mỗi lab một đơn, chia giống hệt lúc gửi). Gửi components để xem cho đơn mượn thêm đang soạn;
+    /// để trống thì dùng linh kiện đã lưu của project. Không lưu gì. Gửi được ngay thì problem = null, ngược lại problem là lý do.
+    /// </summary>
+    [HttpPost("{id:guid}/borrow-preview")]
+    [Authorize(Policy = PermissionCodes.ProjectCreate)]
+    [ProducesResponseType(typeof(ApiResponse<BorrowPreviewResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PreviewBorrow(Guid id, [FromBody] BorrowPreviewRequest request, CancellationToken ct)
+    {
+        var preview = await _projectService.PreviewBorrowAsync(id, request, ct);
+        return Ok(ApiResponse<BorrowPreviewResponse>.Ok(preview));
+    }
+
     [HttpPost("{id:guid}/submit")]
     [Authorize(Policy = PermissionCodes.ProjectCreate)]
     [ProducesResponseType(typeof(ApiResponse<ProjectDetailResponse>), StatusCodes.Status200OK)]

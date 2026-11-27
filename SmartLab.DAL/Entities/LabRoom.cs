@@ -21,6 +21,8 @@ public partial class LabRoom
 
     public virtual ICollection<Course> Courses { get; set; } = new List<Course>();
 
+    public virtual ICollection<LabRoomComponent> LabRoomComponents { get; set; } = new List<LabRoomComponent>();
+
     public virtual ICollection<LabRoomStaff> LabRoomStaffs { get; set; } = new List<LabRoomStaff>();
 
     public virtual ICollection<StorageCabinet> StorageCabinets { get; set; } = new List<StorageCabinet>();

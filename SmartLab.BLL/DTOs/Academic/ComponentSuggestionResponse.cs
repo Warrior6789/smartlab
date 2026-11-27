@@ -1,13 +1,13 @@
 namespace SmartLab.BLL.DTOs.Academic;
 
 /// <summary>
-/// AI suggestion split in three groups by the stock of one lab (<see cref="Lab"/>), because a project borrows everything
-/// from a single lab and labs never pass components to each other. Nothing is saved: the team leader picks what to keep
+/// AI suggestion split in three groups by the most one lab can lend of each component: a project borrows each component
+/// from a lab that keeps it (one request per lab) and labs never pass components to each other. Nothing is saved: the team leader picks what to keep
 /// and saves it with PUT /api/projects/{id} (Components + SelfSuppliedItems).
 /// </summary>
 public class ComponentSuggestionResponse
 {
-    /// <summary>The lab with the most of the suggested components; null when no lab can lend or nothing is in the catalog.</summary>
+    /// <summary>Always null now: components are split over the labs that keep them. Kept for older clients.</summary>
     public SuggestedLabResponse? Lab { get; set; }
 
     /// <summary>In the catalog and <see cref="Lab"/> has enough now.</summary>

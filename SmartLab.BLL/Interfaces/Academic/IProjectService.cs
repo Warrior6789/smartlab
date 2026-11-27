@@ -68,6 +68,12 @@ public interface IProjectService
     Task<ProjectDetailResponse> SubmitProjectAsync(Guid projectId, SubmitProjectRequest request, CancellationToken ct = default);
 
     /// <summary>
+    /// The requests sending would create now, one per lab (the same split as submitting), for the team leader to see
+    /// before sending. Uses the given components, or the saved project components when none are given. Nothing is saved.
+    /// </summary>
+    Task<BorrowPreviewResponse> PreviewBorrowAsync(Guid projectId, BorrowPreviewRequest request, CancellationToken ct = default);
+
+    /// <summary>
     /// Team leader takes back a Submitted project that is not decided yet: its Pending borrow request becomes Cancelled
     /// and the project goes back to Draft.
     /// </summary>

@@ -9,7 +9,7 @@ public class CreateCabinetRequest
 
     /// <summary>
     /// Kind of component the cabinet is for (CONSUMABLE | REUSABLE | HIGH_VALUE). A stock receipt fills each line with the
-    /// cabinet of its lab for the same kind; null = any kind.
+    /// cabinet of its lab for the same kind. Required.
     /// </summary>
     public string? TrackingType { get; set; }
 }

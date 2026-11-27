@@ -227,6 +227,7 @@ public class ProjectService : IProjectService
             throw new ConflictException("Nhóm đã có project");
 
         await EnsureComponentsUsableAsync(request.Components, ct);
+        await LabComponents.EnsureKeptByAnyLabAsync(_uow, request.Components.Select(c => c.ComponentId).ToList(), ct);
 
         var now = DateTime.UtcNow;
         var project = new Project
@@ -286,6 +287,13 @@ public class ProjectService : IProjectService
 
         var components = request.Components!;
         await EnsureComponentsUsableAsync(components, ct);
+
+        var savedIds = await _uow.Repository<ProjectComponent>().QueryNoTracking()
+            .Where(pc => pc.ProjectId == projectId)
+            .Select(pc => pc.ComponentId)
+            .ToListAsync(ct);
+        var addedIds = components.Select(c => c.ComponentId).Where(id => !savedIds.Contains(id)).ToList();
+        await LabComponents.EnsureKeptByAnyLabAsync(_uow, addedIds, ct);
 
         var title = request.Title.Trim();
         var description = CleanText(request.Description);
@@ -549,6 +557,82 @@ public class ProjectService : IProjectService
         }
     }
 
+    public async Task<BorrowPreviewResponse> PreviewBorrowAsync(
+        Guid projectId, BorrowPreviewRequest request, CancellationToken ct = default)
+    {
+        await GetProjectForLeaderAsync(projectId, ct);
+
+        var requested = request.Components
+            .GroupBy(c => c.ComponentId)
+            .Select(g => new ProjectComponentRequest { ComponentId = g.Key, Quantity = g.Sum(c => c.Quantity) })
+            .ToList();
+        if (requested.Count == 0)
+        {
+            requested = await _uow.Repository<ProjectComponent>().QueryNoTracking()
+                .Where(pc => pc.ProjectId == projectId)
+                .Select(pc => new ProjectComponentRequest { ComponentId = pc.ComponentId, Quantity = pc.Quantity })
+                .ToListAsync(ct);
+        }
+
+        var result = new BorrowPreviewResponse();
+        if (requested.Count == 0)
+            return result;
+
+        var ids = requested.Select(r => r.ComponentId).ToList();
+        var components = await _uow.Repository<Component>().QueryNoTracking()
+            .Where(c => ids.Contains(c.ComponentId))
+            .Select(c => new { c.ComponentId, Code = c.ShortCode ?? c.ComponentCode, c.ComponentName, c.Unit, c.IsActive })
+            .ToDictionaryAsync(c => c.ComponentId, ct);
+        if (components.Count != ids.Count)
+            throw new NotFoundException("Không tìm thấy linh kiện");
+
+        var inactive = components.Values.Where(c => !c.IsActive).Select(c => c.ComponentName).ToList();
+        if (inactive.Count > 0)
+        {
+            result.Problem = $"Linh kiện đã ngừng sử dụng: {string.Join(", ", inactive)}";
+            return result;
+        }
+
+        List<LabSplit.LabLines> split;
+        try
+        {
+            split = await LabSplit.SplitAsync(_uow,
+                requested.Select(r => new LabSplit.Line(r.ComponentId, components[r.ComponentId].ComponentName, r.Quantity)).ToList(), ct);
+        }
+        catch (BadRequestException ex)
+        {
+            result.Problem = ex.Message;
+            return result;
+        }
+
+        var roomIds = split.Select(s => s.RoomId).ToList();
+        var roomNames = await _uow.Repository<LabRoom>().QueryNoTracking()
+            .Where(r => roomIds.Contains(r.RoomId))
+            .ToDictionaryAsync(r => r.RoomId, r => r.RoomName, ct);
+
+        foreach (var lab in split)
+        {
+            result.Labs.Add(new BorrowPreviewLabResponse
+            {
+                RoomId = lab.RoomId,
+                RoomCode = lab.RoomCode,
+                RoomName = roomNames.GetValueOrDefault(lab.RoomId) ?? string.Empty,
+                Lines = lab.Lines
+                    .Select(l => new BorrowPreviewLineResponse
+                    {
+                        ComponentId = l.ComponentId,
+                        ComponentCode = components[l.ComponentId].Code,
+                        ComponentName = l.ComponentName,
+                        Unit = components[l.ComponentId].Unit,
+                        Quantity = l.Quantity,
+                    })
+                    .OrderBy(l => l.ComponentName)
+                    .ToList(),
+            });
+        }
+        return result;
+    }
+
     public async Task<ProjectDetailResponse> SubmitProjectAsync(
         Guid projectId, SubmitProjectRequest request, CancellationToken ct = default)
     {
@@ -566,7 +650,7 @@ public class ProjectService : IProjectService
         if (lecturerId == null)
             throw new BadRequestException("Lớp chưa có giảng viên phụ trách nên chưa gửi duyệt được");
 
-        BorrowRequest? borrowRequest = null;
+        var borrowRequests = new List<BorrowRequest>();
         var attempt = 1;
         while (true)
         {
@@ -588,47 +672,23 @@ public class ProjectService : IProjectService
                     if (updated == 0)
                         throw new ConflictException(StatusChangedMessage);
 
-                    var lines = new List<SubmitLine>();
-                    if (borrowRequest == null)
-                        lines = await LoadSubmitLinesAsync(projectId, token);
-
-                    if (lines.Count > 0)
+                    if (borrowRequests.Count == 0)
                     {
-                        var roomId = await CourseRoom.GetForClassAsync(_uow, project.ClassId, token);
-                        await EnsureRoomStockAsync(roomId, lines, token);
-                        var dueDate = await BorrowDeadline.GetDueDateForNewRequestAsync(_uow, project.ClassId, token);
-
-                        borrowRequest = new BorrowRequest
+                        var lines = await LoadSubmitLinesAsync(projectId, token);
+                        if (lines.Count > 0)
                         {
-                            RequestCode = await GenerateRequestCodeAsync(now, token),
-                            RequesterId = userId,
-                            ClassId = project.ClassId,
-                            ProjectId = projectId,
-                            Purpose = $"Mượn linh kiện cho project: {project.Title}",
-                            Status = BorrowRequestStatuses.Pending,
-                            RequestDate = now,
-                            DueDate = dueDate,
-                            RoomId = roomId,
-                        };
-                        foreach (var line in lines)
-                        {
-                            borrowRequest.BorrowItems.Add(new BorrowItem
+                            var split = await LabSplit.SplitAsync(_uow,
+                                lines.Select(l => new LabSplit.Line(l.ComponentId, l.ComponentName, l.Quantity)).ToList(), token);
+                            var dueDate = await BorrowDeadline.GetDueDateForNewRequestAsync(_uow, project.ClassId, token);
+                            var codes = await GenerateRequestCodesAsync(now, split.Count, token);
+                            for (var i = 0; i < split.Count; i++)
                             {
-                                ComponentId = line.ComponentId,
-                                Quantity = line.Quantity,
-                                Status = BorrowItemStatuses.Pending,
-                            });
+                                borrowRequests.Add(NewBorrowRequest(split[i], codes[i], userId, project,
+                                    $"Mượn linh kiện cho project: {project.Title}", now, dueDate, lecturerId.Value));
+                            }
+                            foreach (var borrowRequest in borrowRequests)
+                                await _uow.Repository<BorrowRequest>().AddAsync(borrowRequest, token);
                         }
-                        borrowRequest.BorrowApprovals.Add(new BorrowApproval
-                        {
-                            StepNo = 1,
-                            ApproverRole = ApproverRoles.Lecturer,
-                            ApproverId = lecturerId.Value,
-                            Status = BorrowApprovalStatuses.Pending,
-                            CreatedAt = now,
-                        });
-
-                        await _uow.Repository<BorrowRequest>().AddAsync(borrowRequest, token);
                     }
                     await _uow.SaveChangesAsync(token);
                     return true;
@@ -642,14 +702,19 @@ public class ProjectService : IProjectService
                                                } && attempt < MaxCodeAttempts)
             {
                 attempt++;
-                borrowRequest!.RequestCode = await GenerateRequestCodeAsync(now, ct);
+                var codes = await GenerateRequestCodesAsync(now, borrowRequests.Count, ct);
+                for (var i = 0; i < borrowRequests.Count; i++)
+                    borrowRequests[i].RequestCode = codes[i];
             }
         }
 
-        if (borrowRequest != null)
+        if (borrowRequests.Count > 0)
         {
-            await _notifier.SubmittedAsync(borrowRequest.BorrowRequestId, ct);
-            await _changes.BorrowRequestChangedAsync(borrowRequest.BorrowRequestId);
+            foreach (var borrowRequest in borrowRequests)
+            {
+                await _notifier.SubmittedAsync(borrowRequest.BorrowRequestId, ct);
+                await _changes.BorrowRequestChangedAsync(borrowRequest.BorrowRequestId);
+            }
         }
         else
         {
@@ -689,7 +754,7 @@ public class ProjectService : IProjectService
         await EnsureComponentsUsableAsync(request.Components, ct);
         var lines = await LoadRequestLinesAsync(request.Components, ct);
 
-        var roomId = await CourseRoom.GetForClassAsync(_uow, project.ClassId, ct);
+        await LabComponents.EnsureKeptByAnyLabAsync(_uow, request.Components.Select(c => c.ComponentId).ToList(), ct);
         var dueDate = await BorrowDeadline.GetDueDateForNewRequestAsync(_uow, project.ClassId, ct);
 
         var lecturerId = await _uow.Repository<Class>().QueryNoTracking()
@@ -701,7 +766,7 @@ public class ProjectService : IProjectService
 
         var purpose = $"Mượn bổ sung cho project: {project.Title}. Lý do: {request.Reason.Trim()}";
 
-        BorrowRequest? borrowRequest = null;
+        var borrowRequests = new List<BorrowRequest>();
         var attempt = 1;
         while (true)
         {
@@ -719,46 +784,20 @@ public class ProjectService : IProjectService
                     if (locked == 0)
                         throw new ConflictException(StatusChangedMessage);
 
-                    if (borrowRequest == null)
+                    if (borrowRequests.Count == 0)
                     {
                         var hasPending = await _uow.Repository<BorrowRequest>().QueryNoTracking()
                             .AnyAsync(r => r.ProjectId == projectId && r.Status == BorrowRequestStatuses.Pending, token);
                         if (hasPending)
                             throw new ConflictException("Nhóm đang có đơn mượn thêm chờ duyệt");
 
-                        await EnsureRoomStockAsync(roomId, lines, token);
-
-                        borrowRequest = new BorrowRequest
-                        {
-                            RequestCode = await GenerateRequestCodeAsync(now, token),
-                            RequesterId = userId,
-                            ClassId = project.ClassId,
-                            ProjectId = projectId,
-                            Purpose = purpose,
-                            Status = BorrowRequestStatuses.Pending,
-                            RequestDate = now,
-                            DueDate = dueDate,
-                            RoomId = roomId,
-                        };
-                        foreach (var line in lines)
-                        {
-                            borrowRequest.BorrowItems.Add(new BorrowItem
-                            {
-                                ComponentId = line.ComponentId,
-                                Quantity = line.Quantity,
-                                Status = BorrowItemStatuses.Pending,
-                            });
-                        }
-                        borrowRequest.BorrowApprovals.Add(new BorrowApproval
-                        {
-                            StepNo = 1,
-                            ApproverRole = ApproverRoles.Lecturer,
-                            ApproverId = lecturerId.Value,
-                            Status = BorrowApprovalStatuses.Pending,
-                            CreatedAt = now,
-                        });
-
-                        await _uow.Repository<BorrowRequest>().AddAsync(borrowRequest, token);
+                        var split = await LabSplit.SplitAsync(_uow,
+                            lines.Select(l => new LabSplit.Line(l.ComponentId, l.ComponentName, l.Quantity)).ToList(), token);
+                        var codes = await GenerateRequestCodesAsync(now, split.Count, token);
+                        for (var i = 0; i < split.Count; i++)
+                            borrowRequests.Add(NewBorrowRequest(split[i], codes[i], userId, project, purpose, now, dueDate, lecturerId.Value));
+                        foreach (var borrowRequest in borrowRequests)
+                            await _uow.Repository<BorrowRequest>().AddAsync(borrowRequest, token);
                     }
                     await _uow.SaveChangesAsync(token);
                     return true;
@@ -772,12 +811,17 @@ public class ProjectService : IProjectService
                                                } && attempt < MaxCodeAttempts)
             {
                 attempt++;
-                borrowRequest!.RequestCode = await GenerateRequestCodeAsync(now, ct);
+                var codes = await GenerateRequestCodesAsync(now, borrowRequests.Count, ct);
+                for (var i = 0; i < borrowRequests.Count; i++)
+                    borrowRequests[i].RequestCode = codes[i];
             }
         }
 
-        await _notifier.SubmittedAsync(borrowRequest!.BorrowRequestId, ct);
-        await _changes.BorrowRequestChangedAsync(borrowRequest.BorrowRequestId);
+        foreach (var borrowRequest in borrowRequests)
+        {
+            await _notifier.SubmittedAsync(borrowRequest.BorrowRequestId, ct);
+            await _changes.BorrowRequestChangedAsync(borrowRequest.BorrowRequestId);
+        }
 
         return await GetProjectByIdAsync(projectId, ct);
     }
@@ -1087,35 +1131,52 @@ public class ProjectService : IProjectService
             .ToList();
     }
 
-    /// <summary>
-    /// The project's lab alone must be able to lend each component now: its stock minus what Approved / Ready requests
-    /// already reserve there (see <see cref="RoomStock"/>). Labs do not pass components to each other, so what the lab
-    /// lacks must go to the self-supplied list instead.
-    /// </summary>
-    private async Task EnsureRoomStockAsync(Guid roomId, List<SubmitLine> lines, CancellationToken ct)
+    /// <summary>One request per lab: the lines that lab lends, approved by the class lecturer.</summary>
+    private static BorrowRequest NewBorrowRequest(
+        LabSplit.LabLines lab, string code, Guid userId, Project project, string purpose, DateTime now, DateTime dueDate, Guid lecturerId)
     {
-        var ids = lines.Select(l => l.ComponentId).ToList();
-        var availableByRoom = await RoomStock.GetAvailableByRoomAsync(_uow, ids, ct);
-        var available = availableByRoom.GetValueOrDefault(roomId) ?? new Dictionary<Guid, int>();
-
-        var shortages = new List<string>();
-        foreach (var line in lines)
+        var borrowRequest = new BorrowRequest
         {
-            var left = available.GetValueOrDefault(line.ComponentId);
-            if (left < line.Quantity)
-                shortages.Add($"{line.ComponentName} (cần {line.Quantity}, lab còn {left})");
+            RequestCode = code,
+            RequesterId = userId,
+            ClassId = project.ClassId,
+            ProjectId = project.ProjectId,
+            Purpose = purpose,
+            Status = BorrowRequestStatuses.Pending,
+            RequestDate = now,
+            DueDate = dueDate,
+            RoomId = lab.RoomId,
+        };
+        foreach (var line in lab.Lines)
+        {
+            borrowRequest.BorrowItems.Add(new BorrowItem
+            {
+                ComponentId = line.ComponentId,
+                Quantity = line.Quantity,
+                Status = BorrowItemStatuses.Pending,
+            });
         }
+        borrowRequest.BorrowApprovals.Add(new BorrowApproval
+        {
+            StepNo = 1,
+            ApproverRole = ApproverRoles.Lecturer,
+            ApproverId = lecturerId,
+            Status = BorrowApprovalStatuses.Pending,
+            CreatedAt = now,
+        });
+        return borrowRequest;
+    }
 
-        if (shortages.Count == 0)
-            return;
-
-        var roomCode = await _uow.Repository<LabRoom>().QueryNoTracking()
-            .Where(r => r.RoomId == roomId)
-            .Select(r => r.RoomCode)
-            .FirstAsync(ct);
-        throw new BadRequestException(
-            $"Lab {roomCode} không đủ linh kiện: {string.Join("; ", shortages)}. " +
-            "Các lab không chuyển đồ cho nhau, hãy giảm số lượng hoặc đưa món thiếu vào danh sách tự mua.");
+    /// <summary><paramref name="count"/> codes in a row, one per lab request.</summary>
+    private async Task<List<string>> GenerateRequestCodesAsync(DateTime now, int count, CancellationToken ct)
+    {
+        var first = await GenerateRequestCodeAsync(now, ct);
+        var prefix = first.Substring(0, first.Length - 3);
+        var number = int.Parse(first.Substring(prefix.Length));
+        var codes = new List<string>();
+        for (var i = 0; i < count; i++)
+            codes.Add($"{prefix}{number + i:D3}");
+        return codes;
     }
 
     /// <summary>PM-yyyyMMdd-nnn by Vietnam date: highest number of the day + 1.</summary>

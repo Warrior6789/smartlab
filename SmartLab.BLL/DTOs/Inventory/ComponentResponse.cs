@@ -45,4 +45,7 @@ public class ComponentResponse
 
     /// <summary>Last receipt entered for this component; only for users who manage stock receipts, null when never received.</summary>
     public ComponentLatestReceiptResponse? LatestReceipt { get; set; }
+
+    /// <summary>Codes of the labs that take in this component (lab_room_components); empty = no lab yet, cannot be received.</summary>
+    public IReadOnlyList<string> RoomCodes { get; set; } = Array.Empty<string>();
 }

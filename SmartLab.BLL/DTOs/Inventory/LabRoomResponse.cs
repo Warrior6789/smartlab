@@ -9,6 +9,9 @@ public class LabRoomResponse
     public int CabinetCount { get; set; }
     public int StaffCount { get; set; }
 
+    /// <summary>Components on the lab's list (lab_room_components).</summary>
+    public int ComponentCount { get; set; }
+
     /// <summary>The current user is assigned to this lab as Lab Staff.</summary>
     public bool IsMine { get; set; }
 

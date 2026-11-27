@@ -44,5 +44,11 @@ public class PendingApprovalProjectResponse
 
     public int ComponentCount { get; set; }
 
+    /// <summary>Pending lab requests of the same project (one per lab), this one included; above 1 = decide each one.</summary>
+    public int PendingRequestCount { get; set; }
+
+    /// <summary>Lab codes of those pending requests, sorted, e.g. "LAB-01, LAB-02".</summary>
+    public string? PendingRoomCodes { get; set; }
+
     public bool HasHighValue { get; set; }
 }

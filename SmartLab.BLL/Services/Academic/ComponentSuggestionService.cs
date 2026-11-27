@@ -12,10 +12,9 @@ namespace SmartLab.BLL.Services.Academic;
 
 /// <summary>
 /// The AI only says what the project needs. Whether the lab has it is always read from the database:
-/// unknown codes are dropped and stock never comes from the AI. A project borrows everything from one lab: the lab of
-/// its course when the class is known (see CourseRoom), otherwise the one with the most of what it needs (see BorrowRoom).
-/// The groups are split by that lab's stock: a catalog component that lab lacks goes to the self-supplied list, even
-/// when another lab has it. The AI only suggests; nothing is saved until the team saves the project.
+/// unknown codes are dropped and stock never comes from the AI. Each component is borrowed from a lab that keeps it, one
+/// request per lab (see LabSplit), and one component is never split across labs, so the groups are split by the most one
+/// lab can still lend. The AI only suggests; nothing is saved until the team saves the project.
 /// </summary>
 public class ComponentSuggestionService : IComponentSuggestionService
 {
@@ -38,16 +37,6 @@ public class ComponentSuggestionService : IComponentSuggestionService
     {
         var availableByRoom = await RoomStock.GetAvailableByRoomAsync(_uow, null, ct);
 
-        Guid? courseRoomId = null;
-        if (request.ClassId != null)
-        {
-            courseRoomId = await CourseRoom.GetForClassAsync(_uow, request.ClassId, ct);
-            availableByRoom = new Dictionary<Guid, Dictionary<Guid, int>>
-            {
-                [courseRoomId.Value] = availableByRoom.GetValueOrDefault(courseRoomId.Value) ?? new Dictionary<Guid, int>(),
-            };
-        }
-
         var catalog = await LoadCatalogAsync(availableByRoom, ct);
 
         var aiCatalog = catalog.Select(c => new AiCatalogItem
@@ -58,7 +47,7 @@ public class ComponentSuggestionService : IComponentSuggestionService
             Description = c.Description,
             Unit = c.Unit,
             Available = c.Available,
-        }).Where(c => courseRoomId == null || c.Available > 0).ToList();
+        }).Where(c => c.Available > 0).ToList();
 
         var advice = await _advisor.AdviseAsync(request.Description.Trim(), aiCatalog, ct);
 
@@ -97,24 +86,9 @@ public class ComponentSuggestionService : IComponentSuggestionService
             AddSelfSupplied(result, addedSelfSupplied, name, item.Quantity, item.Reason);
         }
 
-        var lines = picks.Select(p => (p.Row.ComponentId, p.Quantity)).ToList();
-        var roomId = courseRoomId;
-        if (roomId == null && lines.Count > 0)
-            roomId = await BorrowRoom.PickBestOrNullAsync(_uow, lines, availableByRoom, ct);
-
-        var labStock = new Dictionary<Guid, int>();
-        if (roomId != null)
-        {
-            labStock = availableByRoom.GetValueOrDefault(roomId.Value) ?? new Dictionary<Guid, int>();
-            result.Lab = await _uow.Repository<LabRoom>().QueryNoTracking()
-                .Where(r => r.RoomId == roomId.Value)
-                .Select(r => new SuggestedLabResponse { RoomId = r.RoomId, RoomCode = r.RoomCode, RoomName = r.RoomName })
-                .FirstAsync(ct);
-        }
-
         foreach (var pick in picks)
         {
-            var inLab = labStock.GetValueOrDefault(pick.Row.ComponentId);
+            var inLab = pick.Row.Available;
             if (inLab >= pick.Quantity)
                 result.Borrowable.Add(ToSuggestion(pick));
             else if (inLab > 0)

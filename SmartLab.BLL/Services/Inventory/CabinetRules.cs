@@ -46,9 +46,9 @@ internal static class CabinetRules
             .Select(st => st.Component.ShortCode ?? st.Component.ComponentCode)
             .FirstOrDefaultAsync(ct);
         if (stored != null)
-            throw new ConflictException($"Tủ đang chứa {stored} không thuộc loại {trackingType}, hãy chuyển sang tủ khác trước khi đổi loại tủ");
+            throw new ConflictException($"Tủ đang chứa {stored} không thuộc loại {ComponentTrackingTypes.Label(trackingType)}, hãy chuyển sang tủ khác trước khi đổi loại tủ");
     }
 
     public static string MisfitMessage(string componentCode, string componentType, string cabinetCode, string cabinetType)
-        => $"{componentCode} là loại {componentType}, không cất được vào tủ {cabinetCode} (dành cho {cabinetType})";
+        => $"{componentCode} là loại {ComponentTrackingTypes.Label(componentType)}, không cất được vào tủ {cabinetCode} (dành cho loại {ComponentTrackingTypes.Label(cabinetType)})";
 }

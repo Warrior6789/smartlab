@@ -18,7 +18,9 @@ public class CreateCabinetRequestValidator : AbstractValidator<CreateCabinetRequ
         RuleFor(x => x.Location)
             .MaximumLength(255).WithMessage("Vị trí tối đa 255 ký tự");
         RuleFor(x => x.TrackingType)
-            .Must(t => t == null || ComponentTrackingTypes.All.Contains(t))
+            .Cascade(CascadeMode.Stop)
+            .NotEmpty().WithMessage("Loại tủ là bắt buộc")
+            .Must(t => t != null && ComponentTrackingTypes.All.Contains(t))
             .WithMessage("Loại tủ phải là Tiêu hao, Tái sử dụng hoặc Giá trị cao");
     }
 }
