@@ -128,9 +128,10 @@ public class ProjectNotifier : IProjectNotifier
         var body =
             $"<p>Xin chào <b>{Encode(info.FullName)}</b>,</p>" +
             $"<p>{teamText}lớp <b>{Encode(info.ClassCode)}</b> vừa nộp bài cuối cho project <i>{Encode(info.Title)}</i>.</p>" +
-            "<p>Thầy/cô vào SmartLab, mục <b>Bài nộp chờ xác nhận</b> để xác nhận hoặc trả bài.</p>";
+            "<p>Thầy/cô vào SmartLab, mục <b>Duyệt nộp cuối kỳ</b> để xác nhận hoặc trả bài.</p>";
 
-        await SendAsync(info.UserId, info.Email, projectId, $"SmartLab - Bài nộp project {info.Title} chờ xác nhận", body);
+        await SendAsync(info.UserId, info.Email, projectId, $"SmartLab - Bài nộp project {info.Title} chờ xác nhận", body,
+            NotificationRefTypes.FinalSubmission);
     }
 
     public async Task FinalReviewedAsync(Guid projectId, CancellationToken ct = default)
@@ -172,12 +173,13 @@ public class ProjectNotifier : IProjectNotifier
             $"<p>Bài nộp cuối của project <i>{Encode(info.Title)}</i> {resultText}</p>" +
             commentText;
 
-        await SendAsync(info.UserId, info.Email, projectId, subject, body);
+        await SendAsync(info.UserId, info.Email, projectId, subject, body, NotificationRefTypes.FinalSubmission);
     }
 
-    private async Task SendAsync(Guid userId, string email, Guid projectId, string subject, string body)
+    private async Task SendAsync(
+        Guid userId, string email, Guid projectId, string subject, string body, string refType = NotificationRefTypes.Project)
     {
-        await _notifications.SendAsync(userId, subject, NotificationRefTypes.Project, projectId);
+        await _notifications.SendAsync(userId, subject, refType, projectId);
 
         try
         {

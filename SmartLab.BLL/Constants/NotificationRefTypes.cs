@@ -7,6 +7,9 @@ public static class NotificationRefTypes
     public const string BorrowApproval = "BorrowApproval";
     public const string BorrowExtension = "BorrowExtension";
     public const string Project = "Project";
+
+    /// <summary>A project's final submission (ref_id is the project id): opens the final review screen.</summary>
+    public const string FinalSubmission = "FinalSubmission";
     public const string Team = "Team";
 
     /// <summary>A class, e.g. its team formation deadline.</summary>
