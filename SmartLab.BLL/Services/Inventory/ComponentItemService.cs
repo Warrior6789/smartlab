@@ -126,10 +126,8 @@ public class ComponentItemService : IComponentItemService
         var toCabinetId = request.ToCabinetId ?? request.FromCabinetId;
         var toStatus = request.ToStatus ?? request.FromStatus;
 
-        var cabinetOnly = toStatus == request.FromStatus
-                          && request.FromStatus == ComponentItemStatuses.Available
-                          && !request.ReceiptId.HasValue;
-        await RoomStock.EnsureMayMoveAsync(_uow, _currentUser, request.FromCabinetId, toCabinetId, cabinetOnly, ct);
+        await RoomStock.EnsureMayMoveAsync(_uow, _currentUser, request.FromCabinetId, toCabinetId,
+            request.ReceiptId.HasValue, ct);
 
         if (!await _uow.Repository<StorageCabinet>().QueryNoTracking()
                 .AnyAsync(c => c.CabinetId == toCabinetId && c.Status == CabinetStatuses.Active, ct))
@@ -248,6 +246,7 @@ public class ComponentItemService : IComponentItemService
                        .Select(i => new { i.ComponentId, i.CabinetId, i.Status })
                        .FirstOrDefaultAsync(ct)
                    ?? throw new NotFoundException("Không tìm thấy linh kiện");
+        await RoomStock.EnsureLabHandsAsync(_uow, _currentUser, item.CabinetId, ct);
 
         if (item.Status == ComponentItemStatuses.Borrowed)
             throw new BadRequestException("Linh kiện đang được mượn, phải trả về trước khi loại khỏi kho");

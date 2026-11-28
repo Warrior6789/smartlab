@@ -62,7 +62,7 @@ public class ComponentItemsController : ControllerBase
     /// <summary>
     /// Chuyển tủ cho con Available, hoặc đưa con Lost tìm lại được trở lại kho (toStatus = Available). Con Retired đã ra khỏi hệ thống, dùng lại thì nhập phiếu mới. Gửi itemIds để chọn đúng con (vd 1 serial), hoặc quantity để hệ thống tự chọn con cũ nhất. Có thể kèm lý do và phiếu nhập đang sửa. Báo mất hoặc thanh lý dùng API retire.
     /// Chỉ chuyển giữa các tủ trong cùng một lab; sang lab khác bị chặn (400).
-    /// Lab Staff (BORROW_ISSUE) chỉ chuyển được con Available giữa các tủ của lab mình phụ trách; còn lại cần COMPONENT_MANAGE (403).
+    /// Chỉ nhân viên phụ trách lab chứa tủ (hoặc Admin) được chuyển / đưa về kho; quản lý kho chỉ chuyển khi sửa phiếu nhập (kèm receiptId), còn lại 403.
     /// </summary>
     [HttpPost("move")]
     [Authorize(Policy = PermissionCodes.ComponentView)]
@@ -78,10 +78,11 @@ public class ComponentItemsController : ControllerBase
 
     /// <summary>
     /// Loại đúng 1 con khỏi kho (Lost hoặc Retired), bắt buộc ghi lý do (lưu vào sổ kho). Con đang được mượn phải trả về trước.
+    /// Chỉ nhân viên phụ trách lab chứa tủ (hoặc Admin) được làm, quản lý kho thì không (403).
     /// Con đang được giữ chỗ cho đơn đã duyệt: không thanh lý (Retired) được (409); báo Lost vẫn được, kèm <c>reservationShortages</c>.
     /// </summary>
     [HttpPost("{id:guid}/retire")]
-    [Authorize(Policy = PermissionCodes.ComponentManage)]
+    [Authorize(Policy = PermissionCodes.ComponentView)]
     [ProducesResponseType(typeof(ApiResponse<RetireComponentItemResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]

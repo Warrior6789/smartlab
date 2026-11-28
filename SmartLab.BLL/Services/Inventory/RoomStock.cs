@@ -19,25 +19,39 @@ internal static class RoomStock
     /// Labs never pass goods to each other: a move stays inside one lab, whoever makes it. Lab staff may rearrange the cabinets of a lab
     /// they are assigned to, where <paramref name="cabinetOnly"/> means nothing but the cabinet changes. Anything wider needs COMPONENT_MANAGE.
     /// </summary>
+    /// <summary>
+    /// Only within one lab. A move that corrects a stock receipt being edited (<paramref name="forReceipt"/>) is the
+    /// inventory manager's; any other move is done by the lab's staff (see <see cref="EnsureLabHandsAsync"/>).
+    /// </summary>
     public static async Task EnsureMayMoveAsync(
-        IUnitOfWork uow, ICurrentUserService user, Guid fromCabinetId, Guid toCabinetId, bool cabinetOnly, CancellationToken ct)
+        IUnitOfWork uow, ICurrentUserService user, Guid fromCabinetId, Guid toCabinetId, bool forReceipt, CancellationToken ct)
     {
-        var sameRoom = await SameRoomAsync(uow, fromCabinetId, toCabinetId, ct);
-        if (user.HasPermission(PermissionCodes.ComponentManage))
-        {
-            if (!sameRoom)
-                throw new BadRequestException("Không được chuyển đồ sang lab khác, chỉ chuyển giữa các tủ trong cùng một lab");
-            return;
-        }
+        if (!await SameRoomAsync(uow, fromCabinetId, toCabinetId, ct))
+            throw new BadRequestException("Không được chuyển đồ sang lab khác, chỉ chuyển giữa các tủ trong cùng một lab");
 
-        if (!user.HasPermission(PermissionCodes.BorrowIssue) || !cabinetOnly || !sameRoom)
-            throw new ForbiddenException("Chỉ được chuyển hàng giữa các tủ trong cùng một lab");
+        if (forReceipt && user.HasPermission(PermissionCodes.StockReceiptManage))
+            return;
+
+        await EnsureLabHandsAsync(uow, user, fromCabinetId, ct);
+    }
+
+    /// <summary>
+    /// Moving, restoring and retiring units is done by the staff of the lab that holds the cabinet (or an Admin);
+    /// the inventory manager only receives stock, approves counts and looks.
+    /// </summary>
+    public static async Task EnsureLabHandsAsync(IUnitOfWork uow, ICurrentUserService user, Guid cabinetId, CancellationToken ct)
+    {
+        if (user.IsInRole(RoleNames.Admin))
+            return;
+
+        if (!user.HasPermission(PermissionCodes.BorrowIssue))
+            throw new ForbiddenException("Chỉ nhân viên phụ trách lab được chuyển, khôi phục hoặc thanh lý thiết bị trong tủ");
 
         var userId = user.UserId ?? throw new UnauthorizedException();
         var assigned = await uow.Repository<StorageCabinet>().QueryNoTracking()
-            .AnyAsync(c => c.CabinetId == fromCabinetId && c.Room.LabRoomStaffs.Any(s => s.UserId == userId), ct);
+            .AnyAsync(c => c.CabinetId == cabinetId && c.Room.LabRoomStaffs.Any(s => s.UserId == userId), ct);
         if (!assigned)
-            throw new ForbiddenException("Chỉ được chuyển hàng trong lab bạn phụ trách");
+            throw new ForbiddenException("Chỉ được thao tác với tủ trong lab bạn phụ trách");
     }
 
     /// <summary>Borrow request statuses whose lines hold stock (nothing handed over yet).</summary>
