@@ -850,8 +850,6 @@ public class ProjectService : IProjectService
         var project = await GetProjectForLeaderAsync(projectId, ct);
         if (project.Status != ProjectStatuses.Approved)
             throw new ConflictException("Chỉ nộp bài được khi project đã được duyệt");
-        if (project.GithubUrl == null || project.SlideUrl == null)
-            throw new BadRequestException("Cần nhập đủ link GitHub và slide trước khi nộp");
         if (project.ReportUrl == null)
             throw new BadRequestException("Cần tải file báo cáo PDF trước khi nộp");
         if (project.FinalStatus != null && project.FinalStatus != FinalSubmissionStatuses.Returned)
@@ -861,7 +859,6 @@ public class ProjectService : IProjectService
         var updated = await _uow.Repository<Project>().Query()
             .Where(p => p.ProjectId == projectId
                         && p.Status == ProjectStatuses.Approved
-                        && p.GithubUrl != null && p.SlideUrl != null
                         && p.ReportUrl != null
                         && (p.FinalStatus == null || p.FinalStatus == FinalSubmissionStatuses.Returned))
             .ExecuteUpdateAsync(s => s
