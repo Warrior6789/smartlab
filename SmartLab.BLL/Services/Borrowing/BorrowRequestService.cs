@@ -389,6 +389,7 @@ public class BorrowRequestService : IBorrowRequestService
             "Chỉ giao đồ cho đơn đã đủ hàng ở lab của đơn (Ready)", ct);
         var header = await GetHeaderAsync(borrowRequestId, ct);
         await EnsurePickupStaffAsync(header.RoomId, ct);
+        await EnsurePickupDayReachedAsync(borrowRequestId, now, ct);
 
         var photo = await _uow.Repository<BorrowHandoverPhoto>().Query()
                         .FirstOrDefaultAsync(p => p.PhotoId == request.PhotoId
@@ -1160,6 +1161,24 @@ public class BorrowRequestService : IBorrowRequestService
     }
 
     private sealed record RequestHeader(Guid RoomId, string RequestCode, string Status);
+
+    /// <summary>
+    /// Goods are handed over on the pickup day or later, never before. A student who comes early waits, or staff move
+    /// the pickup day to today first.
+    /// </summary>
+    private async Task EnsurePickupDayReachedAsync(Guid borrowRequestId, DateTime now, CancellationToken ct)
+    {
+        var pickupDate = await _uow.Repository<BorrowRequest>().QueryNoTracking()
+            .Where(r => r.BorrowRequestId == borrowRequestId)
+            .Select(r => r.BorrowDate)
+            .FirstAsync(ct);
+        if (pickupDate == null || now >= pickupDate.Value)
+            return;
+
+        throw new ConflictException(
+            $"Đơn hẹn nhận đồ ngày {VietnamDay.Text(pickupDate.Value)}, chưa giao được trước ngày hẹn. " +
+            "Nếu sinh viên đến sớm và lab giao được, hãy đổi ngày hẹn sang hôm nay rồi giao.");
+    }
 
     private Task<RequestHeader> GetHeaderAsync(Guid borrowRequestId, CancellationToken ct)
         => _uow.Repository<BorrowRequest>().QueryNoTracking()
