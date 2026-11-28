@@ -1176,8 +1176,7 @@ public class BorrowRequestService : IBorrowRequestService
             return;
 
         throw new ConflictException(
-            $"Đơn hẹn nhận đồ ngày {VietnamDay.Text(pickupDate.Value)}, chưa giao được trước ngày hẹn. " +
-            "Nếu sinh viên đến sớm và lab giao được, hãy đổi ngày hẹn sang hôm nay rồi giao.");
+            $"Chưa tới ngày hẹn nhận {VietnamDay.Text(pickupDate.Value)}");
     }
 
     private Task<RequestHeader> GetHeaderAsync(Guid borrowRequestId, CancellationToken ct)
