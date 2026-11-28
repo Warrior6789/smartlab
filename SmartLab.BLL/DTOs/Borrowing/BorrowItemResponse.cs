@@ -28,6 +28,9 @@ public class BorrowItemResponse
 
     public string? SerialNumber { get; set; }
 
+    /// <summary>Cabinet the unit came from; it goes back there on return. Null for consumables.</summary>
+    public string? CabinetCode { get; set; }
+
     public DateTime? IssuedAt { get; set; }
 
     public DateTime? ReturnedAt { get; set; }

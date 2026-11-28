@@ -178,6 +178,7 @@ public class BorrowRequestService : IBorrowRequestService
                                ComponentItemId = i.ComponentItemId,
                                ItemCode = i.ComponentItem != null ? i.ComponentItem.ItemCode : null,
                                SerialNumber = i.ComponentItem != null ? i.ComponentItem.SerialNumber : null,
+                               CabinetCode = i.ComponentItem != null ? i.ComponentItem.Cabinet.CabinetCode : null,
                                IssuedAt = i.IssuedAt,
                                ReturnedAt = i.ReturnedAt,
                                ReturnedQuantity = i.ReturnedQuantity,
