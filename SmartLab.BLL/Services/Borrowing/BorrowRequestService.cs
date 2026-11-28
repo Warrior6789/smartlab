@@ -585,8 +585,10 @@ public class BorrowRequestService : IBorrowRequestService
         var header = await GetHeaderAsync(borrowRequestId, ct);
         await EnsurePickupStaffAsync(header.RoomId, ct);
 
-        if (request.ReturnSlipId != null)
-            await EnsureApprovedSlipAsync(request.ReturnSlipId.Value, borrowRequestId, ct);
+        if (request.ReturnSlipId == null)
+            throw new BadRequestException("Chỉ nhận trả theo phiếu trả của sinh viên đã được lab duyệt");
+        await EnsureApprovedSlipAsync(request.ReturnSlipId.Value, borrowRequestId, ct);
+        await EnsureLinesOnSlipAsync(request.ReturnSlipId.Value, request.Lines.Select(l => l.BorrowItemId).ToList(), ct);
 
         var photoOk = await _uow.Repository<BorrowHandoverPhoto>().QueryNoTracking()
             .AnyAsync(p => p.PhotoId == request.PhotoId
@@ -742,8 +744,7 @@ public class BorrowRequestService : IBorrowRequestService
         }
 
         await SaveStockChangesAsync(ct);
-        if (request.ReturnSlipId != null)
-            await CompleteSlipsAsync(s => s.ReturnSlipId == request.ReturnSlipId, userId, now, ct);
+        await CompleteSlipsAsync(s => s.ReturnSlipId == request.ReturnSlipId, userId, now, ct);
         await CloseWhenAllBackAsync(borrowRequestId, now, ct);
 
         await tx.CommitAsync(ct);
@@ -1195,6 +1196,17 @@ public class BorrowRequestService : IBorrowRequestService
                      ?? throw new BadRequestException("Phiếu trả không thuộc đơn mượn này");
         if (status != ReturnSlipStatuses.Approved)
             throw new ConflictException("Chỉ nhận đồ theo phiếu trả đã duyệt");
+    }
+
+    /// <summary>Lab staff receive only the lines the student put on the slip.</summary>
+    private async Task EnsureLinesOnSlipAsync(Guid returnSlipId, List<Guid> borrowItemIds, CancellationToken ct)
+    {
+        var onSlip = await _uow.Repository<BorrowReturnSlipItem>().QueryNoTracking()
+            .Where(i => i.ReturnSlipId == returnSlipId)
+            .Select(i => i.BorrowItemId)
+            .ToListAsync(ct);
+        if (borrowItemIds.Any(id => !onSlip.Contains(id)))
+            throw new BadRequestException("Có món không nằm trong phiếu trả này");
     }
 
     /// <summary>
